@@ -5,13 +5,16 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
+import android.os.Build
+import io.github.valeronm.breadcrumb.domain.WifiLinks
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 /**
- * Any Wi-Fi network the phone was joined to going away. No network's name is read, which would
- * need the location grant, and nothing scans, so a network the phone never joined produces no loss.
+ * The phone's last joined Wi-Fi connection going away. No network's name is read, and a network the
+ * phone never joined produces no loss.
  *
- * Registered for as long as the recorder is armed: between losses it costs nothing.
+ * A callback arrives only when a connection changes.
  */
 class WifiWatch(
     private val context: Context,
@@ -25,14 +28,25 @@ class WifiWatch(
         if (callback != null) return
         val cm = connectivity ?: return
         val registered = object : ConnectivityManager.NetworkCallback() {
-            // Logged so a loss followed at once by a join reads as a switch between networks.
+            private val links = WifiLinks()
+
             override fun onAvailable(network: Network) {
-                DebugLog.i(TAG, "wifi joined")
+                links.onJoined("$network")
+                DebugLog.i(TAG, "wifi joined (net $network)")
+            }
+
+            // A roam between bands or access points of one network changes the frequency and loses nothing.
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                val mhz = frequencyOf(capabilities) ?: return
+                if (links.frequencyChanged("$network", mhz)) DebugLog.i(TAG, "wifi net $network on $mhz MHz")
             }
 
             override fun onLost(network: Network) {
-                DebugLog.i(TAG, "wifi lost")
-                onLost()
+                val lost = links.onLost("$network")
+                val mhz = lost.frequencyMhz?.let { ", $it MHz" }.orEmpty()
+                val still = if (lost.offWifi) "" else " — still on net ${lost.stillJoined.joinToString(", net ")}"
+                DebugLog.i(TAG, "wifi lost (net $network$mhz)$still")
+                if (lost.offWifi) onLost()
             }
         }
         val request = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build()
@@ -45,6 +59,11 @@ class WifiWatch(
     fun stop() {
         callback?.let { registered -> runCatching { connectivity?.unregisterNetworkCallback(registered) } }
         callback = null
+    }
+
+    private fun frequencyOf(capabilities: NetworkCapabilities): Int? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return (capabilities.transportInfo as? WifiInfo)?.frequency?.takeIf { it > 0 }
     }
 
     private companion object {

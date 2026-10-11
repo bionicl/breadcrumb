@@ -54,7 +54,8 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("probe_stop", r"departure probe stopped \((?P<n>\d+) position\(s\)\)$"),
     ("watch", r"departure watch: (?P<gap>\d+)m of (?P<bar>\d+)m \(margin (?P<margin>\d+)\) \(acc=(?P<acc>\d+)m"),
     ("motion_fired", r"motion trigger fired$"),
-    ("wifi_lost", r"wifi lost$"),
+    ("wifi_lost", r"wifi lost(?: \([^)]*\))?$"),
+    ("wifi_switch", r"wifi lost \([^)]*\) — still on net "),
     ("gave_up", r"no-fix guard: probe gave up(?P<nofix> with no fix at all)? — GPS off"),
     ("first_fix", r"no-fix guard: first fix after (?P<s>\d+)s$"),
     ("probing_again", r"no-fix guard: probing again \((?P<signal>\w+)\)$"),
@@ -81,6 +82,8 @@ TRIGGERS = ("fence exit", "departure probe")
 # What a probe departure's burst is credited to: a signal that started or extended it, else this.
 WATCH_START = "watch start"
 SIGNAL_LABEL = {"motion_fired": "motion", "wifi_lost": "wifi lost"}
+
+SIGNAL_NAME = {"motion_fired": "MOTION", "wifi_lost": "WIFI_LOST"}
 
 # A reading and the open it causes are logged by one dispatch.
 OPENER_MAX_S = 5
@@ -173,6 +176,7 @@ class Report:
         self.probe_durations, self.watch_n = [], 0
         self.probes_with_positions = self.probes_still = 0
         self.signals = collections.Counter()
+        self.wifi_switches = 0
         self.signal_outcomes = collections.defaultdict(collections.Counter)
         self.gave_up, self.retries = 0, collections.Counter()
         self.gps_inferred = False
@@ -300,6 +304,8 @@ class Report:
                 self.arrivals += 1
             elif k == "fence_exit":
                 self.fence_exits += 1
+            elif k == "wifi_switch":
+                self.wifi_switches += 1
             elif k == "fence_arm_from":
                 self.fence_sources[g["provider"]] += 1
                 if g["acc"] and g["acc"].rstrip("m").isdigit():
@@ -322,13 +328,16 @@ class Report:
                 if probe_start is not None:
                     probe_gaps.append(int(g["gap"]))
             elif k in SIGNAL_LABEL:
-                if probe_start is not None:
+                ahead = events[i + 1:i + 4]
+                # A restart stops the probe the signal arrived into.
+                if any(x.kind == "probing_again" and x.g["signal"] == SIGNAL_NAME[k] for x in ahead):
+                    outcome = "restarted GPS after a give-up"
+                elif probe_start is not None:
                     outcome = "extended a running probe"
+                elif any(x.kind == "probe_start" for x in ahead):
+                    outcome = "started a departure probe"
                 else:
-                    ahead = [x.kind for x in events[i + 1:i + 4]]
-                    outcome = ("started a departure probe" if "probe_start" in ahead
-                               else "restarted GPS after a give-up" if "probing_again" in ahead
-                               else "nothing")
+                    outcome = "nothing"
                 if "probe" in outcome:
                     burst_bought_by = SIGNAL_LABEL[k]
                 self.signals[k] += 1
@@ -500,6 +509,8 @@ def report(r, daily):
         if n or kind == "motion_fired":
             print(f"  {what} {n}× ({r.per_day(n):.0f}/day): " +
                   ", ".join(f"{o} {c}" for o, c in r.signal_outcomes[kind].most_common()))
+    if r.wifi_switches:
+        print(f"  Wi-Fi connections lost with another still joined, which triggers nothing: {r.wifi_switches}")
     if r.fence_sources:
         accs = f", median arming accuracy {pct(sorted(r.fence_accs), .5)} m" if r.fence_accs else ""
         print("  fence armed from last known: " + ", ".join(f"{p} {n}" for p, n in r.fence_sources.items()) + accs)
