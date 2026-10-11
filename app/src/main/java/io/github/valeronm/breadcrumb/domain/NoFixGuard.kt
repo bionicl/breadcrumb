@@ -21,6 +21,7 @@ class NoFixGuard(
         private set
 
     private var probeStartedMs = 0L
+    private var firstFixWaitFromMs = 0L
     private var lastAcceptedMs = 0L
     private var fixSinceProbe = false
     private var failedProbes = 0
@@ -29,6 +30,7 @@ class NoFixGuard(
     /** A GPS request just started — a new stretch of movement, or a retry probe. */
     fun onProbeStarted(nowMs: Long) {
         probeStartedMs = nowMs
+        firstFixWaitFromMs = nowMs
         lastAcceptedMs = 0L
         fixSinceProbe = false
         suspended = false
@@ -69,6 +71,7 @@ class NoFixGuard(
      *
      * **Until the probe's first fix the window is [firstFixWaitMs]** when that is positive: a fix of
      * any kind ends it, since even one the accuracy gate rejects proves the sky is visible.
+     * The wait never outlasts [giveUpMs] counted from the probe's start.
      */
     fun shouldGiveUp(
         nowMs: Long,
@@ -76,11 +79,19 @@ class NoFixGuard(
         motion: Motion = Motion.Unknown,
         firstFixWaitMs: Long = 0L,
     ): Boolean {
-        val windowMs = if (!fixSinceProbe && firstFixWaitMs > 0) minOf(firstFixWaitMs, giveUpMs) else giveUpMs
+        val firstFixWaitOver =
+            !fixSinceProbe && firstFixWaitMs > 0 && nowMs - firstFixWaitFromMs >= firstFixWaitMs
         return giveUpMs > 0 &&
             !suspended &&
             motion !is Motion.Moving &&
-            nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= windowMs
+            (firstFixWaitOver || nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= giveUpMs)
+    }
+
+    /** False when no wait for a first fix is running. */
+    fun restartFirstFixWait(nowMs: Long, firstFixWaitMs: Long): Boolean {
+        if (firstFixWaitMs <= 0 || suspended || fixSinceProbe) return false
+        firstFixWaitFromMs = nowMs
+        return true
     }
 
     /** Record the failed probe and suspend. Returns how long motion-triggered retries are gated. */

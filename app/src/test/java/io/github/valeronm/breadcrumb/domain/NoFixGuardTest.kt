@@ -203,6 +203,50 @@ class NoFixGuardTest {
         assertTrue(probing().shouldGiveUp(30_000, 30_000, firstFixWaitMs = wait))
     }
 
+    @Test fun `a restarted first-fix wait runs from the restart`() {
+        val g = probing()
+        assertTrue(g.restartFirstFixWait(50_000, wait))
+        assertFalse(g.shouldGiveUp(50_000 + wait - 1, GIVE_UP_MS, firstFixWaitMs = wait))
+        assertTrue(g.shouldGiveUp(50_000 + wait, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
+    @Test fun `a restarted first-fix wait never outlasts the window`() {
+        val g = probing()
+        g.restartFirstFixWait(GIVE_UP_MS - 1, wait)
+        assertTrue(g.shouldGiveUp(GIVE_UP_MS, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
+    @Test fun `a restart leaves the first fix timed from the probe's start`() {
+        val g = probing()
+        g.restartFirstFixWait(50_000, wait)
+        assertEquals(70_000L, g.onFixReceived(70_000))
+    }
+
+    @Test fun `a probe with no first-fix wait has none to restart`() {
+        assertFalse(probing().restartFirstFixWait(50_000, 0))
+    }
+
+    @Test fun `a fix leaves no first-fix wait to restart`() {
+        val g = probing()
+        g.onFixReceived(10_000)
+        assertFalse(g.restartFirstFixWait(50_000, wait))
+    }
+
+    @Test fun `a suspended probe has no first-fix wait to restart`() {
+        val g = probing()
+        g.onGaveUp(wait)
+        assertFalse(g.restartFirstFixWait(wait + 1, wait))
+    }
+
+    @Test fun `a new probe's first-fix wait runs from its own start`() {
+        val g = probing()
+        g.restartFirstFixWait(50_000, wait)
+        g.onGaveUp(50_000 + wait)
+        g.onProbeStarted(500_000)
+        assertFalse(g.shouldGiveUp(500_000 + wait - 1, GIVE_UP_MS, firstFixWaitMs = wait))
+        assertTrue(g.shouldGiveUp(500_000 + wait, GIVE_UP_MS, firstFixWaitMs = wait))
+    }
+
     @Test fun `moving ground vetoes the first-fix wait`() {
         assertFalse(probing().shouldGiveUp(wait, GIVE_UP_MS, Motion.Moving(Speed.mps(6.0)), wait))
     }

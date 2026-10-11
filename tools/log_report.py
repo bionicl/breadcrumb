@@ -59,6 +59,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("gave_up", r"no-fix guard: probe gave up(?P<nofix> with no fix at all)? — GPS off"),
     ("first_fix", r"no-fix guard: first fix after (?P<s>\d+)s$"),
     ("probing_again", r"no-fix guard: probing again \((?P<signal>\w+)\)$"),
+    ("wait_restarted", r"no-fix guard: waiting again for a first fix \((?P<signal>\w+)\)$"),
     ("gps_start", r"location updates started$"),
     ("gps_stop", r"location updates stopped$"),
     ("drop", r"fix dropped — no recent GNSS backing \(acc=(?P<acc>[\d.]+|null)\)$"),
@@ -187,6 +188,7 @@ class Report:
         self.resumes_on_logging_builds = collections.Counter()
         self.closed_while_given_up = 0
         self.first_fixes, self.unfixed_stretches = [], 0
+        self.waits_restarted = self.waits_restarted_fixed = 0
         self.drops, self.holds = [], []
         self._run(events)
         self.days = max(1, len(self.daily))
@@ -198,6 +200,7 @@ class Report:
         burst_bought_by = WATCH_START
         given_up = resume_cause = resumed_by = None
         stretch_fixed = True
+        wait_restarted = False
         # A log spans installs from before and after a line was added. A build whose every GPS start
         # found nothing never logs "first fix after", and reads as a build that predates it.
         build_kinds, build = collections.defaultdict(set), None
@@ -359,9 +362,14 @@ class Report:
             elif k == "probing_again":
                 self.retries[g["signal"]] += 1
                 resume_cause = {"MOTION": "motion retry", "PASSIVE_FIX": "passive fix", "WIFI_LOST": "wifi lost"}.get(g["signal"], g["signal"])
+            elif k == "wait_restarted":
+                self.waits_restarted += not wait_restarted
+                wait_restarted = True
             elif k == "first_fix":
                 self.first_fixes.append(int(g["s"]))
                 stretch_fixed = True
+                if wait_restarted:
+                    self.waits_restarted_fixed += 1
                 if resumed_by:
                     self.resumed_with_fix[resumed_by] += 1
                     resumed_by = None
@@ -369,6 +377,7 @@ class Report:
                 gps_close(e.dt)
                 gps_on = (e.dt, cur)
                 stretch_fixed, resumed_by = False, None
+                wait_restarted = False
                 if given_up is not None:
                     # Nothing logged a signal, so what brought GPS back was a reading.
                     resumed_by = resume_cause or "activity reading"
@@ -535,6 +544,9 @@ def report(r, daily):
                   f"max {ff[-1]}s; " + ", ".join(f"≤{b}s {sum(x <= b for x in ff) / len(ff) * 100:.0f}%"
                                                for b in (15, 30, 60, 90)) +
                   f"; stretches that stopped with no fix {r.unfixed_stretches}")
+        if r.waits_restarted:
+            print(f"  GPS stretches whose wait for a first fix a signal restarted: {r.waits_restarted}, "
+                  f"then got a fix {r.waits_restarted_fixed}")
         rows = []
         for cause, waits in sorted(r.resumes.items(), key=lambda kv: -len(kv[1])):
             w = sorted(waits)

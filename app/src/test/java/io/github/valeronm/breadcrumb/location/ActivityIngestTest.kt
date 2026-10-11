@@ -492,6 +492,56 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertTrue(core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + GIVE_UP_MS + 1, off).isEmpty())
     }
 
+    @Test fun `a lost Wi-Fi network restarts a walk's wait for its first fix`() {
+        givenWalkAwaitingFirstFix()
+        val lostAt = 50_000L
+
+        val out = core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + lostAt, settings)
+
+        assertTrue(out.isEmpty())
+        assertTrue(core.firstFixWaitRestarted)
+        val waited = lostAt + NoFixGuard.FIRST_FIX_WAIT_MS
+        assertTrue(core.onGnssTick(T0 + waited - 1, E0 + waited - 1, GIVE_UP_MS, settings).isEmpty())
+        assertTrue(Effect.StopGps in core.onGnssTick(T0 + waited, E0 + waited, GIVE_UP_MS, settings))
+    }
+
+    @Test fun `a lost Wi-Fi network restarts no wait when that trigger is switched off`() {
+        givenWalkAwaitingFirstFix()
+        val off = settings.copy(triggers = settings.triggers.copy(wifi = false))
+
+        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + 50_000, off)
+
+        assertFalse(core.firstFixWaitRestarted)
+        val waited = NoFixGuard.FIRST_FIX_WAIT_MS
+        assertTrue(Effect.StopGps in core.onGnssTick(T0 + waited, E0 + waited, GIVE_UP_MS, settings))
+    }
+
+    @Test fun `a lost Wi-Fi network restarts no wait on a drive`() {
+        reading(ActivityType.DRIVING, T0)
+        core.onProbeStarted(E0)
+
+        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + 50_000, settings)
+
+        assertFalse(core.firstFixWaitRestarted)
+    }
+
+    @Test fun `motion restarts no wait for a first fix`() {
+        givenWalkAwaitingFirstFix()
+
+        core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + 50_000, settings)
+
+        assertFalse(core.firstFixWaitRestarted)
+    }
+
+    @Test fun `a later signal clears the restart it did not make`() {
+        givenWalkAwaitingFirstFix()
+        core.onResumeSignal(ResumeSignals.Signal.WIFI_LOST, E0 + 50_000, settings)
+
+        core.onResumeSignal(ResumeSignals.Signal.MOTION, E0 + 51_000, settings)
+
+        assertFalse(core.firstFixWaitRestarted)
+    }
+
     @Test fun `a probe resuming a suspended track opens a new segment`() {
         givenGpsSuspended()
 
@@ -518,6 +568,11 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     /** A resume: GPS back on, and the watch over the give-up spot torn down with it. */
     private val resumed = listOf(Effect.EnsureGps, Effect.DisarmDepartureFence, Effect.StopDepartureProbe, Effect.Publish)
+
+    private fun givenWalkAwaitingFirstFix() {
+        reading(ActivityType.WALKING, T0)
+        core.onProbeStarted(E0)
+    }
 
     /** A walk whose probe ran its window with nothing accepted, so GPS is off and waiting. */
     private fun givenGpsSuspended() {

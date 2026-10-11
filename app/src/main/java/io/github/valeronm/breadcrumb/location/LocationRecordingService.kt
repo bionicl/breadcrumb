@@ -722,6 +722,7 @@ class LocationRecordingService : Service() {
             // The departure branch needs no line of its own: the firing is logged where it is
             // registered, and the probe logs the burst it starts.
             if (Effect.EnsureGps in effects) DebugLog.i(TAG, "no-fix guard: probing again ($signal)")
+            if (core.firstFixWaitRestarted) DebugLog.i(TAG, "no-fix guard: waiting again for a first fix ($signal)")
             dispatch(effects)
         }
     }

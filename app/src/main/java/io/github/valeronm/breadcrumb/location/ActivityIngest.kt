@@ -114,6 +114,10 @@ class ActivityIngest(
     var closedAtGiveUp: Boolean = false
         private set
 
+    /** Whether the last [onResumeSignal] restarted the open track's wait for its first fix. */
+    var firstFixWaitRestarted: Boolean = false
+        private set
+
     /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
     fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
 
@@ -342,27 +346,29 @@ class ActivityIngest(
     }
 
     /**
-     * A cheap signal says conditions may have changed, which means one of two unrelated things
-     * depending on why GPS is off.
+     * What a cheap signal means depends on what GPS is doing.
      *
      * **GPS off for want of a fix**: this is the no-fix guard's resume. What each signal is worth is
      * decided here rather than where it is registered — a passive fix is the platform having
      * produced one somewhere, so it stands on its own evidence and ignores the backoff, while motion
      * merely suggests the phone has gone somewhere: inside the backoff it buys a burst to find out,
-     * and only past it does it retry GPS blind.
+     * and only past it does it retry GPS blind. A lost Wi-Fi network ignores the backoff too: pacing
+     * indoors keeps the network.
+     *
+     * **GPS on and still searching for a track's first fix**: a lost Wi-Fi network restarts that
+     * wait, as after a give-up it starts one. No other signal is registered while GPS is on.
      *
      * **GPS off for want of a journey**: motion is the cheapest hint a departure may be under way,
      * and buys a short burst of coarse positions to settle it. This is the whole economy of the
      * motion trigger — a hardware sensor costs nothing until the phone actually moves, so the
      * request that costs something is only ever built when there is something to ask about.
-     *
-     * **A lost Wi-Fi network** ignores the backoff: pacing indoors keeps the network.
      */
     fun onResumeSignal(
         signal: ResumeSignals.Signal,
         elapsedMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
+        firstFixWaitRestarted = false
         if (signal == ResumeSignals.Signal.WIFI_LOST && !settings.triggers.wifi) return emptyList()
         if (noFixGuard.suspended) {
             val respectBackoff = when (signal) {
@@ -378,13 +384,17 @@ class ActivityIngest(
             }
             return resumed()
         }
+        // A running track already has the ground under continuous observation at a resolution a
+        // burst could not improve on.
+        if (recording) {
+            if (signal == ResumeSignals.Signal.WIFI_LOST) {
+                firstFixWaitRestarted = noFixGuard.restartFirstFixWait(elapsedMs, firstFixWaitMs)
+            }
+            return emptyList()
+        }
         val triggers = settings.triggers
-        // Two states where a burst would buy nothing. A running track already has the ground under
-        // continuous observation at a resolution this could not improve on — and so, more cheaply,
-        // does the standing request: positions are already arriving, so the only thing a burst could
-        // add is a faster cadence, at the price of the two requests being one object with one window
-        // between them.
-        if (triggers.continuous || recording) return emptyList()
+        // The standing request already has positions arriving, and a burst would replace it.
+        if (triggers.continuous) return emptyList()
         return when (signal) {
             ResumeSignals.Signal.MOTION -> if (triggers.motion) motionBurst() else emptyList()
             ResumeSignals.Signal.WIFI_LOST -> ArrayList<Effect>().also(::signalBurst)
