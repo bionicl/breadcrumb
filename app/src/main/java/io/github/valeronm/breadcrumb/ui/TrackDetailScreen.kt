@@ -83,6 +83,7 @@ import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
+import kotlin.math.floor
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
 @Composable
@@ -533,6 +534,8 @@ internal fun metricGraphData(
     return MetricGraphData(seams.points, coloring)
 }
 
+private const val PLOT_RANGE_ALPHA = 0.35f
+
 /**
  * The metric polyline alone, rasterized once per (graph, size) into a bitmap blitted per frame:
  * the cursor overlay invalidates every frame, and thousands of drawLine ops each lag long-track
@@ -555,19 +558,34 @@ private fun MetricPlot(
             val bitmap = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
             CanvasDrawScope().draw(this, layoutDirection, ComposeCanvas(bitmap), size) {
                 val h = size.height - 2 * padPx
-                var prev: Offset? = null
-                for (i in graph.points.indices) {
-                    val v = graph.values[i]
-                    if (v == null) {
-                        prev = null
-                        continue
-                    }
-                    if (graph.points[i].segmentStart) prev = null
-                    val x = (graph.points[i].timestamp - t0) / tSpan * size.width
-                    val y = padPx + h - ((v - minV) / span) * h
-                    val current = Offset(x, y)
-                    prev?.let { drawLine(Color(graph.colors[i]), it, current, strokeWidth = strokePx) }
-                    prev = current
+                fun yOf(value: Float) = padPx + h - ((value - minV) / span) * h
+                val columns = plotColumns(
+                    graph.values,
+                    xOf = { (graph.points[it].timestamp - t0) / tSpan * size.width },
+                    breaksBefore = { graph.points[it].segmentStart },
+                )
+                // The axis labels and the scrub readout state raw values, which a line through the
+                // means alone never reaches.
+                for (column in columns) {
+                    if (column.max == column.min) continue
+                    val x = floor(column.x) + 0.5f
+                    drawLine(
+                        Color(graph.colors[column.nearestMean]).copy(alpha = PLOT_RANGE_ALPHA),
+                        Offset(x, yOf(column.max)),
+                        Offset(x, yOf(column.min)),
+                        strokeWidth = 1f,
+                    )
+                }
+                fun at(column: PlotColumn) = Offset(column.x, yOf(column.mean))
+                for (k in 1 until columns.size) {
+                    val column = columns[k]
+                    if (column.startsSegment) continue
+                    drawLine(
+                        Color(graph.colors[column.nearestMean]),
+                        at(columns[k - 1]),
+                        at(column),
+                        strokeWidth = strokePx,
+                    )
                 }
             }
             onDrawBehind { drawImage(bitmap) }
@@ -616,8 +634,8 @@ private fun CutOffer(reading: AnnotatedString, canCut: Boolean, onCut: () -> Uni
 }
 
 /**
- * The selected color metric over the track's time span, stroked point-to-point in the map line's
- * colors, with a time axis; missing values and segment starts break the line. Tap/drag picks the
+ * The selected color metric over the track's time span, stroked in the map line's colors one pixel
+ * column at a time, with a time axis; missing values and segment starts break the line. Tap/drag picks the
  * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
  * the same point on the map.
  */
