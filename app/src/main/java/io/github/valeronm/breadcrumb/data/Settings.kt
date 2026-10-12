@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.content.edit
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
@@ -280,6 +281,17 @@ object Settings {
 
     fun setDepartureWifi(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_DEPARTURE_WIFI, enabled) }
+    }
+
+    /** Runs [onChange] on each write of the Wi-Fi switch until the returned handle is closed. */
+    fun observeDepartureWifi(context: Context, onChange: () -> Unit): AutoCloseable {
+        val prefs = prefs(context)
+        // SharedPreferences holds its listeners weakly.
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_DEPARTURE_WIFI) onChange()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return AutoCloseable { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
     // --- Privacy -------------------------------------------------------------

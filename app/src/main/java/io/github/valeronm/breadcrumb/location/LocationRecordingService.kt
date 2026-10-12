@@ -75,6 +75,7 @@ class LocationRecordingService : Service() {
     private val departureFence = DepartureFence(this)
     private val departureProbe = DepartureProbe(this, ::onProbePosition)
     private val wifiWatch = WifiWatch(this) { onResumeSignal(ResumeSignals.Signal.WIFI_LOST) }
+    private var wifiSwitch: AutoCloseable? = null
 
     // Held rather than rebuilt per post: the shade is re-worded once per fix batch for the length of
     // a drive. It caches no text — every accessor reads the resource table again — so a language
@@ -206,7 +207,7 @@ class LocationRecordingService : Service() {
             return
         }
         watchdogAlarm.schedule()
-        wifiWatch.start()
+        followWifiSwitch()
         TrackingStatus.update { it.copy(tracking = true) }
 
         // Start armed but idle — recording begins when a moving activity transition arrives.
@@ -256,6 +257,22 @@ class LocationRecordingService : Service() {
         }
     }.await()
 
+    /** With the Wi-Fi departure switch off the app watches no Wi-Fi connection at all. */
+    private fun followWifiSwitch() {
+        if (wifiSwitch == null) wifiSwitch = Settings.observeDepartureWifi(this, ::syncWifiWatch)
+        syncWifiWatch()
+    }
+
+    private fun syncWifiWatch() {
+        if (Settings.departureWifi(this)) wifiWatch.start() else wifiWatch.stop()
+    }
+
+    private fun stopWifiWatch() {
+        wifiSwitch?.close()
+        wifiSwitch = null
+        wifiWatch.stop()
+    }
+
     /** The clean end of a start that cannot be satisfied: nothing to tear down yet, so no [handleStop]. */
     private fun disarmAndStop() {
         armed = false
@@ -267,7 +284,7 @@ class LocationRecordingService : Service() {
         armed = false
         DebugLog.i(TAG, "handleStop: disarming")
         watchdogAlarm.cancel()
-        wifiWatch.stop()
+        stopWifiWatch()
         activityManager.stop()
         // The session this stop ends. A re-arm before the coroutine below runs starts another, and
         // this stop must then do nothing: its teardown would reset a core that arm just set up, and
@@ -605,10 +622,11 @@ class LocationRecordingService : Service() {
         checkParkedReading()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
             // Request-only, deliberately not restart(): a plain request refreshes a healthy
-            // registration in place and replays the latest transition, which feeds the stale-reading
-            // oracle. A restart tears the registration down and rebuilds it on the other request
-            // code — too disruptive to run every tick against a registration that is probably fine.
-            // Restarts happen only at arm and when the oracle proves it deaf.
+            // registration in place and replays the latest transition while Play Services still
+            // holds one, which feeds the stale-reading oracle. A restart tears the registration
+            // down and rebuilds it on the other request code — too disruptive to run every tick
+            // against a registration that is probably fine. Restarts happen only at arm and when
+            // the oracle proves it deaf.
             activityManager.start().addOnCompleteListener { onDone?.invoke() }
         } else {
             onDone?.invoke()
@@ -933,7 +951,7 @@ class LocationRecordingService : Service() {
 
     override fun onDestroy() {
         stopLocationUpdates()
-        wifiWatch.stop()
+        stopWifiWatch()
         // Unlike the fence, which the system holds and which is meant to outlive this process, the
         // probe is a live request owned by it — one left behind delivers to a callback whose service
         // is gone.
