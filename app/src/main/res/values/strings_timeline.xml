@@ -47,7 +47,6 @@
     <string name="timeline_map_next_day">Next day</string>
     <string name="timeline_map_empty_day">Nothing recorded on this day</string>
     <!-- What tapping a day header's date does, read aloud. -->
-    <string name="timeline_day_on_map">Show on map</string>
 
     <!-- Row actions, read aloud -->
     <!-- Where in a journey the reader has scrolled to; follows the journey's name on its band. -->

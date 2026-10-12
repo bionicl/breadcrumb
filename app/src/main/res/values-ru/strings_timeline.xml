@@ -43,7 +43,6 @@
     <string name="timeline_map_prev_day">Предыдущий день</string>
     <string name="timeline_map_next_day">Следующий день</string>
     <string name="timeline_map_empty_day">В этот день ничего не записано</string>
-    <string name="timeline_day_on_map">Показать на карте</string>
 
     <string name="timeline_away_day">День %1$d</string>
     <string name="timeline_share_day">Поделиться маршрутами за %1$s</string>

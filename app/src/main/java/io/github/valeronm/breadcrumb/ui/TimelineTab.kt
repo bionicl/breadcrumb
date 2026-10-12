@@ -223,19 +223,17 @@ internal fun TimelineTab(
         onDispose { viewedDay.read = { null } }
     }
 
-    // Every route onto the map pins the shared day first; [day] is where the map opens, already
-    // known to be what the list was showing wherever the route knew it.
-    val openMap = { day: LocalDate ->
-        mapDay = day
-        mapOpenedOn = day
-        page = TimelinePage.MAP
-    }
     val switchTo = { selected: TimelinePage ->
         when (selected) {
             // Read before the switch composes anything: the reader answers for the list only
             // while it is on screen. Falls back to the map's last day when the list cannot
             // say (it is what the map held, which is as synced as the tab can be).
-            TimelinePage.MAP -> openMap(listViewedDay.read() ?: mapDay)
+            TimelinePage.MAP -> {
+                val day = listViewedDay.read() ?: mapDay
+                mapDay = day
+                mapOpenedOn = day
+                page = TimelinePage.MAP
+            }
             TimelinePage.LIST -> {
                 if (mapDay != mapOpenedOn) mapDayTarget = mapDay
                 page = TimelinePage.LIST
@@ -303,7 +301,6 @@ internal fun TimelineTab(
                     onAddTrip = onAddTrip,
                     onReplay = onReplay,
                     onOpenRecording = onOpenRecording,
-                    onOpenDayMap = openMap,
                     awayDays = awayDays,
                 )
             }
@@ -338,7 +335,6 @@ private fun TimelineListPage(
     onReplay: (TrackSummary) -> Unit,
     onOpenRecording: () -> Unit,
     /** Open the map page on this day — a day header's date is the way in from here. */
-    onOpenDayMap: (LocalDate) -> Unit,
     /** Which days sit inside a journey — the tab derives it once for both views. */
     awayDays: Map<LocalDate, AwayDay>,
 ) {
@@ -388,11 +384,11 @@ private fun TimelineListPage(
             delay(1800.milliseconds)
             highlightKey = null
         }
-    val homeScroll = rememberCoroutineScope()
     }
     // The request pending from elsewhere, answered against the rows as grouped — a landing needs
     // the anchors, so this re-runs when they change and the request is consumed once it has been
     // put on screen.
+    val homeScroll = rememberCoroutineScope()
     LaunchedEffect(jump, groups) {
         when (jump) {
             null -> return@LaunchedEffect
@@ -491,7 +487,6 @@ private fun TimelineListPage(
                             dayItems = dayItems,
                             away = away,
                             onOpenJourney = onOpenJourney,
-                            onOpenMap = { onOpenDayMap(group.date) },
                         ) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
@@ -766,8 +761,6 @@ private fun ColumnScope.DayHeader(
     dayItems: List<TimelineItem>,
     away: AwayDay?,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
-    /** Open the map page on this header's day — the date itself is the tap target. */
-    onOpenMap: () -> Unit,
     onShare: () -> Unit,
 ) {
     away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
@@ -784,10 +777,6 @@ private fun ColumnScope.DayHeader(
                 label,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable(
-                    onClickLabel = stringResource(R.string.timeline_day_on_map),
-                    onClick = onOpenMap,
-                ),
             )
             // Same size as the date it continues, the tint alone telling the two apart.
             away?.let { AwayDayMarker(it, MaterialTheme.typography.titleSmall) }
