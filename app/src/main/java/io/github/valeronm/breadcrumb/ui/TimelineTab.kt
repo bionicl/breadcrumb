@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -94,6 +95,7 @@ import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
@@ -386,6 +388,7 @@ private fun TimelineListPage(
             delay(1800.milliseconds)
             highlightKey = null
         }
+    val homeScroll = rememberCoroutineScope()
     }
     // The request pending from elsewhere, answered against the rows as grouped — a landing needs
     // the anchors, so this re-runs when they change and the request is consumed once it has been
@@ -395,12 +398,13 @@ private fun TimelineListPage(
             null -> return@LaunchedEffect
             // Consumed as the scroll starts, not as it ends: the animation suspends, and a tab
             // switch cancelling it mid-way would otherwise leave the request pending to replay on
-            // the way back, over the reading position it restores. animateScrollToItem jumps most
+            // the way back, over the reading position it restores. Consuming it restarts this
+            // effect, so the scroll runs in a scope of its own. animateScrollToItem jumps most
             // of the way and animates the last stretch, so this reads as a fast return from
             // anywhere in a multi-thousand-row history rather than a long fling.
             TimelineJump.Home -> {
                 onJumpShown()
-                listState.animateScrollToItem(0)
+                homeScroll.launch { listState.animateScrollToItem(0) }
                 return@LaunchedEffect
             }
             // Multi-day stays are sliced per day here, but the first slice keeps the stay's
