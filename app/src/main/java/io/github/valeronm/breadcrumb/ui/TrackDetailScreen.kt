@@ -378,6 +378,27 @@ internal fun TrackDetailScreen(
             title = { Text(stringResource(R.string.track_type_dialog_title)) },
             text = {
                 Column {
+                    val suggestedType = summary.engineSuggestedActivityType?.let(ActivityType::ofName)
+                    val suggestionConfidence = summary.engineSuggestionConfidence
+                    val acceptableSuggestion = suggestedType?.takeIf { candidate ->
+                        !summary.activityConfirmedByUser && suggestionConfidence != null && candidate != activity
+                    }
+                    if (acceptableSuggestion != null && suggestionConfidence != null) {
+                        TextButton(
+                            onClick = {
+                                viewModel.setTrackActivity(trackId, acceptableSuggestion)
+                                showTypeDialog = false
+                            },
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.track_accept_engine_suggestion,
+                                    activityLabel(context, acceptableSuggestion.name),
+                                    (suggestionConfidence * 100).toInt(),
+                                ),
+                            )
+                        }
+                    }
                     // Selecting applies immediately: the summary flow re-emits and the title,
                     // icon, colors and speed scale all follow — and so does the drawn path, on a
                     // choice that re-derives the overrun (see the point load above).
