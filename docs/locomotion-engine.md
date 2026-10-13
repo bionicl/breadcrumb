@@ -49,3 +49,16 @@ Each feature lands in a small local commit with its focused verification. The fu
 ## Licensing
 
 LocoKit2 is distributed under MPL-2.0. This first architecture document and the new Kotlin contracts are original descriptions and definitions, not copied source files. Any future code adapted from LocoKit2 must retain its upstream attribution and applicable MPL notices in the corresponding source file; changes to MPL-covered files must be distributed under MPL-2.0. The surrounding Breadcrumb application remains under its existing license. See [Mozilla's MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/) for file-level distribution guidance.
+
+## Progress — 2026-10-13
+
+Implemented and verified in the current branch:
+
+- A pure-Kotlin module with observation contracts, a local-ENU Kalman filter, bounded sensor windows, time-confirmed movement/stationary decisions, directional place-drift profiles, and a deterministic observation pipeline.
+- A live Android adapter for linear acceleration, gravity and available step sensors. The recording service now sends GPS, coarse Activity Recognition and sensor-window observations through the new pipeline, stores them locally, and publishes coordinate-free decisions to **Settings → Engine diagnostics**. The legacy ingest still owns track creation and remains the active recorder.
+- A pure capture policy and a bounded 60-second departure prebuffer. These are not yet driving the Android resource requests or departure lifecycle.
+- Timeline segment materialization for movement, visits and long data gaps, plus pure correction replay that preserves confirmed labels, locked boundaries, deletion and undo. These segments are not yet bridged into the existing history UI/database.
+- Manual activity labels for motorcycle, scooter, bus, tram, train and metro. The platform's current broad `IN_VEHICLE` event does not automatically distinguish them.
+- A local Extra Trees trainer API that accepts only live user-confirmed windows, weights each trip equally, caps per-trip sampling, and validates by holding out whole trips. It is not yet connected to the Room correction flow, persisted model storage, or a debug retraining control.
+
+Still pending from the plan: complete checkpoint restore (including filter projection and detector hysteresis), live application of capture effects, persistent correction records and mapping to training examples, model activation/storage, transit-context features, underground detection, timeline/legacy UI integration, replay and fault lab, engine comparison, backup v3, and controlled engine rollout. Pixel Fold sensor and battery behavior has not been field-tested.
