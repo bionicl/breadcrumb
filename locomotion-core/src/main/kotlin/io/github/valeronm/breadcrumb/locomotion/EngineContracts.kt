@@ -165,7 +165,12 @@ enum class EngineResource { GPS, FUSED_LOCATION, ACTIVITY_RECOGNITION, ACCELEROM
 
 sealed interface EngineEffect {
     val id: String
-    data class RequestResource(override val id: String, val resource: EngineResource, val enabled: Boolean) : EngineEffect
+    data class RequestResource(
+        override val id: String,
+        val resource: EngineResource,
+        val enabled: Boolean,
+        val intervalMillis: Long? = null,
+    ) : EngineEffect
     data class PersistCheckpoint(override val id: String, val throughObservationId: String?) : EngineEffect
     data class RebuildTimeline(override val id: String, val fromWallTimeMs: Long) : EngineEffect
 }
