@@ -14,8 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
+        EngineObservationEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun placeDao(): PlaceDao
     abstract fun placeIdentityDao(): PlaceIdentityDao
     abstract fun derivedDao(): DerivedDao
+    abstract fun locomotionDao(): LocomotionDao
 
     /** Every table in this database is history. Settings live elsewhere and stay. */
     suspend fun clearHistory() = useWriterConnection { connection ->
@@ -51,6 +53,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val HISTORY_TABLES = listOf(
             "tracks", "track_points", "places", "place_identities",
             "derived_clusters", "cluster_members", "derived_intervals",
+            "engine_observations",
         )
 
         @Volatile
@@ -194,6 +197,39 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Persist engine observations independently from the legacy track history. */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS engine_observations (
+                      id TEXT NOT NULL PRIMARY KEY, sessionId TEXT NOT NULL, bootEpochId TEXT NOT NULL,
+                      wallTimeMs INTEGER NOT NULL, elapsedRealtimeNanos INTEGER NOT NULL,
+                      source TEXT NOT NULL, provenance TEXT NOT NULL, latitudeDegrees REAL, longitudeDegrees REAL,
+                      horizontalAccuracyMeters REAL, speedMetersPerSecond REAL, bearingDegrees REAL,
+                      altitudeMeters REAL, verticalAccuracyMeters REAL, sensorWindowStartNanos INTEGER,
+                      sensorWindowEndNanos INTEGER, sensorSampleCount INTEGER, accelerationHorizontalMean REAL,
+                      accelerationHorizontalStdDev REAL, accelerationVerticalMean REAL,
+                      accelerationVerticalStdDev REAL, stepCadenceHz REAL, barometricAltitudeDeltaMeters REAL,
+                      missingFeaturesMask INTEGER NOT NULL, detectedActivity TEXT, detectedActivityConfidence INTEGER,
+                      confirmedTransportMode TEXT, qualityFlags INTEGER NOT NULL, trainingEligible INTEGER NOT NULL)
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_engine_observations_sessionId_elapsedRealtimeNanos_source " +
+                        "ON engine_observations(sessionId, elapsedRealtimeNanos, source)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_engine_observations_wallTimeMs " +
+                        "ON engine_observations(wallTimeMs)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_engine_observations_provenance_trainingEligible_source " +
+                        "ON engine_observations(provenance, trainingEligible, source)",
+                )
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -203,7 +239,9 @@ abstract class AppDatabase : RoomDatabase() {
          * `version` above never renumbers downward for the same reason, since every installed
          * database would then present itself as a downgrade.
          */
-        private val MIGRATIONS = arrayOf(MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
+        private val MIGRATIONS = arrayOf(
+            MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+        )
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {

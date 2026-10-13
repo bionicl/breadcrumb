@@ -383,6 +383,7 @@ room {
 }
 
 dependencies {
+    implementation(project(":locomotion-core"))
     implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
