@@ -32,3 +32,5 @@ __pycache__/
 # Claude Code session worktrees and personal settings
 /.claude/worktrees/
 /.claude/*.local.*
+
+/locomotion-core/build/
