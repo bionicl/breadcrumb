@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.locomotion.ConfirmedTransportWindow
 import io.github.valeronm.breadcrumb.locomotion.ObservationProvenance
 import io.github.valeronm.breadcrumb.locomotion.TransportFeatureVector
 import io.github.valeronm.breadcrumb.locomotion.TransportMode
+import io.github.valeronm.breadcrumb.locomotion.TransportPrediction
 
 /** Only explicit transport labels map to trainable classes; stationary/unknown labels are excluded. */
 internal fun ActivityType.toTransportMode(): TransportMode? = when (this) {
@@ -76,3 +77,13 @@ internal fun EngineObservationEntity.toPredictionFeatures() = TransportFeatureVe
     barometricAltitudeDeltaMeters = barometricAltitudeDeltaMeters,
     coarseActivity = detectedActivity?.let { runCatching { CoarseActivity.valueOf(it) }.getOrNull() },
 )
+
+/** A mode omitted by a prediction contributes zero to the trip-wide mean, never a missing sample. */
+internal fun averagePredictionScores(predictions: List<TransportPrediction>): Map<TransportMode, Double> {
+    if (predictions.isEmpty()) return emptyMap()
+    return TransportMode.entries.associateWith { mode ->
+        predictions.sumOf { prediction ->
+            prediction.scores.firstOrNull { it.mode == mode }?.probability?.toDouble() ?: 0.0
+        } / predictions.size
+    }
+}

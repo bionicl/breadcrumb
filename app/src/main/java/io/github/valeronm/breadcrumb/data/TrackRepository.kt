@@ -593,8 +593,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             return
         }
         val predictions = featureRows.map(classifier::predict)
-        val averageScores = predictions.flatMap { it.scores }.groupBy { it.mode }
-            .mapValues { (_, scores) -> scores.sumOf { it.probability.toDouble() } / predictions.size }
+        val averageScores = averagePredictionScores(predictions)
         val best = averageScores.maxByOrNull { it.value }
         val activity = best?.key?.toActivityType()
         val confidence = best?.value?.toFloat()
