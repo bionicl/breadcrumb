@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.ShoppingBasket
 import androidx.compose.material.icons.filled.Signpost
 import androidx.compose.material.icons.filled.Terrain
+import androidx.compose.material.icons.filled.TwoWheeler
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -88,6 +89,8 @@ internal fun activityIcon(activity: ActivityType?): ImageVector = when (activity
     ActivityType.CYCLING -> Icons.AutoMirrored.Filled.DirectionsBike
     ActivityType.DRIVING -> Icons.Filled.DirectionsCar
     ActivityType.TAXI -> Icons.Filled.LocalTaxi
+    ActivityType.MOTORCYCLE, ActivityType.SCOOTER -> Icons.Filled.TwoWheeler
+    ActivityType.BUS, ActivityType.TRAM, ActivityType.TRAIN, ActivityType.METRO -> Icons.Filled.DirectionsTransit
     ActivityType.FERRY -> Icons.Filled.DirectionsBoat
     ActivityType.TRANSIT -> Icons.Filled.DirectionsTransit
     ActivityType.FLIGHT -> Icons.Filled.Flight

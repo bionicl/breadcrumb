@@ -9,6 +9,12 @@
     <string name="activity_cycling">Bicicleta</string>
     <string name="activity_driving">Carro</string>
     <string name="activity_taxi">Táxi</string>
+    <string name="activity_motorcycle">Motociclo</string>
+    <string name="activity_scooter">Trotinete</string>
+    <string name="activity_bus">Autocarro</string>
+    <string name="activity_tram">Elétrico</string>
+    <string name="activity_train">Comboio</string>
+    <string name="activity_metro">Metro</string>
     <string name="activity_ferry">Barco</string>
     <string name="activity_transit">Transportes públicos</string>
     <string name="activity_flight">Voo</string>
@@ -22,6 +28,12 @@
     <string name="activity_inline_cycling">bicicleta</string>
     <string name="activity_inline_driving">carro</string>
     <string name="activity_inline_taxi">táxi</string>
+    <string name="activity_inline_motorcycle">motociclo</string>
+    <string name="activity_inline_scooter">trotinete</string>
+    <string name="activity_inline_bus">autocarro</string>
+    <string name="activity_inline_tram">elétrico</string>
+    <string name="activity_inline_train">comboio</string>
+    <string name="activity_inline_metro">metro</string>
     <string name="activity_inline_ferry">barco</string>
     <string name="activity_inline_transit">transportes públicos</string>
     <string name="activity_inline_flight">voo</string>

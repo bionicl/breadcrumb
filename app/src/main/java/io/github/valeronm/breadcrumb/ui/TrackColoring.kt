@@ -60,7 +60,7 @@ private fun rampLuminance(dark: Boolean) = if (dark) 0.5f else 0.33f
 private data class SpeedScale(val min: Float, val max: Float)
 
 private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale = when (activity) {
-    ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN ->
+    ActivityType.DRIVING, ActivityType.TAXI, ActivityType.MOTORCYCLE, ActivityType.UNKNOWN ->
         units.bySpeedUnit(kmh = SpeedScale(30f, 150f), mph = SpeedScale(20f, 90f))
     ActivityType.CYCLING ->
         units.bySpeedUnit(kmh = SpeedScale(10f, 34f), mph = SpeedScale(6f, 22f))
@@ -68,11 +68,13 @@ private fun speedScaleFor(activity: ActivityType, units: UnitSystem): SpeedScale
     ActivityType.FERRY ->
         units.bySpeedUnit(kmh = SpeedScale(10f, 50f), mph = SpeedScale(5f, 35f))
     // From a metro crawl to intercity rail; high-speed stretches saturate red, which is honest.
-    ActivityType.TRANSIT ->
+    ActivityType.TRANSIT, ActivityType.TRAIN ->
         units.bySpeedUnit(kmh = SpeedScale(20f, 220f), mph = SpeedScale(10f, 140f))
+    ActivityType.BUS, ActivityType.TRAM, ActivityType.METRO ->
+        units.bySpeedUnit(kmh = SpeedScale(10f, 100f), mph = SpeedScale(5f, 60f))
     ActivityType.RUNNING ->
         units.bySpeedUnit(kmh = SpeedScale(6f, 16f), mph = SpeedScale(4f, 10f))
-    ActivityType.WALKING, ActivityType.STILL ->
+    ActivityType.WALKING, ActivityType.STILL, ActivityType.SCOOTER ->
         units.bySpeedUnit(kmh = SpeedScale(2f, 8f), mph = SpeedScale(1f, 5f))
     // A cruise holds near one speed for hours; anchors wide enough that climb and descent shade.
     ActivityType.FLIGHT ->

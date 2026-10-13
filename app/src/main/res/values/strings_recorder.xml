@@ -14,6 +14,12 @@
     <string name="activity_cycling">Cycling</string>
     <string name="activity_driving">Driving</string>
     <string name="activity_taxi">Taxi</string>
+    <string name="activity_motorcycle">Motorcycle</string>
+    <string name="activity_scooter">Scooter</string>
+    <string name="activity_bus">Bus</string>
+    <string name="activity_tram">Tram</string>
+    <string name="activity_train">Train</string>
+    <string name="activity_metro">Metro</string>
     <!-- FERRY's code predates the broader meaning: any waterborne carrier. -->
     <string name="activity_ferry">Boat</string>
     <string name="activity_transit">Public transit</string>
@@ -38,6 +44,12 @@
     <string name="activity_inline_cycling">cycling</string>
     <string name="activity_inline_driving">driving</string>
     <string name="activity_inline_taxi">taxi</string>
+    <string name="activity_inline_motorcycle">motorcycle</string>
+    <string name="activity_inline_scooter">scooter</string>
+    <string name="activity_inline_bus">bus</string>
+    <string name="activity_inline_tram">tram</string>
+    <string name="activity_inline_train">train</string>
+    <string name="activity_inline_metro">metro</string>
     <string name="activity_inline_ferry">boat</string>
     <string name="activity_inline_transit">public transit</string>
     <string name="activity_inline_flight">flight</string>

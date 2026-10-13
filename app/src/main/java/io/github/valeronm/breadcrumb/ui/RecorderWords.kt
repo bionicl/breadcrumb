@@ -19,6 +19,12 @@ internal val ActivityType.labelRes: Int
         ActivityType.CYCLING -> R.string.activity_cycling
         ActivityType.DRIVING -> R.string.activity_driving
         ActivityType.TAXI -> R.string.activity_taxi
+        ActivityType.MOTORCYCLE -> R.string.activity_motorcycle
+        ActivityType.SCOOTER -> R.string.activity_scooter
+        ActivityType.BUS -> R.string.activity_bus
+        ActivityType.TRAM -> R.string.activity_tram
+        ActivityType.TRAIN -> R.string.activity_train
+        ActivityType.METRO -> R.string.activity_metro
         ActivityType.FERRY -> R.string.activity_ferry
         ActivityType.TRANSIT -> R.string.activity_transit
         ActivityType.FLIGHT -> R.string.activity_flight
@@ -27,7 +33,7 @@ internal val ActivityType.labelRes: Int
     }
 
 /**
- * The same ten as the word form a sentence drops into a slot — see the resources, which say why this
+ * The same set in the word form a sentence drops into a slot — see the resources, which say why this
  * is authored per language rather than derived from [labelRes].
  */
 internal val ActivityType.inlineLabelRes: Int
@@ -37,6 +43,12 @@ internal val ActivityType.inlineLabelRes: Int
         ActivityType.CYCLING -> R.string.activity_inline_cycling
         ActivityType.DRIVING -> R.string.activity_inline_driving
         ActivityType.TAXI -> R.string.activity_inline_taxi
+        ActivityType.MOTORCYCLE -> R.string.activity_inline_motorcycle
+        ActivityType.SCOOTER -> R.string.activity_inline_scooter
+        ActivityType.BUS -> R.string.activity_inline_bus
+        ActivityType.TRAM -> R.string.activity_inline_tram
+        ActivityType.TRAIN -> R.string.activity_inline_train
+        ActivityType.METRO -> R.string.activity_inline_metro
         ActivityType.FERRY -> R.string.activity_inline_ferry
         ActivityType.TRANSIT -> R.string.activity_inline_transit
         ActivityType.FLIGHT -> R.string.activity_inline_flight

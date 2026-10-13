@@ -31,11 +31,13 @@ internal fun activityColor(activity: ActivityType?): Color =
 
 /** [activityColor] for a caller outside composition, handed the theme fallback it read there. */
 internal fun activityColorOr(activity: ActivityType?, fallback: Color): Color = when (activity) {
-    ActivityType.DRIVING -> Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
+    ActivityType.DRIVING, ActivityType.MOTORCYCLE, ActivityType.SCOOTER ->
+        Color.hsl(210f, ACTIVITY_SAT, ACTIVITY_LUM) // blue
+    ActivityType.BUS, ActivityType.TRAM, ActivityType.TRAIN, ActivityType.METRO, ActivityType.TRANSIT ->
+        Color.hsl(242f, ACTIVITY_SAT, ACTIVITY_LUM) // indigo
     ActivityType.TAXI -> Color.hsl(48f, ACTIVITY_SAT, ACTIVITY_LUM)     // taxi yellow
     ActivityType.FERRY -> Color.hsl(330f, ACTIVITY_SAT, ACTIVITY_LUM)   // magenta
     ActivityType.FLIGHT -> Color.hsl(195f, ACTIVITY_SAT, ACTIVITY_LUM)  // sky cyan
-    ActivityType.TRANSIT -> Color.hsl(242f, ACTIVITY_SAT, ACTIVITY_LUM) // indigo
     ActivityType.CYCLING -> Color.hsl(165f, ACTIVITY_SAT, ACTIVITY_LUM) // teal-green
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet

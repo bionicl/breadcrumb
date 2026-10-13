@@ -90,13 +90,15 @@ object TrackQuality {
         ActivityType.CYCLING -> Speed.kmh(70.0)
         // Above anything afloat — a fast catamaran cruises ~70, a cruise ship ~40 — and well under
         // the road ceiling, so a crossing's teleports are caught by a bar its own speeds can't reach.
-        ActivityType.FERRY -> Speed.kmh(120.0)
-        ActivityType.DRIVING, ActivityType.TAXI, ActivityType.UNKNOWN -> Speed.kmh(220.0)
+        ActivityType.FERRY, ActivityType.BUS, ActivityType.TRAM -> Speed.kmh(120.0)
+        ActivityType.METRO -> Speed.kmh(160.0)
+        ActivityType.SCOOTER -> Speed.kmh(80.0)
+        ActivityType.DRIVING, ActivityType.TAXI, ActivityType.MOTORCYCLE, ActivityType.UNKNOWN -> Speed.kmh(220.0)
         // High-speed rail in service runs ~320, so a retype to transit can hand back a crossing's
         // fixes ([jumpRestores]) — and since a train ride is detected and labeled as a *vehicle*
         // live, this being the vehicle family's most permissive ceiling is what lets the motion
         // witness admit real rail speeds under a driving label instead of flagging the whole ride.
-        ActivityType.TRANSIT -> Speed.kmh(350.0)
+        ActivityType.TRANSIT, ActivityType.TRAIN -> Speed.kmh(350.0)
         // Real jet ground speeds: ~900 km/h cruise, and a strong jet stream pushes past 1200.
         // Honest so a retype to FLIGHT hands back in-flight fixes the road ceiling rejected
         // ([jumpRestores], the FERRY precedent) — and safe to be, because the AIR group is

@@ -18,6 +18,16 @@ class ActivityTypeTest {
         assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.TAXI))
         assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.FERRY))
         assertTrue(ActivityType.DRIVING.sharesTrackWith(ActivityType.TRANSIT))
+        listOf(
+            ActivityType.BUS,
+            ActivityType.TRAM,
+            ActivityType.TRAIN,
+            ActivityType.METRO,
+            ActivityType.MOTORCYCLE,
+            ActivityType.SCOOTER,
+        ).forEach { detailed ->
+            assertTrue(ActivityType.DRIVING.sharesTrackWith(detailed))
+        }
         assertTrue(ActivityType.CYCLING.sharesTrackWith(ActivityType.CYCLING))
     }
 
@@ -36,6 +46,8 @@ class ActivityTypeTest {
     @Test
     fun `ofName resolves stored names and rejects strangers`() {
         assertEquals(ActivityType.TAXI, ActivityType.ofName("TAXI"))
+        assertEquals(ActivityType.TRAIN, ActivityType.ofName("TRAIN"))
+        assertEquals(ActivityType.MOTORCYCLE, ActivityType.ofName("MOTORCYCLE"))
         assertNull(ActivityType.ofName("HOVERCRAFT"))
         assertNull(ActivityType.ofName("walking")) // stored names are exact, not case-folded
     }

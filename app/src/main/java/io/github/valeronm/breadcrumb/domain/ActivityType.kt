@@ -26,6 +26,12 @@ enum class ActivityType(
     /** Never detected (activity recognition only sees IN_VEHICLE) — assigned by hand on the
      *  track page to mark rides where the user was a passenger. */
     TAXI(true, TrackGroup.VEHICLE),
+    MOTORCYCLE(true, TrackGroup.VEHICLE),
+    SCOOTER(true, TrackGroup.VEHICLE),
+    BUS(true, TrackGroup.VEHICLE),
+    TRAM(true, TrackGroup.VEHICLE),
+    TRAIN(true, TrackGroup.VEHICLE),
+    METRO(true, TrackGroup.VEHICLE),
 
     /** Any waterborne carrier — a ferry, a catamaran, a cruise ship. Never detected (a crossing
      *  reads as IN_VEHICLE, or as nothing at all when the vessel carries the phone rather than the
@@ -34,10 +40,9 @@ enum class ActivityType(
      *  broadened, and it lives in the UI layer with the rest of the wording. */
     FERRY(true, TrackGroup.VEHICLE),
 
-    /** Carried by the public network — bus, tram, subway, train. Never detected as itself (a ride
-     *  reads as IN_VEHICLE, like any drive) — assigned by hand on the track page or the add-trip
-     *  form. In the vehicle family on purpose: that is how its rides are detected and labeled
-     *  live, and its rail ceiling is then the family's most permissive (see `TrackQuality`). */
+    /** A broad public-transit label retained for existing data and cases with no justified detail.
+     *  Bus, tram, train and metro can be selected separately, but current Activity Recognition
+     *  reports only IN_VEHICLE and must not pretend to distinguish those services. */
     TRANSIT(true, TrackGroup.VEHICLE),
 
     /** Never detected — assigned by hand on the track page, and what the add-trip form writes for

@@ -10,6 +10,12 @@
     <string name="activity_cycling">Велосипед</string>
     <string name="activity_driving">Автомобиль</string>
     <string name="activity_taxi">Такси</string>
+    <string name="activity_motorcycle">Мотоцикл</string>
+    <string name="activity_scooter">Самокат</string>
+    <string name="activity_bus">Автобус</string>
+    <string name="activity_tram">Трамвай</string>
+    <string name="activity_train">Поезд</string>
+    <string name="activity_metro">Метро</string>
     <string name="activity_ferry">По воде</string>
     <string name="activity_transit">Транспорт</string>
     <string name="activity_flight">Перелёт</string>
@@ -22,6 +28,12 @@
     <string name="activity_inline_cycling">поездка на велосипеде</string>
     <string name="activity_inline_driving">поездка на автомобиле</string>
     <string name="activity_inline_taxi">поездка на такси</string>
+    <string name="activity_inline_motorcycle">мотоцикле</string>
+    <string name="activity_inline_scooter">самокате</string>
+    <string name="activity_inline_bus">автобусе</string>
+    <string name="activity_inline_tram">трамвае</string>
+    <string name="activity_inline_train">поезде</string>
+    <string name="activity_inline_metro">метро</string>
     <string name="activity_inline_ferry">поездка по воде</string>
     <string name="activity_inline_transit">поездка на общественном транспорте</string>
     <string name="activity_inline_flight">перелёт</string>
