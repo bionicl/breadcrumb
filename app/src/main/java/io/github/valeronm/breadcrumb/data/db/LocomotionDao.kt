@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 
 @Dao
 interface LocomotionDao {
@@ -38,4 +39,23 @@ interface LocomotionDao {
 
     @Query("SELECT COUNT(*) FROM engine_observations")
     suspend fun observationCount(): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveCheckpoint(checkpoint: EngineCheckpointEntity)
+
+    @Query("SELECT * FROM engine_checkpoints WHERE sessionId = :sessionId")
+    suspend fun checkpoint(sessionId: String): EngineCheckpointEntity?
+
+    @Query("DELETE FROM engine_checkpoints WHERE sessionId = :sessionId")
+    suspend fun deleteCheckpoint(sessionId: String)
+
+    /** Persist accepted inputs and their resulting state as one restart-safe unit. */
+    @Transaction
+    suspend fun storeBatchAndCheckpoint(
+        observations: List<EngineObservationEntity>,
+        checkpoint: EngineCheckpointEntity,
+    ) {
+        insertObservations(observations)
+        saveCheckpoint(checkpoint)
+    }
 }

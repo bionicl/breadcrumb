@@ -14,9 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
-        EngineObservationEntity::class,
+        EngineObservationEntity::class, EngineCheckpointEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -53,7 +53,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val HISTORY_TABLES = listOf(
             "tracks", "track_points", "places", "place_identities",
             "derived_clusters", "cluster_members", "derived_intervals",
-            "engine_observations",
+            "engine_observations", "engine_checkpoints",
         )
 
         @Volatile
@@ -230,6 +230,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Keep the engine's accepted state alongside the observations it has consumed. */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS engine_checkpoints (
+                      sessionId TEXT NOT NULL PRIMARY KEY, bootEpochId TEXT NOT NULL, lastObservationId TEXT,
+                      lastElapsedRealtimeNanos INTEGER, lastWallTimeMs INTEGER, motionState TEXT NOT NULL,
+                      recordingState TEXT NOT NULL, filteredXmeters REAL, filteredYmeters REAL,
+                      filteredVelocityXMetersPerSecond REAL, filteredVelocityYMetersPerSecond REAL,
+                      covarianceXX REAL, covarianceYY REAL, activeSegmentId TEXT, configurationVersion INTEGER NOT NULL,
+                      modelVersion TEXT, updatedAtWallTimeMs INTEGER NOT NULL)
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_engine_checkpoints_updatedAtWallTimeMs " +
+                        "ON engine_checkpoints(updatedAtWallTimeMs)",
+                )
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -241,6 +262,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+            MIGRATION_22_23,
         )
 
         fun get(context: Context): AppDatabase =

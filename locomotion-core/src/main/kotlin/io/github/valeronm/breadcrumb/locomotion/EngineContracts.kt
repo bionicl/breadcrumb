@@ -41,7 +41,10 @@ data class SensorWindow(
     val missingFeatures: Set<SensorFeature> = emptySet(),
 )
 
-enum class SensorFeature { ACCELEROMETER, STEP_COUNTER, STEP_DETECTOR, ROTATION_VECTOR, BAROMETER }
+enum class SensorFeature(val bitMask: Int) {
+    ACCELEROMETER(1 shl 0), STEP_COUNTER(1 shl 1), STEP_DETECTOR(1 shl 2),
+    ROTATION_VECTOR(1 shl 3), BAROMETER(1 shl 4),
+}
 
 data class DetectedActivityEvidence(
     val activity: CoarseActivity,
@@ -177,4 +180,29 @@ data class EngineSnapshot(
     val configurationVersion: Int,
     val modelVersion: String?,
     val pendingEffects: Int,
+)
+
+/** Complete deterministic state needed to resume filtering and timeline processing. */
+data class EngineCheckpoint(
+    val sessionId: String,
+    val bootEpochId: String,
+    val lastObservationId: String?,
+    val lastElapsedRealtimeNanos: Long?,
+    val lastWallTimeMs: Long?,
+    val motionState: MotionState,
+    val recordingState: RecordingState,
+    val filter: FilterSnapshot?,
+    val activeSegmentId: String?,
+    val configurationVersion: Int,
+    val modelVersion: String?,
+    val updatedAtWallTimeMs: Long,
+)
+
+data class FilterSnapshot(
+    val xMeters: Double,
+    val yMeters: Double,
+    val velocityXMetersPerSecond: Double,
+    val velocityYMetersPerSecond: Double,
+    val covarianceXX: Double,
+    val covarianceYY: Double,
 )
