@@ -387,6 +387,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // The label decides the ceiling every arriving fix is gated on, so a row the recorder
             // has reopened must be refused before the write, not after it.
             dao.confirmActivityType(trackId, activityType.name)
+            activityCorrection(trackId, activityType)?.let { db.locomotionDao().insertUserCorrection(it) }
             correctedTrack = track.copy(activityType = activityType.name, activityConfirmedByUser = true)
             if (!retuned && !raised) return@withTransaction
             val retyped = track.copy(activityType = activityType.name)
@@ -401,10 +402,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // from. A retype that moved neither leaves the derivation alone.
             if (jumpsRestored || applied.changed) derivation.reknit(listOf(trackId))
         }
-        correctedTrack?.let { track ->
-            persistActivityCorrection(track, activityType)
-            learnFromUserCorrection(track, activityType)
-        }
+        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
     }
 
     /** Read the durable user assertions associated with a legacy timeline track. */
@@ -415,23 +413,24 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun allEngineCorrections(): List<UserCorrection> =
         db.locomotionDao().allUserCorrections().mapNotNull { it.toEngineCorrection() }
 
-    private suspend fun persistActivityCorrection(track: Track, activityType: ActivityType) {
-        val target = engineTrackSegmentId(track.id)
+    private fun activityCorrection(trackId: Long, activityType: ActivityType): EngineUserCorrectionEntity? {
         val mode = activityType.toTransportMode()
         val now = System.currentTimeMillis()
         val operationId = UUID.randomUUID().toString()
         val correction = when {
             mode != null -> EngineUserCorrectionEntity(
-                id = UUID.randomUUID().toString(), operationId = operationId, targetSegmentId = target,
+                id = UUID.randomUUID().toString(), operationId = operationId,
+                targetSegmentId = engineTrackSegmentId(trackId),
                 kind = "CONFIRM_TRANSPORT", createdAtWallTimeMs = now, transportMode = mode.name,
             )
             activityType == ActivityType.STILL -> EngineUserCorrectionEntity(
-                id = UUID.randomUUID().toString(), operationId = operationId, targetSegmentId = target,
+                id = UUID.randomUUID().toString(), operationId = operationId,
+                targetSegmentId = engineTrackSegmentId(trackId),
                 kind = "CONFIRM_VISIT", createdAtWallTimeMs = now,
             )
             else -> null
         }
-        correction?.let { db.locomotionDao().insertUserCorrection(it) }
+        return correction
     }
 
     /**
