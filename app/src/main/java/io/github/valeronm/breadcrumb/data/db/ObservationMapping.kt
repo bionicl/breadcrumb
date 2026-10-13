@@ -39,5 +39,6 @@ fun Observation.toEntity(): EngineObservationEntity {
         qualityFlags = 0,
         trainingEligible = false,
         speedAccuracyMetersPerSecond = location?.speedAccuracyMetersPerSecond,
+        confirmedTripId = null,
     )
 }

@@ -7,6 +7,10 @@
     <string name="settings_group_data">Dados</string>
     <string name="settings_trips">Viagens</string>
     <string name="settings_sampling">Amostragem</string>
+    <string name="settings_engine_generation">Motor de gravação</string>
+    <string name="settings_engine_generation_description">Escolhe os sinais de movimento usados nos limites das viagens. A escolha aplica-se quando começar a próxima sessão de gravação.</string>
+    <string name="settings_engine_generation_v2">Usar a geração 2 (experimental)</string>
+    <string name="settings_engine_generation_v2_subtitle">Usa o novo motor de sensores e localização para confirmar movimento e paragens. Desativa para voltar à geração 1.</string>
     <string name="settings_point_quality">Filtro de pontos</string>
     <string name="settings_gps_search">Posicionamento</string>
     <string name="settings_departure_triggers">Início de uma viagem</string>

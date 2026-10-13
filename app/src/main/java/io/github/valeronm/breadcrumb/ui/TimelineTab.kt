@@ -1065,7 +1065,19 @@ internal fun TrackRow(
         onDismiss = onDelete,
     ) {
         val activity = ActivityType.ofName(track.activityType)
-        val activityName = activityLabel(LocalContext.current, track.activityType)
+        val context = LocalContext.current
+        val activityName = activityLabel(context, track.activityType)
+        val suggestionType = track.engineSuggestedActivityType
+        val suggestionConfidence = track.engineSuggestionConfidence
+        val engineSuggestion = if (suggestionType != null && suggestionConfidence != null) {
+            stringResource(
+                R.string.timeline_engine_suggestion,
+                activityLabel(context, suggestionType),
+                (suggestionConfidence * 100).toInt(),
+            )
+        } else {
+            null
+        }
         val origin = TrackOrigin.fromCode(track.source)
         val reader = timelineZone()
         // Each end on its own clock where they differ — a track is the one recorded row that can
@@ -1094,6 +1106,10 @@ internal fun TrackRow(
                         appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
                     }
                     append(" · $length")
+                    engineSuggestion?.let {
+                        append(" · ")
+                        append(it)
+                    }
                 }
             },
         )

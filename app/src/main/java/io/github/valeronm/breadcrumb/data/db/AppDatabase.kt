@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -258,6 +258,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Separate explicit transport confirmation and model suggestion from the accepted label. */
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN activityConfirmedByUser INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN engineSuggestedActivityType TEXT")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN engineSuggestionConfidence REAL")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN engineSuggestionModelVersion TEXT")
+                db.execSQL("ALTER TABLE engine_observations ADD COLUMN confirmedTripId TEXT")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -269,7 +280,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-            MIGRATION_22_23, MIGRATION_23_24,
+            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
         )
 
         fun get(context: Context): AppDatabase =

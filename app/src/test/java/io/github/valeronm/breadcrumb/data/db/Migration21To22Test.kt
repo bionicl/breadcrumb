@@ -56,6 +56,7 @@ class Migration21To22Test {
         AppDatabase.MIGRATION_21_22.migrate(db)
         AppDatabase.MIGRATION_22_23.migrate(db)
         AppDatabase.MIGRATION_23_24.migrate(db)
+        AppDatabase.MIGRATION_24_25.migrate(db)
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()

@@ -25,6 +25,7 @@
       readily as it takes.
     -->
     <string name="timeline_sweep">Reprocessing trips</string>
+    <string name="timeline_engine_suggestion">Engine suggests %1$s (%2$d%%)</string>
 
     <!-- What heads an Insights journey row the naming pass found no place for — the bare fact of
          having been away. The timeline's own band leads with the day count below instead. -->

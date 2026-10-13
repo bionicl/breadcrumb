@@ -27,15 +27,28 @@ interface LocomotionDao {
     /** Training data must originate in a real, confirmed user correction. */
     @Query(
         "SELECT * FROM engine_observations WHERE provenance = 'LIVE' AND trainingEligible = 1 " +
-            "AND confirmedTransportMode IS NOT NULL ORDER BY sessionId, elapsedRealtimeNanos",
+            "AND confirmedTransportMode IS NOT NULL ORDER BY wallTimeMs DESC LIMIT 20000",
     )
     suspend fun confirmedTrainingObservations(): List<EngineObservationEntity>
 
     @Query(
-        "UPDATE engine_observations SET confirmedTransportMode = :mode, trainingEligible = 1 " +
+        "SELECT * FROM engine_observations WHERE provenance = 'LIVE' " +
+            "AND wallTimeMs BETWEEN :startedAt AND :endedAt ORDER BY elapsedRealtimeNanos",
+    )
+    suspend fun liveObservationsBetween(startedAt: Long, endedAt: Long): List<EngineObservationEntity>
+
+    @Query(
+        "UPDATE engine_observations SET confirmedTransportMode = :mode, confirmedTripId = :tripId, " +
+            "trainingEligible = 1 " +
             "WHERE id IN (:observationIds) AND provenance = 'LIVE'",
     )
-    suspend fun confirmTrainingLabel(observationIds: List<String>, mode: String)
+    suspend fun confirmTrainingLabel(observationIds: List<String>, tripId: String, mode: String)
+
+    @Query(
+        "UPDATE engine_observations SET confirmedTransportMode = NULL, confirmedTripId = NULL, trainingEligible = 0 " +
+            "WHERE confirmedTripId = :tripId",
+    )
+    suspend fun clearTrainingLabel(tripId: String)
 
     @Query("SELECT COUNT(*) FROM engine_observations")
     suspend fun observationCount(): Long

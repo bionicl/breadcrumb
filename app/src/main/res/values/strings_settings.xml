@@ -9,6 +9,10 @@
     <string name="settings_group_data">Data</string>
     <string name="settings_trips">Trips</string>
     <string name="settings_sampling">Sampling</string>
+    <string name="settings_engine_generation">Recording engine</string>
+    <string name="settings_engine_generation_description">Choose which motion verdicts guide automatic trip boundaries. The choice applies when the next recording session starts.</string>
+    <string name="settings_engine_generation_v2">Use generation 2 (experimental)</string>
+    <string name="settings_engine_generation_v2_subtitle">Uses the new sensor and location engine to corroborate movement and stops. Switch off to return to generation 1.</string>
     <string name="settings_point_quality">Point filter</string>
     <!-- Not "GPS positioning": the P already is. -->
     <string name="settings_gps_search">Positioning</string>

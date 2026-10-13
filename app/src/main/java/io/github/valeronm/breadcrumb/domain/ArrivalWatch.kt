@@ -40,6 +40,7 @@ class ArrivalWatch {
     fun onMotion(motion: Motion, nowMs: Long, stitchWindowMs: Long): Long? {
         when (motion) {
             is Motion.Moving -> stoppedSinceMs = 0L
+            Motion.MovingEvidence -> stoppedSinceMs = 0L
             Motion.Stopped -> if (stoppedSinceMs == 0L) stoppedSinceMs = nowMs
             Motion.Unknown -> Unit
         }

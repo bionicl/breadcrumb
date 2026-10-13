@@ -48,6 +48,13 @@ class ArrivalWatchTest {
         assertEquals(T0 + 2 * MINUTE, judge(Motion.Unknown, T0 + 2 * MINUTE + clamp))
     }
 
+    @Test fun `v2 movement without speed restarts the arrival count`() {
+        judge(Motion.Stopped, T0)
+        judge(Motion.MovingEvidence, T0 + MINUTE)
+        assertNull(judge(Motion.Stopped, T0 + 2 * MINUTE))
+        assertEquals(T0 + 2 * MINUTE, judge(Motion.Stopped, T0 + 2 * MINUTE + clamp))
+    }
+
     @Test fun `a fire spends the standstill, so the next pause takes a full fresh floor`() {
         judge(Motion.Stopped, T0)
         assertEquals(T0, judge(Motion.Unknown, T0 + clamp))

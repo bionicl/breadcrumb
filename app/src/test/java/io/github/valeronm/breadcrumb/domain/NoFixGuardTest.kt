@@ -146,6 +146,7 @@ class NoFixGuardTest {
         val g = probing()
         assertTrue(g.shouldGiveUp(240_000, 240_000))
         assertFalse(g.shouldGiveUp(240_000, 240_000, Motion.Moving(Speed.mps(6.0))))
+        assertFalse(g.shouldGiveUp(240_000, 240_000, Motion.MovingEvidence))
     }
 
     @Test fun `a standstill gives up as before`() {

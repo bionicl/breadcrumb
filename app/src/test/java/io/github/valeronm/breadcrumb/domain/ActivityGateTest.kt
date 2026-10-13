@@ -75,6 +75,13 @@ class ActivityGateTest {
         assertEquals(STILL, g.parked)
     }
 
+    @Test fun `v2 moving evidence without speed also holds a stop`() {
+        val g = started(WALKING)
+        assertNull(g.onReading(STILL, Motion.MovingEvidence))
+        assertEquals(WALKING, g.confirmed)
+        assertEquals(STILL, g.parked)
+    }
+
     @Test fun `the parked stop is released once the ground stops`() {
         val g = started(WALKING)
         g.onReading(STILL, MOVING)

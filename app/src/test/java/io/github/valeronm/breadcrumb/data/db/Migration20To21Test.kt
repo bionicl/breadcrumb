@@ -140,6 +140,10 @@ class Migration20To21Test {
     @Test
     fun `the migrated tables are the shape Room builds from the entities`() {
         AppDatabase.MIGRATION_20_21.migrate(db)
+        AppDatabase.MIGRATION_21_22.migrate(db)
+        AppDatabase.MIGRATION_22_23.migrate(db)
+        AppDatabase.MIGRATION_23_24.migrate(db)
+        AppDatabase.MIGRATION_24_25.migrate(db)
 
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,

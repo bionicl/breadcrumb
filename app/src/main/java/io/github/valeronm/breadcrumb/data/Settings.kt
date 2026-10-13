@@ -2,13 +2,18 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.core.content.edit
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
 
+    enum class RecorderEngineGeneration { CLASSIC, LOCOMOTION_V2 }
+
     private const val FILE = "settings"
     private const val KEY_AUTO_RECORD = "auto_record"
+    private const val KEY_RECORDER_ENGINE_GENERATION = "recorder_engine_generation"
+    private const val KEY_PERSONAL_TRANSPORT_MODEL = "personal_transport_model_v1"
 
     private const val KEY_SAMPLING_MIN_INTERVAL_SEC = "sampling_min_interval_sec"
     private const val KEY_SAMPLING_MIN_DISTANCE_M = "sampling_min_distance_m"
@@ -138,6 +143,29 @@ object Settings {
     /** Whether the user has armed automatic, activity-driven recording. */
     fun isAutoRecord(context: Context): Boolean =
         prefs(context).getBoolean(KEY_AUTO_RECORD, false)
+
+    /** The selected engine is latched by the recording service when a session arms. */
+    fun recorderEngineGeneration(context: Context): RecorderEngineGeneration =
+        prefs(context).getString(KEY_RECORDER_ENGINE_GENERATION, RecorderEngineGeneration.CLASSIC.name)
+            ?.let { runCatching { RecorderEngineGeneration.valueOf(it) }.getOrNull() }
+            ?: RecorderEngineGeneration.CLASSIC
+
+    fun setRecorderEngineGeneration(context: Context, generation: RecorderEngineGeneration) {
+        prefs(context).edit(commit = true) { putString(KEY_RECORDER_ENGINE_GENERATION, generation.name) }
+    }
+
+    /** A versioned classifier payload stored locally; corrupt data is treated as absent. */
+    fun personalTransportModel(context: Context): ByteArray? = runCatching {
+        prefs(context).getString(KEY_PERSONAL_TRANSPORT_MODEL, null)?.let { Base64.decode(it, Base64.NO_WRAP) }
+    }.getOrNull()
+
+    fun setPersonalTransportModel(context: Context, bytes: ByteArray) {
+        prefs(context).edit { putString(KEY_PERSONAL_TRANSPORT_MODEL, Base64.encodeToString(bytes, Base64.NO_WRAP)) }
+    }
+
+    fun clearPersonalTransportModel(context: Context) {
+        prefs(context).edit { remove(KEY_PERSONAL_TRANSPORT_MODEL) }
+    }
 
     /**
      * Arms or disarms, stamping [disarmedSinceMs] in the same write: a disarm that landed without

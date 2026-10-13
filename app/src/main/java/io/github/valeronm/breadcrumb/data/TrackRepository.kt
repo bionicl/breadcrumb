@@ -26,6 +26,7 @@ import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
+import io.github.valeronm.breadcrumb.locomotion.PersonalTransportClassifier
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -38,6 +39,8 @@ const val DISCARDED_RETENTION_DAYS = 14
 
 /** Safety bound on leading-stray removal per track (real runs are 1, rarely 2). */
 private const val MAX_LEADING_STRAYS_DROPPED = 5
+private const val MAX_TIMELINE_SUGGESTIONS = 500
+private const val MIN_TIMELINE_SUGGESTION_CONFIDENCE = 0.60f
 
 /**
  * A track's points split the three ways the track screen draws them — see
@@ -230,6 +233,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     startedAt = origin.timestampMs,
                     endedAt = destination.timestampMs,
                     source = TrackOrigin.MANUAL.code,
+                    activityConfirmedByUser = true,
                 ),
             )
             dao.insertPoints(manualPoints(id, origin, destination))
@@ -367,8 +371,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * activity it detects and settles the edges when it finishes.
      */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
+        var correctedTrack: Track? = null
         db.withTransaction {
             val track = dao.track(trackId) ?: return@withTransaction
+            val endedAt = track.endedAt ?: return@withTransaction
             val retuned = settler.tuningChanges(track, to = activityType)
             // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
             val wasType = ActivityType.ofName(track.activityType)
@@ -376,8 +382,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
             // The label decides the ceiling every arriving fix is gated on, so a row the recorder
             // has reopened must be refused before the write, not after it.
-            val endedAt = track.endedAt ?: return@withTransaction
-            dao.setActivityType(trackId, activityType.name)
+            dao.confirmActivityType(trackId, activityType.name)
+            correctedTrack = track.copy(activityType = activityType.name, activityConfirmedByUser = true)
             if (!retuned && !raised) return@withTransaction
             val retyped = track.copy(activityType = activityType.name)
             val stored = dao.allPointsFor(trackId)
@@ -391,6 +397,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // from. A retype that moved neither leaves the derivation alone.
             if (jumpsRestored || applied.changed) derivation.reknit(listOf(trackId))
         }
+        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
     }
 
     /**
@@ -483,6 +490,75 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun finishTrack(trackId: Long, endedAt: Long, renameTo: ActivityType? = null) {
         val track = dao.track(trackId) ?: return
         closeOrDelete(track, endedAt, renameTo)
+        if (Settings.recorderEngineGeneration(appContext) == Settings.RecorderEngineGeneration.LOCOMOTION_V2) {
+            dao.track(trackId)?.takeIf { it.endedAt != null && it.discardedAt == null }?.let {
+                applyStoredModelSuggestion(it)
+            }
+        }
+    }
+
+    /** A manual correction is the only event that labels live windows for local learning. */
+    private suspend fun learnFromUserCorrection(track: Track, activityType: ActivityType) =
+        withContext(Dispatchers.IO) {
+            val endedAt = track.endedAt ?: return@withContext
+            val tripId = track.id.toString()
+            val locomotionDao = db.locomotionDao()
+            locomotionDao.clearTrainingLabel(tripId)
+            val mode = activityType.toTransportMode()
+            val observations = locomotionDao.liveObservationsBetween(track.startedAt, endedAt)
+            if (mode != null) {
+                observations.map { it.id }.chunked(IDS_PER_STATEMENT).forEach { ids ->
+                    if (ids.isNotEmpty()) locomotionDao.confirmTrainingLabel(ids, tripId, mode.name)
+                }
+            }
+
+            val windows = locomotionDao.confirmedTrainingObservations().mapNotNull { it.toConfirmedWindow() }
+            val report = PersonalTransportClassifier.train(windows)
+            val classifier = report.classifier
+            // A correction always takes effect on its track, but a weak/incomplete retrain must not
+            // discard the last validated on-device model. It can be replaced once new trips validate.
+            if (classifier == null) return@withContext
+            Settings.setPersonalTransportModel(appContext, classifier.encode())
+            refreshTimelineSuggestions(classifier)
+        }
+
+    private suspend fun refreshTimelineSuggestions(classifier: PersonalTransportClassifier) {
+        // Bound reclassification work after a correction while still refreshing several years of
+        // normal history for typical personal timelines.
+        dao.finishedTracks().asSequence()
+            .filter { it.discardedAt == null && !it.activityConfirmedByUser }
+            .sortedByDescending { it.startedAt }
+            .take(MAX_TIMELINE_SUGGESTIONS)
+            .forEach { applyModelSuggestion(it, classifier) }
+    }
+
+    private suspend fun applyStoredModelSuggestion(track: Track) {
+        val model = Settings.personalTransportModel(appContext)?.let(PersonalTransportClassifier::decode) ?: return
+        applyModelSuggestion(track, model)
+    }
+
+    private suspend fun applyModelSuggestion(track: Track, classifier: PersonalTransportClassifier) {
+        val endedAt = track.endedAt ?: return
+        if (track.activityConfirmedByUser) return
+        val observations = db.locomotionDao().liveObservationsBetween(track.startedAt, endedAt)
+        val featureRows = observations.map { it.toPredictionFeatures() }
+            .filter { it.speedMetersPerSecond != null || it.stepCadenceHz != null || it.accelerationStdDevMetersPerSecondSquared != null }
+        if (featureRows.isEmpty()) {
+            dao.setEngineSuggestion(track.id, null, null, null)
+            return
+        }
+        val predictions = featureRows.map(classifier::predict)
+        val averageScores = predictions.flatMap { it.scores }.groupBy { it.mode }
+            .mapValues { (_, scores) -> scores.sumOf { it.probability.toDouble() } / predictions.size }
+        val best = averageScores.maxByOrNull { it.value }
+        val activity = best?.key?.toActivityType()
+        val confidence = best?.value?.toFloat()
+        val version = predictions.firstOrNull()?.modelVersion
+        if (activity == null || confidence == null || confidence < MIN_TIMELINE_SUGGESTION_CONFIDENCE) {
+            dao.setEngineSuggestion(track.id, null, null, null)
+        } else {
+            dao.setEngineSuggestion(track.id, activity.name, confidence, version)
+        }
     }
 
     /**

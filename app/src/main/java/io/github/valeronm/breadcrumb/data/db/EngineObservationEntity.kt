@@ -45,4 +45,5 @@ data class EngineObservationEntity(
     /** Only explicit user confirmations may set this true. */
     val trainingEligible: Boolean,
     val speedAccuracyMetersPerSecond: Double?,
+    val confirmedTripId: String? = null,
 )

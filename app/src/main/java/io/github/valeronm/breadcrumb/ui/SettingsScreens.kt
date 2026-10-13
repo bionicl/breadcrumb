@@ -181,11 +181,47 @@ private fun SettingsGroup(
 @Composable
 internal fun RecordingSettingsScreen(onBack: () -> Unit) {
     SettingsSubScreen(stringResource(R.string.settings_group_recording), onBack) {
+        EngineGenerationGroup()
+        Spacer(Modifier.height(24.dp))
         SamplingGroup()
         Spacer(Modifier.height(24.dp))
         PointFilterGroup()
         Spacer(Modifier.height(24.dp))
         PositioningGroup()
+    }
+}
+
+@Composable
+private fun EngineGenerationGroup() {
+    val context = LocalContext.current
+    val generation = rememberPref(
+        AppSettings.RecorderEngineGeneration.CLASSIC,
+        { AppSettings.recorderEngineGeneration(context) },
+        { AppSettings.setRecorderEngineGeneration(context, it) },
+    )
+    SettingsGroup(
+        stringResource(R.string.settings_engine_generation),
+        stringResource(R.string.settings_engine_generation_description),
+        listOf(generation),
+    ) {
+        GroupedRows(
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_engine_generation_v2),
+                    subtitle = stringResource(R.string.settings_engine_generation_v2_subtitle),
+                    checked = generation.value == AppSettings.RecorderEngineGeneration.LOCOMOTION_V2,
+                    onCheckedChange = {
+                        generation.set(
+                            if (it) {
+                                AppSettings.RecorderEngineGeneration.LOCOMOTION_V2
+                            } else {
+                                AppSettings.RecorderEngineGeneration.CLASSIC
+                            },
+                        )
+                    },
+                )
+            },
+        )
     }
 }
 

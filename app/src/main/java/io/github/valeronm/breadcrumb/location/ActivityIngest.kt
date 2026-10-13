@@ -31,6 +31,7 @@ import io.github.valeronm.breadcrumb.domain.TrackController
 class ActivityIngest(
     private val ingest: FixIngest,
     private val noFixGuard: NoFixGuard,
+    private val alternateMotionVerdict: (Long) -> Motion? = { null },
 ) {
 
     // The ceiling is a constant of the vocabulary, resolved once: [TrackQuality.groupCeiling]
@@ -119,7 +120,7 @@ class ActivityIngest(
         private set
 
     /** The witness's verdict at [atMs] — see [FixIngest.verdict]. */
-    fun motionVerdict(atMs: Long): Motion = ingest.verdict(atMs)
+    fun motionVerdict(atMs: Long): Motion = alternateMotionVerdict(atMs) ?: ingest.verdict(atMs)
 
     /**
      * When a held reading stops waiting. The gate is deliberately clock-free — *when* a held reading

@@ -1,5 +1,9 @@
 package io.github.valeronm.breadcrumb.locomotion
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import kotlin.math.sqrt
 import kotlin.random.Random
 
@@ -75,7 +79,19 @@ class PersonalTransportClassifier private constructor(
         )
     }
 
-    private class ExtraTree(private val root: Node) {
+    /** Versioned payload for private, on-device model storage. */
+    fun encode(): ByteArray = ByteArrayOutputStream().use { bytes ->
+        DataOutputStream(bytes).use { output ->
+            output.writeInt(MODEL_MAGIC)
+            output.writeInt(FEATURE_SCHEMA_VERSION)
+            output.writeInt(independentTripSupport)
+            output.writeInt(forest.size)
+            forest.forEach { writeNode(output, it.root) }
+        }
+        bytes.toByteArray()
+    }
+
+    private class ExtraTree(internal val root: Node) {
         fun predict(values: List<Double?>): Map<TransportMode, Double> {
             var node = root
             while (node is Branch) {
@@ -106,6 +122,7 @@ class PersonalTransportClassifier private constructor(
     companion object {
         const val FEATURE_SCHEMA_VERSION = 1
         private const val MODEL_VERSION = "personal-extra-trees-v1"
+        private const val MODEL_MAGIC = 0x4C4B4D31
         private const val TREES = 32
         private const val MAX_DEPTH = 8
         private const val MIN_LEAF_SAMPLES = 2
@@ -114,6 +131,9 @@ class PersonalTransportClassifier private constructor(
         private const val MIN_TRIPS_PER_MODE = 3
         private const val MIN_VALIDATION_ACCURACY = 0.55f
         private const val MAX_WINDOWS_PER_TRIP = 256
+        private const val MAX_TRAINING_WINDOWS = 20_000
+        private const val MAX_MODEL_BYTES = 2_000_000
+        private val FEATURE_COUNT = 6 + CoarseActivity.entries.size + 1
         private const val RANDOM_SEED = 0x4C4B32
 
         fun train(windows: List<ConfirmedTransportWindow>): PersonalTrainingReport {
@@ -121,8 +141,18 @@ class PersonalTransportClassifier private constructor(
                 it.confirmedByUser && it.provenance == ObservationProvenance.LIVE && it.tripId.isNotBlank() &&
                     it.mode != TransportMode.UNKNOWN && it.features.values().any { value -> value != null }
             }
-            val perTrip = eligible.groupBy { it.tripId }
-                .flatMap { (_, tripWindows) -> sampleEvenly(tripWindows, MAX_WINDOWS_PER_TRIP) }
+            val byTrip = eligible.groupBy { it.tripId }
+                .mapValues { (_, tripWindows) -> sampleEvenly(tripWindows, MAX_WINDOWS_PER_TRIP) }
+            val totalAfterTripCaps = byTrip.values.sumOf { it.size }
+            val cappedTrips = byTrip.values
+            val perTripBudget = if (totalAfterTripCaps > MAX_TRAINING_WINDOWS) {
+                (MAX_TRAINING_WINDOWS / cappedTrips.size).coerceAtLeast(1)
+            } else {
+                MAX_WINDOWS_PER_TRIP
+            }
+            // The number of independent trips can itself exceed the window cap. Keep this a hard
+            // bound even in that case, rather than letting a one-window-per-trip fallback overflow.
+            val perTrip = cappedTrips.flatMap { sampleEvenly(it, perTripBudget) }.take(MAX_TRAINING_WINDOWS)
             val tripsByMode = perTrip.groupBy { it.mode }
                 .mapValues { (_, examples) -> examples.map { it.tripId }.distinct().size }
             val excluded = windows.size - perTrip.size
@@ -174,6 +204,66 @@ class PersonalTransportClassifier private constructor(
                     independentTripSupport = trips.size,
                 ),
             )
+        }
+
+        /** Returns null for corrupt, oversized or schema-incompatible local model data. */
+        fun decode(bytes: ByteArray): PersonalTransportClassifier? = runCatching {
+            require(bytes.size in 16..MAX_MODEL_BYTES)
+            DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+                require(input.readInt() == MODEL_MAGIC)
+                require(input.readInt() == FEATURE_SCHEMA_VERSION)
+                val trips = input.readInt().also { require(it > 0) }
+                val treeCount = input.readInt().also { require(it == TREES) }
+                val forest = List(treeCount) { ExtraTree(readNode(input, 0)) }
+                require(input.available() == 0)
+                PersonalTransportClassifier(forest, trips)
+            }
+        }.getOrNull()
+
+        private fun writeNode(output: DataOutputStream, node: Node) {
+            when (node) {
+                is Leaf -> {
+                    output.writeByte(0)
+                    output.writeInt(node.probabilities.size)
+                    node.probabilities.toSortedMap(compareBy { it.name }).forEach { (mode, probability) ->
+                        output.writeUTF(mode.name)
+                        output.writeDouble(probability)
+                    }
+                }
+                is Branch -> {
+                    output.writeByte(1)
+                    output.writeInt(node.featureIndex)
+                    output.writeDouble(node.threshold)
+                    output.writeBoolean(node.missingGoesLeft)
+                    writeNode(output, node.left)
+                    writeNode(output, node.right)
+                }
+            }
+        }
+
+        private fun readNode(input: DataInputStream, depth: Int): Node {
+            require(depth <= MAX_DEPTH)
+            return when (input.readUnsignedByte()) {
+                0 -> {
+                    val count = input.readInt().also { require(it in 1..TransportMode.entries.size) }
+                    val probabilities = buildMap {
+                        repeat(count) {
+                            val mode = TransportMode.valueOf(input.readUTF())
+                            val probability = input.readDouble().also { require(it.isFinite() && it in 0.0..1.0) }
+                            put(mode, probability)
+                        }
+                    }
+                    require(probabilities.isNotEmpty())
+                    Leaf(probabilities)
+                }
+                1 -> {
+                    val feature = input.readInt().also { require(it in 0 until FEATURE_COUNT) }
+                    val threshold = input.readDouble().also { require(it.isFinite()) }
+                    val missingLeft = input.readBoolean()
+                    Branch(feature, threshold, missingLeft, readNode(input, depth + 1), readNode(input, depth + 1))
+                }
+                else -> error("Unknown personal-model node")
+            }
         }
 
         private fun sampleEvenly(

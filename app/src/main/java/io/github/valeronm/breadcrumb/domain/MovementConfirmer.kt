@@ -11,6 +11,9 @@ sealed interface Motion {
     /** The ground is provably moving, at [speed] averaged over the window that proved it. */
     data class Moving(val speed: Speed) : Motion
 
+    /** The independent movement detector confirmed motion but has no defensible speed estimate. */
+    data object MovingEvidence : Motion
+
     /**
      * The ground is provably still — every fix in the window sits within a few metres of the rest.
      * No consultation distinguishes this from [Unknown] today (the cross-check acts only on positive

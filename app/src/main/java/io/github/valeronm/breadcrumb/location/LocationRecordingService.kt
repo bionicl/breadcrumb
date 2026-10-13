@@ -28,6 +28,7 @@ import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordCardState
+import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.locomotion.CoarseActivity
@@ -38,6 +39,7 @@ import io.github.valeronm.breadcrumb.locomotion.DiagnosticSubsystem
 import io.github.valeronm.breadcrumb.locomotion.EngineDiagnosticEvent
 import io.github.valeronm.breadcrumb.locomotion.LocationMeasurement
 import io.github.valeronm.breadcrumb.locomotion.LocomotionEngine
+import io.github.valeronm.breadcrumb.locomotion.MotionState
 import io.github.valeronm.breadcrumb.locomotion.Observation
 import io.github.valeronm.breadcrumb.locomotion.ObservationSource
 import io.github.valeronm.breadcrumb.locomotion.SensorWindow
@@ -120,7 +122,22 @@ class LocationRecordingService : Service() {
     // debounces raw readings into a trusted activity, the controller that turns those into track
     // lifecycle decisions, and the deafness bookkeeping. This service performs what it decides and
     // nothing more — see [dispatch], which is the only place those effects are carried out.
-    private val core = ActivityIngest(ingest, noFixGuard)
+    private var sessionEngineGeneration = Settings.RecorderEngineGeneration.CLASSIC
+    private val core = ActivityIngest(ingest, noFixGuard) { _ ->
+        if (sessionEngineGeneration == Settings.RecorderEngineGeneration.CLASSIC) return@ActivityIngest null
+        val signal = locomotionEngine.motionSignal(SystemClock.elapsedRealtimeNanos())
+            ?: return@ActivityIngest Motion.Unknown
+        when (signal.state) {
+            MotionState.MOVING -> {
+                signal.speedMetersPerSecond
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?.let { Motion.Moving(Speed.mps(it)) }
+                    ?: Motion.MovingEvidence
+            }
+            MotionState.STATIONARY -> Motion.Stopped
+            MotionState.UNCERTAIN -> Motion.Unknown
+        }
+    }
 
     // Set while the service is armed; duplicate ACTION_STARTs while armed are no-ops.
     @Volatile private var armed = false
@@ -198,6 +215,7 @@ class LocationRecordingService : Service() {
         }
         armed = true
         session++
+        sessionEngineGeneration = Settings.recorderEngineGeneration(this)
         engineSessionId = UUID.randomUUID().toString()
         locomotionEngine.reset()
         armedAtMs = now()
@@ -207,7 +225,8 @@ class LocationRecordingService : Service() {
         // below it belongs to the build it names.
         DebugLog.i(
             TAG,
-            "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)}) [${BuildIdentity.logged}]",
+            "handleStart: arming (autoRecord=${Settings.isAutoRecord(this)}, engine=$sessionEngineGeneration) " +
+                "[${BuildIdentity.logged}]",
         )
         // Armed with nothing recording is a state [recordCardState] already names, so the first
         // notification is worded by the same call the updates use rather than paired again here —
@@ -624,6 +643,7 @@ class LocationRecordingService : Service() {
     /** The witness's verdict as one log word. Logs are never localized — see the conventions. */
     private fun groundOf(motion: Motion): String = when (motion) {
         is Motion.Moving -> "moving@${"%.1f".format(Locale.US, motion.speed.kmh)}kmh"
+        Motion.MovingEvidence -> "moving@unspecified-speed"
         Motion.Stopped -> "stopped"
         Motion.Unknown -> "unknown"
     }

@@ -55,6 +55,16 @@ interface TrackDao {
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
 
+    @Query("UPDATE tracks SET activityType = :activityType, activityConfirmedByUser = 1 WHERE id = :trackId")
+    suspend fun confirmActivityType(trackId: Long, activityType: String)
+
+    @Query(
+        "UPDATE tracks SET engineSuggestedActivityType = :activityType, " +
+            "engineSuggestionConfidence = :confidence, engineSuggestionModelVersion = :modelVersion " +
+            "WHERE id = :trackId AND activityConfirmedByUser = 0",
+    )
+    suspend fun setEngineSuggestion(trackId: Long, activityType: String?, confidence: Float?, modelVersion: String?)
+
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId AND endedAt IS NULL")
     suspend fun setOpenTrackActivityType(trackId: Long, activityType: String)
 
@@ -65,7 +75,8 @@ interface TrackDao {
      * next edge-stay sweep.
      */
     @Query(
-        "UPDATE tracks SET activityType = :activityType, startedAt = :startedAt, endedAt = :endedAt " +
+        "UPDATE tracks SET activityType = :activityType, startedAt = :startedAt, endedAt = :endedAt, " +
+            "activityConfirmedByUser = 1 " +
             "WHERE id = :trackId",
     )
     suspend fun setManualTrack(trackId: Long, activityType: String, startedAt: Long, endedAt: Long)

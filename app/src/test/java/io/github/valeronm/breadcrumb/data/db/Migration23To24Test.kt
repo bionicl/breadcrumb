@@ -15,6 +15,10 @@ import org.robolectric.RobolectricTestRunner
 class Migration23To24Test {
     private val fixture = MigrationDb(23) { db ->
         db.execSQL(
+            "CREATE TABLE tracks (id INTEGER NOT NULL PRIMARY KEY, activityType TEXT NOT NULL, " +
+                "startedAt INTEGER NOT NULL, endedAt INTEGER)",
+        )
+        db.execSQL(
             "CREATE TABLE engine_observations (id TEXT NOT NULL PRIMARY KEY, sessionId TEXT NOT NULL, " +
                 "bootEpochId TEXT NOT NULL, wallTimeMs INTEGER NOT NULL, elapsedRealtimeNanos INTEGER NOT NULL, " +
                 "source TEXT NOT NULL, provenance TEXT NOT NULL, latitudeDegrees REAL, longitudeDegrees REAL, " +
@@ -59,6 +63,7 @@ class Migration23To24Test {
     @Test
     fun `migrated observation table matches Room`() {
         AppDatabase.MIGRATION_23_24.migrate(db)
+        AppDatabase.MIGRATION_24_25.migrate(db)
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()

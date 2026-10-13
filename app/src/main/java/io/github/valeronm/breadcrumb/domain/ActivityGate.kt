@@ -171,6 +171,7 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      * jump ceiling already let through.
      */
     private fun tooFastFor(raw: ActivityType, motion: Motion): Boolean {
+        if (raw == ActivityType.STILL && motion == Motion.MovingEvidence) return true
         val ceiling = when {
             raw == ActivityType.STILL -> Speed.ZERO
             raw.trackGroup == TrackGroup.FOOT -> footCeiling

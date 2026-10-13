@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -86,6 +87,12 @@ data class Track(
     val startPlaceId: Long? = null,
     /** [startPlaceId] for the last fix. */
     val endPlaceId: Long? = null,
+    /** True only after an explicit human confirmation; classifier output never sets this. */
+    @ColumnInfo(defaultValue = "0") val activityConfirmedByUser: Boolean = false,
+    /** A model suggestion remains separate from the accepted activity label. */
+    val engineSuggestedActivityType: String? = null,
+    val engineSuggestionConfidence: Float? = null,
+    val engineSuggestionModelVersion: String? = null,
 )
 
 @Entity(
@@ -350,4 +357,8 @@ data class TrackSummary(
     /** [Track.startPlaceId] and [Track.endPlaceId]: the places this track's ends are stated to. */
     val startPlaceId: Long?,
     val endPlaceId: Long?,
+    val activityConfirmedByUser: Boolean = false,
+    val engineSuggestedActivityType: String? = null,
+    val engineSuggestionConfidence: Float? = null,
+    val engineSuggestionModelVersion: String? = null,
 )

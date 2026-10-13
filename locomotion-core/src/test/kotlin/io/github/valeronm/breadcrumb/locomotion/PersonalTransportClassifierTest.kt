@@ -41,6 +41,10 @@ class PersonalTransportClassifierTest {
         assertEquals(TransportMode.WALKING, walking.scores.first().mode)
         assertEquals(TransportMode.CAR, car.scores.first().mode)
         assertEquals("personal-extra-trees-v1", walking.modelVersion)
+
+        val restored = assertNotNull(PersonalTransportClassifier.decode(model.encode()))
+        assertEquals(walking, restored.predict(walkingFeatures()))
+        assertEquals(car, restored.predict(carFeatures()))
     }
 
     @Test fun `zero values and missing features stay distinct`() {
@@ -51,6 +55,20 @@ class PersonalTransportClassifierTest {
         assertNull(missing.first())
         assertEquals(0.0, measuredZero.last())
         assertEquals(0.0, missing.last())
+    }
+
+    @Test fun `corrupt and incompatible model payloads are rejected`() {
+        assertNull(PersonalTransportClassifier.decode(byteArrayOf(1, 2, 3)))
+        val valid = assertNotNull(
+            PersonalTransportClassifier.train(buildList {
+                repeat(10) { index ->
+                    add(window("walk-$index", TransportMode.WALKING, walkingFeatures(index)))
+                    add(window("car-$index", TransportMode.CAR, carFeatures(index)))
+                }
+            }).classifier,
+        ).encode()
+        valid[4] = 99 // feature schema version
+        assertNull(PersonalTransportClassifier.decode(valid))
     }
 
     @Test fun `one long trip is capped and cannot impersonate independent support`() {

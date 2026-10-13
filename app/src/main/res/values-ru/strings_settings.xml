@@ -7,6 +7,10 @@
     <string name="settings_group_data">Данные</string>
     <string name="settings_trips">Поездки</string>
     <string name="settings_sampling">Интервал записи</string>
+    <string name="settings_engine_generation">Движок записи</string>
+    <string name="settings_engine_generation_description">Выберите сигналы движения для определения границ поездки. Настройка вступит в силу при следующем запуске записи.</string>
+    <string name="settings_engine_generation_v2">Использовать поколение 2 (экспериментально)</string>
+    <string name="settings_engine_generation_v2_subtitle">Новый движок датчиков и геолокации подтверждает движение и остановки. Выключите, чтобы вернуться к поколению 1.</string>
     <string name="settings_point_quality">Фильтр точек</string>
     <string name="settings_gps_search">Определение местоположения</string>
     <string name="settings_departure_triggers">Начало поездки</string>

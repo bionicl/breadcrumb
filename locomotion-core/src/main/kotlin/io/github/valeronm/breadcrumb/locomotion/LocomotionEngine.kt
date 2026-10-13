@@ -14,6 +14,14 @@ data class ObservationProcessingResult(
     val ignored: Boolean = false,
 )
 
+/** Fresh motion evidence offered to the Android recorder; the signal expires with its input. */
+data class EngineMotionSignal(
+    val state: MotionState,
+    val confidence: Float,
+    val speedMetersPerSecond: Double?,
+    val observedElapsedRealtimeNanos: Long,
+)
+
 /** Deterministic observation -> filter -> motion pipeline; Android only supplies and persists inputs. */
 class LocomotionEngine(
     private val locationFilter: LocationKalmanFilter = LocationKalmanFilter(),
@@ -30,6 +38,7 @@ class LocomotionEngine(
     private var lastActivity: DetectedActivityEvidence? = null
     private var lastActivityObservationId: String? = null
     private var latestMotion: MotionEstimate? = null
+    private var latestMotionSignal: EngineMotionSignal? = null
 
     init {
         require(maximumSensorAgeNanos > 0)
@@ -129,6 +138,16 @@ class LocomotionEngine(
             )
             motion = motionDetector.update(evidence)
             latestMotion = motion
+            latestMotionSignal = EngineMotionSignal(
+                state = motion.state,
+                confidence = motion.confidence,
+                speedMetersPerSecond = filterResult?.let { location ->
+                    val east = location.velocityEastMetersPerSecond ?: return@let null
+                    val north = location.velocityNorthMetersPerSecond ?: return@let null
+                    sqrt(east * east + north * north).takeIf { it.isFinite() }
+                },
+                observedElapsedRealtimeNanos = observation.elapsedRealtimeNanos,
+            )
             emitted += EngineDiagnosticEvent(
                 id = "${observation.id}:motion",
                 wallTimeMs = observation.wallTimeMs,
@@ -150,6 +169,13 @@ class LocomotionEngine(
 
     @Synchronized
     fun latestMotionEstimate(): MotionEstimate? = latestMotion
+
+    @Synchronized
+    fun motionSignal(nowElapsedRealtimeNanos: Long, maximumAgeNanos: Long = DEFAULT_MAX_SENSOR_AGE_NANOS): EngineMotionSignal? =
+        latestMotionSignal?.takeIf {
+            nowElapsedRealtimeNanos >= it.observedElapsedRealtimeNanos &&
+                nowElapsedRealtimeNanos - it.observedElapsedRealtimeNanos <= maximumAgeNanos
+        }
 
     @Synchronized
     fun reset() {
@@ -174,6 +200,7 @@ class LocomotionEngine(
         lastActivity = null
         lastActivityObservationId = null
         latestMotion = null
+        latestMotionSignal = null
     }
 
     private fun event(

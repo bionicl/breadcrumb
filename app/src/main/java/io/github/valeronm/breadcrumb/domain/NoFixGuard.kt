@@ -84,6 +84,7 @@ class NoFixGuard(
         return giveUpMs > 0 &&
             !suspended &&
             motion !is Motion.Moving &&
+            motion != Motion.MovingEvidence &&
             (firstFixWaitOver || nowMs - maxOf(probeStartedMs, lastAcceptedMs) >= giveUpMs)
     }
 
