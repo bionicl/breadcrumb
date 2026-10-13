@@ -18,13 +18,19 @@ class ObservationMappingTest {
             wallTimeMs = 1000,
             elapsedRealtimeNanos = 2000,
             source = ObservationSource.FUSED_LOCATION,
-            location = LocationMeasurement(1.0, -2.0, 8.0),
+            location = LocationMeasurement(
+                latitudeDegrees = 1.0,
+                longitudeDegrees = -2.0,
+                horizontalAccuracyMeters = 8.0,
+                speedAccuracyMetersPerSecond = 0.4,
+            ),
             provenance = ObservationProvenance.SYNTHETIC,
         )
 
         val row = observation.toEntity()
 
         assertNull(row.speedMetersPerSecond)
+        assertEquals(0.4, row.speedAccuracyMetersPerSecond!!, 0.0)
         assertEquals("SYNTHETIC", row.provenance)
         assertFalse(row.trainingEligible)
         assertNull(row.confirmedTransportMode)

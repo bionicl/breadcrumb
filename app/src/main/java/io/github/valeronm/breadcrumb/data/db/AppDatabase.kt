@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -251,6 +251,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Preserve reported velocity uncertainty for the ENU filter (LK-02). */
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE engine_observations ADD COLUMN speedAccuracyMetersPerSecond REAL")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -262,7 +269,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-            MIGRATION_22_23,
+            MIGRATION_22_23, MIGRATION_23_24,
         )
 
         fun get(context: Context): AppDatabase =

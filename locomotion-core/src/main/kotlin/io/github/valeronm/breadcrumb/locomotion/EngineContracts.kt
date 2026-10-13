@@ -25,6 +25,7 @@ data class LocationMeasurement(
     val bearingDegrees: Double? = null,
     val altitudeMeters: Double? = null,
     val verticalAccuracyMeters: Double? = null,
+    val speedAccuracyMetersPerSecond: Double? = null,
 )
 
 /** Nullable values are intentional: unavailable is different from a measured zero. */

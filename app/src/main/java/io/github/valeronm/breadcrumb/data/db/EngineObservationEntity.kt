@@ -44,4 +44,5 @@ data class EngineObservationEntity(
     val qualityFlags: Int,
     /** Only explicit user confirmations may set this true. */
     val trainingEligible: Boolean,
+    val speedAccuracyMetersPerSecond: Double?,
 )
