@@ -23,4 +23,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Breadcrumb"
-include(":app")
+include(":app", ":locomotion-core")
