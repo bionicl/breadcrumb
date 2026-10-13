@@ -687,15 +687,23 @@ internal fun EngineDiagnosticsScreen(onBack: () -> Unit) {
             Text(stringResource(R.string.engine_diagnostics_empty), style = MaterialTheme.typography.bodySmall)
         } else {
             events.asReversed().take(20).forEach { event ->
-                Text(
-                    "${DebugLog.formatTime(event.wallTimeMs)}  ${event.subsystem} · ${event.code}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when (event.level) {
-                        DiagnosticLevel.ERROR -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.padding(vertical = 3.dp),
-                )
+                Column(modifier = Modifier.padding(vertical = 3.dp)) {
+                    Text(
+                        "${DebugLog.formatTime(event.wallTimeMs)}  ${event.subsystem} · ${event.code}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (event.level) {
+                            DiagnosticLevel.ERROR -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    if (event.metrics.isNotEmpty()) {
+                        Text(
+                            event.metrics.entries.joinToString { "${it.key.name}=${it.value}" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }

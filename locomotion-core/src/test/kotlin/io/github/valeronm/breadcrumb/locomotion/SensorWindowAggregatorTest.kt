@@ -23,8 +23,8 @@ class SensorWindowAggregatorTest {
     }
 
     @Test fun `rotating the phone does not change the horizontal magnitude`() {
-        val first = SensorWindowAggregator(setOf(SensorFeature.ACCELEROMETER, SensorFeature.ROTATION_VECTOR))
-        val rotated = SensorWindowAggregator(setOf(SensorFeature.ACCELEROMETER, SensorFeature.ROTATION_VECTOR))
+        val first = SensorWindowAggregator(setOf(SensorFeature.ACCELEROMETER, SensorFeature.GRAVITY))
+        val rotated = SensorWindowAggregator(setOf(SensorFeature.ACCELEROMETER, SensorFeature.GRAVITY))
         var a: SensorWindow? = null
         var b: SensorWindow? = null
         for (second in 0L..30L) {

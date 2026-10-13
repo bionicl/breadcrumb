@@ -52,8 +52,10 @@ class Migration21To22Test {
 
     @Suppress("DEPRECATION")
     @Test
-    fun `new tables match Room entities`() {
+    fun `full upgrade brings new tables to the current Room entity shape`() {
         AppDatabase.MIGRATION_21_22.migrate(db)
+        AppDatabase.MIGRATION_22_23.migrate(db)
+        AppDatabase.MIGRATION_23_24.migrate(db)
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()

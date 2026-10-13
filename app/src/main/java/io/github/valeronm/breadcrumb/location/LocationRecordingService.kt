@@ -9,6 +9,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.IBinder
 import android.os.SystemClock
+import android.provider.Settings.Global
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
@@ -16,6 +17,8 @@ import androidx.core.location.LocationRequestCompat
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.toEntity
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DepartureWatch
@@ -27,9 +30,21 @@ import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordCardState
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
+import io.github.valeronm.breadcrumb.locomotion.CoarseActivity
+import io.github.valeronm.breadcrumb.locomotion.DetectedActivityEvidence
+import io.github.valeronm.breadcrumb.locomotion.DiagnosticLevel
+import io.github.valeronm.breadcrumb.locomotion.DiagnosticMetric
+import io.github.valeronm.breadcrumb.locomotion.DiagnosticSubsystem
+import io.github.valeronm.breadcrumb.locomotion.EngineDiagnosticEvent
+import io.github.valeronm.breadcrumb.locomotion.LocationMeasurement
+import io.github.valeronm.breadcrumb.locomotion.LocomotionEngine
+import io.github.valeronm.breadcrumb.locomotion.Observation
+import io.github.valeronm.breadcrumb.locomotion.ObservationSource
+import io.github.valeronm.breadcrumb.locomotion.SensorWindow
 import io.github.valeronm.breadcrumb.ui.recorderWords
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
+import io.github.valeronm.breadcrumb.util.LocomotionDiagnostics
 import io.github.valeronm.breadcrumb.util.canStartLocationService
 import io.github.valeronm.breadcrumb.util.isGranted
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -44,6 +59,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Foreground service that records GPS while the app is in the background, opening and closing tracks
@@ -63,6 +79,10 @@ class LocationRecordingService : Service() {
             CoroutineExceptionHandler { _, e -> DebugLog.e(TAG, "recording coroutine failed", e) },
     )
     private val mutex = Mutex()
+    private val locomotionEngine = LocomotionEngine()
+    private var engineSessionId = UUID.randomUUID().toString()
+    private val bootEpochId by lazy(::currentBootEpochId)
+    private val sensorSampler by lazy { MotionSensorSampler(this, ::onSensorWindow) }
 
     private lateinit var repository: TrackRepository
     private lateinit var activityManager: ActivityRecognitionManager
@@ -178,6 +198,8 @@ class LocationRecordingService : Service() {
         }
         armed = true
         session++
+        engineSessionId = UUID.randomUUID().toString()
+        locomotionEngine.reset()
         armedAtMs = now()
         transitionSinceArm = false
         // Stamped on arming rather than once per process: an install fires the package-replaced
@@ -319,11 +341,13 @@ class LocationRecordingService : Service() {
      */
     fun onActivityChanged(activity: ActivityType, eventTimeMs: Long?, onApplied: () -> Unit) {
         transitionSinceArm = true
+        if (armed) processEngineActivity(activity, eventTimeMs)
         applyAsync("reading", onApplied) { applyActivity(activity, eventTimeMs, core::onReading) }
     }
 
     /** The arm-time snapshot reading — never a transition for [transitionSinceArm]'s purposes. */
     fun onSnapshot(activity: ActivityType, eventTimeMs: Long?, onApplied: () -> Unit) {
+        if (armed) processEngineActivity(activity, eventTimeMs)
         applyAsync("snapshot", onApplied) {
             // The receiver has already logged this snapshot as acting.
             if (core.recording) DebugLog.i(TAG, "snapshot dropped — already recording")
@@ -647,6 +671,27 @@ class LocationRecordingService : Service() {
     private fun startLocationUpdates() {
         if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) return
         stopLocationUpdates()
+        val sensorStatus = sensorSampler.start()
+        DebugLog.i(
+            TAG,
+            "motion sensors started: available=${sensorStatus.availableSensors.map { it.type }} " +
+                "registered=${sensorStatus.registeredSensorTypes}",
+        )
+        LocomotionDiagnostics.record(
+            EngineDiagnosticEvent(
+                id = "$engineSessionId:sensors:registered:${SystemClock.elapsedRealtimeNanos()}",
+                wallTimeMs = now(),
+                elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos(),
+                subsystem = DiagnosticSubsystem.CAPTURE,
+                code = "capture.sensor_sampler_started",
+                level = if (sensorStatus.registeredSensorTypes.isEmpty()) DiagnosticLevel.WARNING else DiagnosticLevel.INFO,
+                metrics = mapOf(
+                    DiagnosticMetric.AVAILABLE_SENSOR_COUNT to sensorStatus.availableSensors.size.toDouble(),
+                    DiagnosticMetric.REGISTERED_SENSOR_COUNT to sensorStatus.registeredSensorTypes.size.toDouble(),
+                    DiagnosticMetric.REQUESTED_SENSOR_PERIOD_MICROS to sensorStatus.requestedPeriodMicros.toDouble(),
+                ),
+            ),
+        )
         val intervalSec = Settings.minIntervalSec(this)
         val intervalMs = intervalSec * 1000L
         val minDistanceM = Settings.minDistanceM(this).toFloat()
@@ -694,6 +739,7 @@ class LocationRecordingService : Service() {
             DebugLog.i(TAG, "location updates stopped")
         }
         gpsListener = null
+        sensorSampler.stop()
         gnss.unregister()
         resumeSignals.disarm()
     }
@@ -824,7 +870,107 @@ class LocationRecordingService : Service() {
     // current track) instead of racing them.
     private fun handleLocations(locations: List<Location>) {
         if (locations.isEmpty()) return
+        if (armed) locations.forEach(::processEngineLocation)
         launchArmed("fixes") { ingestLocations(locations) }
+    }
+
+    private fun processEngineLocation(location: Location) {
+        val elapsedNanos = location.elapsedRealtimeNanos.takeIf { it > 0L } ?: SystemClock.elapsedRealtimeNanos()
+        val observation = Observation(
+            id = "$engineSessionId:location:$elapsedNanos:${UUID.randomUUID()}",
+            sessionId = engineSessionId,
+            bootEpochId = bootEpochId,
+            wallTimeMs = location.time.takeIf { it > 0L } ?: now(),
+            elapsedRealtimeNanos = elapsedNanos,
+            source = ObservationSource.RAW_GNSS,
+            location = LocationMeasurement(
+                latitudeDegrees = location.latitude,
+                longitudeDegrees = location.longitude,
+                horizontalAccuracyMeters = if (location.hasAccuracy()) location.accuracy.toDouble() else null,
+                speedMetersPerSecond = if (location.hasSpeed()) location.speed.toDouble() else null,
+                bearingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null,
+                altitudeMeters = if (location.hasAltitude()) location.altitude else null,
+                verticalAccuracyMeters = if (location.hasVerticalAccuracy()) location.verticalAccuracyMeters.toDouble() else null,
+                speedAccuracyMetersPerSecond = if (location.hasSpeedAccuracy()) location.speedAccuracyMetersPerSecond.toDouble() else null,
+            ),
+        )
+        processEngineObservation(observation)
+    }
+
+    private fun processEngineActivity(activity: ActivityType, eventTimeMs: Long?) {
+        val coarseActivity = when (activity) {
+            ActivityType.WALKING -> CoarseActivity.WALKING
+            ActivityType.RUNNING -> CoarseActivity.RUNNING
+            ActivityType.CYCLING -> CoarseActivity.ON_BICYCLE
+            ActivityType.STILL -> CoarseActivity.STILL
+            ActivityType.DRIVING, ActivityType.TAXI, ActivityType.TRANSIT, ActivityType.FERRY -> CoarseActivity.IN_VEHICLE
+            else -> CoarseActivity.UNKNOWN
+        }
+        val ageNanos = ((now() - (eventTimeMs ?: now())).coerceAtLeast(0L)) * 1_000_000L
+        val elapsedNanos = (SystemClock.elapsedRealtimeNanos() - ageNanos).coerceAtLeast(0L)
+        processEngineObservation(
+            Observation(
+                id = "$engineSessionId:activity:$elapsedNanos:${UUID.randomUUID()}",
+                sessionId = engineSessionId,
+                bootEpochId = bootEpochId,
+                wallTimeMs = eventTimeMs ?: now(),
+                elapsedRealtimeNanos = elapsedNanos,
+                source = ObservationSource.ACTIVITY_RECOGNITION,
+                detectedActivity = DetectedActivityEvidence(coarseActivity, ACTIVITY_TRANSITION_CONFIDENCE, elapsedNanos),
+            ),
+        )
+    }
+
+    private fun onSensorWindow(window: SensorWindow) {
+        if (!armed) return
+        val elapsedNanos = window.endElapsedRealtimeNanos
+        val observation = Observation(
+            id = observationIdForSensorWindow(elapsedNanos),
+            sessionId = engineSessionId,
+            bootEpochId = bootEpochId,
+            wallTimeMs = now(),
+            elapsedRealtimeNanos = elapsedNanos,
+            source = ObservationSource.SENSOR_WINDOW,
+            sensors = window,
+        )
+        processEngineObservation(observation)
+        val status = sensorSampler.status()
+        LocomotionDiagnostics.record(
+            EngineDiagnosticEvent(
+                id = "${observation.id}:status",
+                wallTimeMs = now(),
+                elapsedRealtimeNanos = elapsedNanos,
+                subsystem = DiagnosticSubsystem.CAPTURE,
+                code = "capture.sensor_window",
+                level = DiagnosticLevel.INFO,
+                evidenceObservationIds = listOf(observation.id),
+                metrics = buildMap {
+                    put(DiagnosticMetric.SAMPLE_COUNT, window.sampleCount.toDouble())
+                    put(DiagnosticMetric.REGISTERED_SENSOR_COUNT, status.registeredSensorTypes.size.toDouble())
+                    status.measuredAccelerationPeriodMicros?.let {
+                        put(DiagnosticMetric.OBSERVED_SENSOR_PERIOD_MICROS, it.toDouble())
+                    }
+                },
+            ),
+        )
+    }
+
+    private fun observationIdForSensorWindow(elapsedNanos: Long) = "$engineSessionId:sensors:$elapsedNanos"
+
+    private fun processEngineObservation(observation: Observation) {
+        val result = locomotionEngine.process(observation)
+        result.diagnostics.forEach(LocomotionDiagnostics::record)
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                AppDatabase.get(applicationContext).locomotionDao().insertObservation(observation.toEntity())
+            }.onFailure { DebugLog.e(TAG, "engine observation persistence failed", it) }
+        }
+    }
+
+    private fun currentBootEpochId(): String = runCatching {
+        Global.getInt(contentResolver, Global.BOOT_COUNT).toString()
+    }.getOrElse {
+        "uptime-${System.currentTimeMillis() - SystemClock.elapsedRealtime()}"
     }
 
     /** The platform's own absence conventions (`hasX()`), answered once, at the Android boundary. */
@@ -966,6 +1112,8 @@ class LocationRecordingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
+        private const val ACTIVITY_TRANSITION_CONFIDENCE = 80
+
         @Volatile
         var instance: LocationRecordingService? = null
             private set

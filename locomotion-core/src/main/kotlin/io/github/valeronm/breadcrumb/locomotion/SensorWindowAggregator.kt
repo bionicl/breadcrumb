@@ -77,7 +77,7 @@ class SensorWindowAggregator(
         val cadence = if (durationSeconds > 0.0 && steps != null) steps / durationSeconds else null
         val observedFeatures = buildSet {
             if (acceleration.isNotEmpty()) add(SensorFeature.ACCELEROMETER)
-            if (vertical.isNotEmpty()) add(SensorFeature.ROTATION_VECTOR)
+            if (vertical.isNotEmpty()) add(SensorFeature.GRAVITY)
             if (window.any { it.cumulativeSteps != null }) add(SensorFeature.STEP_COUNTER)
             if (window.any { it.stepDetected }) add(SensorFeature.STEP_DETECTOR)
         }

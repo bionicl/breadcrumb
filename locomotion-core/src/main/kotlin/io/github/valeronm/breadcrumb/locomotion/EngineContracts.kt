@@ -44,7 +44,7 @@ data class SensorWindow(
 
 enum class SensorFeature(val bitMask: Int) {
     ACCELEROMETER(1 shl 0), STEP_COUNTER(1 shl 1), STEP_DETECTOR(1 shl 2),
-    ROTATION_VECTOR(1 shl 3), BAROMETER(1 shl 4),
+    ROTATION_VECTOR(1 shl 3), BAROMETER(1 shl 4), GRAVITY(1 shl 5),
 }
 
 data class DetectedActivityEvidence(

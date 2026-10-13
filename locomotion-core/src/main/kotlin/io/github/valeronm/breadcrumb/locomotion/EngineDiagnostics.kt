@@ -26,6 +26,10 @@ enum class DiagnosticMetric {
     SAMPLE_COUNT,
     QUEUE_DEPTH,
     PROCESSING_DURATION_MILLIS,
+    REQUESTED_SENSOR_PERIOD_MICROS,
+    OBSERVED_SENSOR_PERIOD_MICROS,
+    AVAILABLE_SENSOR_COUNT,
+    REGISTERED_SENSOR_COUNT,
 }
 
 /** Bounded in-memory journal. Callers can persist selected summaries separately when needed. */
