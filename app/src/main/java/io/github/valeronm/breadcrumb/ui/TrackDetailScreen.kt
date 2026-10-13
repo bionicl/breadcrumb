@@ -402,7 +402,7 @@ internal fun TrackDetailScreen(
                     // Selecting applies immediately: the summary flow re-emits and the title,
                     // icon, colors and speed scale all follow — and so does the drawn path, on a
                     // choice that re-derives the overrun (see the point load above).
-                    for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
+                    for (option in ActivityType.entries.filter { it != ActivityType.UNKNOWN }) {
                         OptionRow(
                             icon = activityIcon(option),
                             label = stringResource(option.labelRes),
