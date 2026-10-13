@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.locomotion.EngineCheckpoint
 import io.github.valeronm.breadcrumb.locomotion.FilterSnapshot
 import io.github.valeronm.breadcrumb.locomotion.MotionState
 import io.github.valeronm.breadcrumb.locomotion.RecordingState
+import java.nio.ByteBuffer
 
 fun EngineCheckpoint.toEntity() = EngineCheckpointEntity(
     sessionId = sessionId,
@@ -17,8 +18,15 @@ fun EngineCheckpoint.toEntity() = EngineCheckpointEntity(
     filteredYmeters = filter?.yMeters,
     filteredVelocityXMetersPerSecond = filter?.velocityXMetersPerSecond,
     filteredVelocityYMetersPerSecond = filter?.velocityYMetersPerSecond,
-    covarianceXX = filter?.covarianceXX,
-    covarianceYY = filter?.covarianceYY,
+    covarianceXX = filter?.covariance?.get(0),
+    covarianceYY = filter?.covariance?.get(5),
+    filterCovariance = filter?.covariance?.let { values ->
+        ByteBuffer.allocate(values.size * java.lang.Double.BYTES).apply {
+            values.forEach(::putDouble)
+        }.array()
+    },
+    filterProjectionOriginLatitudeDegrees = filter?.projectionOriginLatitudeDegrees,
+    filterProjectionOriginLongitudeDegrees = filter?.projectionOriginLongitudeDegrees,
     activeSegmentId = activeSegmentId,
     configurationVersion = configurationVersion,
     modelVersion = modelVersion,
@@ -45,7 +53,24 @@ private fun EngineCheckpointEntity.filterSnapshot(): FilterSnapshot? {
     val y = filteredYmeters ?: return null
     val velocityX = filteredVelocityXMetersPerSecond ?: return null
     val velocityY = filteredVelocityYMetersPerSecond ?: return null
-    val covarianceX = covarianceXX ?: return null
-    val covarianceY = covarianceYY ?: return null
-    return FilterSnapshot(x, y, velocityX, velocityY, covarianceX, covarianceY)
+    val covarianceBytes = filterCovariance ?: return null
+    if (covarianceBytes.size != 16 * java.lang.Double.BYTES) return null
+    val originLatitude = filterProjectionOriginLatitudeDegrees ?: return null
+    val originLongitude = filterProjectionOriginLongitudeDegrees ?: return null
+    val covariance = ByteBuffer.wrap(covarianceBytes).asDoubleBuffer().let { buffer ->
+        List(buffer.remaining()) { buffer.get() }
+    }
+    val elapsedNanos = lastElapsedRealtimeNanos ?: return null
+    return runCatching {
+        FilterSnapshot(
+            xMeters = x,
+            yMeters = y,
+            velocityXMetersPerSecond = velocityX,
+            velocityYMetersPerSecond = velocityY,
+            covariance = covariance,
+            projectionOriginLatitudeDegrees = originLatitude,
+            projectionOriginLongitudeDegrees = originLongitude,
+            lastElapsedRealtimeNanos = elapsedNanos,
+        )
+    }.getOrNull()
 }

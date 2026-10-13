@@ -47,4 +47,19 @@ class LocationKalmanFilterTest {
         assertNotNull(result.filtered)
         assertTrue(result.filtered.longitudeDegrees in 24.0..24.0011)
     }
+
+    @Test fun `restored filter continues identically to uninterrupted filter`() {
+        val uninterrupted = LocationKalmanFilter()
+        uninterrupted.update(LocationMeasurement(60.0, 24.0, 5.0, 3.0, 90.0, speedAccuracyMetersPerSecond = 0.5), 1_000_000_000L)
+        uninterrupted.update(LocationMeasurement(60.0, 24.00003, 6.0, 3.2, 90.0, speedAccuracyMetersPerSecond = 0.6), 3_000_000_000L)
+
+        val restored = LocationKalmanFilter()
+        restored.restore(requireNotNull(uninterrupted.snapshot()))
+        val next = LocationMeasurement(60.0, 24.00008, 4.0, 3.1, 90.0, speedAccuracyMetersPerSecond = 0.4)
+        val continuousResult = uninterrupted.update(next, 5_000_000_000L)
+        val resumedResult = restored.update(next, 5_000_000_000L)
+
+        assertEquals(continuousResult, resumedResult)
+        assertEquals(uninterrupted.snapshot(), restored.snapshot())
+    }
 }

@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
     ],
-    version = 26,
+    version = 27,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -290,6 +290,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Store the full local projection and covariance required to resume the LK-02 filter exactly. */
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE engine_checkpoints ADD COLUMN filterCovariance BLOB")
+                db.execSQL("ALTER TABLE engine_checkpoints ADD COLUMN filterProjectionOriginLatitudeDegrees REAL")
+                db.execSQL("ALTER TABLE engine_checkpoints ADD COLUMN filterProjectionOriginLongitudeDegrees REAL")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -301,7 +310,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
+            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27,
         )
 
         fun get(context: Context): AppDatabase =

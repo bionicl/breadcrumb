@@ -91,9 +91,39 @@ class LocationKalmanFilter(
             yMeters = state[POS_NORTH],
             velocityXMetersPerSecond = state[VEL_EAST],
             velocityYMetersPerSecond = state[VEL_NORTH],
-            covarianceXX = covariance[POS_EAST][POS_EAST],
-            covarianceYY = covariance[POS_NORTH][POS_NORTH],
+            covariance = covariance.flatMap { it.toList() },
+            projectionOriginLatitudeDegrees = projection!!.origin.latitudeDegrees,
+            projectionOriginLongitudeDegrees = projection!!.origin.longitudeDegrees,
+            lastElapsedRealtimeNanos = lastElapsedNanos
+                ?: error("Initialized projection must have a monotonic timestamp"),
         )
+    }
+
+    /** Restores the exact filter state; callers must reject checkpoints from a different boot epoch. */
+    @Synchronized
+    fun restore(snapshot: FilterSnapshot) {
+        val restoredState = doubleArrayOf(
+            snapshot.xMeters,
+            snapshot.yMeters,
+            snapshot.velocityXMetersPerSecond,
+            snapshot.velocityYMetersPerSecond,
+        )
+        require(restoredState.all(Double::isFinite))
+        val restoredCovariance = Array(STATE_SIZE) { row ->
+            DoubleArray(STATE_SIZE) { column -> snapshot.covariance[row * STATE_SIZE + column] }
+        }
+        require((0 until STATE_SIZE).all { restoredCovariance[it][it] >= 0.0 })
+        require((0 until STATE_SIZE).all { row ->
+            (0 until STATE_SIZE).all { column ->
+                kotlin.math.abs(restoredCovariance[row][column] - restoredCovariance[column][row]) <= COVARIANCE_SYMMETRY_EPSILON
+            }
+        })
+        projection = LocalEnuProjection(
+            GeoCoordinate(snapshot.projectionOriginLatitudeDegrees, snapshot.projectionOriginLongitudeDegrees),
+        )
+        state = restoredState
+        covariance = restoredCovariance
+        lastElapsedNanos = snapshot.lastElapsedRealtimeNanos
     }
 
     @Synchronized
@@ -215,7 +245,7 @@ class LocationKalmanFilter(
     private fun multiply(matrix: Array<DoubleArray>, vector: DoubleArray) =
         DoubleArray(STATE_SIZE) { row -> (0 until STATE_SIZE).sumOf { matrix[row][it] * vector[it] } }
 
-    private class LocalEnuProjection(origin: GeoCoordinate) {
+    private class LocalEnuProjection(val origin: GeoCoordinate) {
         private val originLat = Math.toRadians(origin.latitudeDegrees)
         private val originLon = Math.toRadians(origin.longitudeDegrees)
         private val originX = EARTH_RADIUS_METERS * cos(originLat) * cos(originLon)
@@ -257,5 +287,6 @@ class LocationKalmanFilter(
         private const val DEFAULT_ACCELERATION_NOISE_MPS2 = 2.5
         private const val DEFAULT_OUTLIER_SIGMA_LIMIT = 12.0
         private const val MAX_PREDICTION_STEP_SECONDS = 120.0
+        private const val COVARIANCE_SYMMETRY_EPSILON = 1e-8
     }
 }

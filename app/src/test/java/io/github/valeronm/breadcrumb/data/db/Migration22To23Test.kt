@@ -47,8 +47,9 @@ class Migration22To23Test {
 
     @Suppress("DEPRECATION")
     @Test
-    fun `checkpoint table matches Room entity`() {
+    fun `checkpoint table after exact state migration matches current Room entity`() {
         AppDatabase.MIGRATION_22_23.migrate(db)
+        AppDatabase.MIGRATION_26_27.migrate(db)
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()

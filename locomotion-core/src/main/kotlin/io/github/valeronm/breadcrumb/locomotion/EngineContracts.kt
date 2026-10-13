@@ -209,6 +209,20 @@ data class FilterSnapshot(
     val yMeters: Double,
     val velocityXMetersPerSecond: Double,
     val velocityYMetersPerSecond: Double,
-    val covarianceXX: Double,
-    val covarianceYY: Double,
-)
+    val covariance: List<Double>,
+    val projectionOriginLatitudeDegrees: Double,
+    val projectionOriginLongitudeDegrees: Double,
+    val lastElapsedRealtimeNanos: Long,
+) {
+    init {
+        require(covariance.size == FILTER_STATE_SIZE * FILTER_STATE_SIZE)
+        require(covariance.all(Double::isFinite))
+        require(lastElapsedRealtimeNanos >= 0L)
+        require(projectionOriginLatitudeDegrees.isFinite() && projectionOriginLatitudeDegrees in -90.0..90.0)
+        require(projectionOriginLongitudeDegrees.isFinite() && projectionOriginLongitudeDegrees in -180.0..180.0)
+    }
+
+    companion object {
+        private const val FILTER_STATE_SIZE = 4
+    }
+}
