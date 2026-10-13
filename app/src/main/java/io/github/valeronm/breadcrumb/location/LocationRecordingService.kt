@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.toCore
 import io.github.valeronm.breadcrumb.data.db.toEntity
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -42,6 +43,7 @@ import io.github.valeronm.breadcrumb.locomotion.LocomotionEngine
 import io.github.valeronm.breadcrumb.locomotion.MotionState
 import io.github.valeronm.breadcrumb.locomotion.Observation
 import io.github.valeronm.breadcrumb.locomotion.ObservationSource
+import io.github.valeronm.breadcrumb.locomotion.RecordingState
 import io.github.valeronm.breadcrumb.locomotion.SensorWindow
 import io.github.valeronm.breadcrumb.ui.recorderWords
 import io.github.valeronm.breadcrumb.util.BuildIdentity
@@ -49,6 +51,7 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.LocomotionDiagnostics
 import io.github.valeronm.breadcrumb.util.canStartLocationService
 import io.github.valeronm.breadcrumb.util.isGranted
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +59,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -82,7 +86,15 @@ class LocationRecordingService : Service() {
     )
     private val mutex = Mutex()
     private val locomotionEngine = LocomotionEngine()
+    private val engineObservationGate = EngineObservationGate(locomotionEngine)
     private var engineSessionId = UUID.randomUUID().toString()
+    private val engineStateLock = Any()
+    private val pendingEngineObservations = ArrayDeque<Observation>()
+    private val enginePersistenceQueue = Channel<EnginePersistenceCommand>(Channel.UNLIMITED)
+
+    @Volatile private var engineReady = false
+
+    private var resumeEngineCheckpoint = false
     private val bootEpochId by lazy(::currentBootEpochId)
     private val sensorSampler by lazy { MotionSensorSampler(this, ::onSensorWindow) }
 
@@ -181,19 +193,41 @@ class LocationRecordingService : Service() {
         repository = TrackRepository(this)
         activityManager = ActivityRecognitionManager(this)
         locationManager = getSystemService(LocationManager::class.java)
+        scope.launch {
+            val dao = AppDatabase.get(applicationContext).locomotionDao()
+            for (command in enginePersistenceQueue) {
+                when (command) {
+                    is EnginePersistenceCommand.Persist -> runCatching {
+                        dao.storeBatchAndCheckpoint(listOf(command.observation), command.checkpoint)
+                    }.onFailure { DebugLog.e(TAG, "engine checkpoint persistence failed", it) }
+                    is EnginePersistenceCommand.ClearSession -> {
+                        val cleared = runCatching { dao.deleteCheckpoint(command.sessionId) }
+                            .onFailure { DebugLog.e(TAG, "engine checkpoint cleanup failed", it) }
+                            .isSuccess
+                        command.completed.complete(cleared)
+                    }
+                    is EnginePersistenceCommand.ClearAll -> {
+                        val cleared = runCatching { dao.clearCheckpoints() }
+                            .onFailure { DebugLog.e(TAG, "engine checkpoint cleanup failed", it) }
+                            .isSuccess
+                        command.completed.complete(cleared)
+                    }
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> handleStart()
+            ACTION_START -> handleStart(resumeCheckpoint = false)
             ACTION_STOP -> handleStop()
             // Null intent = the system restarted us (START_STICKY) after process death.
-            else -> if (Settings.isAutoRecord(this)) handleStart() else stopSelf()
+            else -> if (Settings.isAutoRecord(this)) handleStart(resumeCheckpoint = intent == null) else stopSelf()
         }
         return START_STICKY
     }
 
-    private fun handleStart() {
+    private fun handleStart(resumeCheckpoint: Boolean) {
         // The platform refuses this start without a sufficient grant — [canStartLocationService]
         // has the rule. Reachable when the OS restarts the sticky service after location was
         // revoked or downgraded to while-in-use — or unused-app auto-revoked — with the armed flag
@@ -217,7 +251,12 @@ class LocationRecordingService : Service() {
         session++
         sessionEngineGeneration = Settings.recorderEngineGeneration(this)
         engineSessionId = UUID.randomUUID().toString()
-        locomotionEngine.reset()
+        synchronized(engineStateLock) {
+            engineReady = false
+            pendingEngineObservations.clear()
+            locomotionEngine.reset()
+        }
+        resumeEngineCheckpoint = resumeCheckpoint
         armedAtMs = now()
         transitionSinceArm = false
         // Stamped on arming rather than once per process: an install fires the package-replaced
@@ -256,6 +295,7 @@ class LocationRecordingService : Service() {
         // immediately discarded, flashing the UI.)
         scope.launch {
             mutex.withLock {
+                prepareEngineSession()
                 // Close any track left open by a previous crash/kill, but never the one we're
                 // actively recording (a snapshot may have already opened it).
                 repository.finalizeDangling(exceptTrackId = openTrack?.id)
@@ -282,6 +322,61 @@ class LocationRecordingService : Service() {
                 }
             }
         }
+    }
+
+    /** Selects a fresh V2 analysis session or restores it after a sticky service restart. */
+    private suspend fun prepareEngineSession() {
+        val dao = AppDatabase.get(applicationContext).locomotionDao()
+        var restored = false
+        if (sessionEngineGeneration == Settings.RecorderEngineGeneration.LOCOMOTION_V2 && resumeEngineCheckpoint) {
+            val saved = dao.latestCheckpoint()
+            val checkpoint = runCatching { saved?.toCore() }.getOrNull()
+            if (checkpoint != null && checkpoint.bootEpochId == bootEpochId) {
+                restored = synchronized(engineStateLock) {
+                    locomotionEngine.restore(checkpoint, bootEpochId).also { accepted ->
+                        if (accepted) engineSessionId = checkpoint.sessionId
+                    }
+                }
+            }
+        }
+
+        if (!restored) {
+            val completion = CompletableDeferred<Boolean>()
+            enginePersistenceQueue.send(EnginePersistenceCommand.ClearAll(completion))
+            if (!completion.await()) DebugLog.w(TAG, "stale engine checkpoints could not be cleared")
+            synchronized(engineStateLock) {
+                locomotionEngine.reset()
+                engineSessionId = UUID.randomUUID().toString()
+            }
+        }
+
+        synchronized(engineStateLock) {
+            engineReady = true
+            if (sessionEngineGeneration != Settings.RecorderEngineGeneration.LOCOMOTION_V2) {
+                pendingEngineObservations.clear()
+            } else {
+                val pending = pendingEngineObservations.toList()
+                pendingEngineObservations.clear()
+                pending.sortedWith(compareBy<Observation> { it.elapsedRealtimeNanos }.thenBy { it.id })
+                    .forEach { processEngineObservationLocked(it.copy(sessionId = engineSessionId, bootEpochId = bootEpochId)) }
+            }
+        }
+        val timestamp = now()
+        LocomotionDiagnostics.record(
+            EngineDiagnosticEvent(
+                id = "$engineSessionId:session:$timestamp",
+                wallTimeMs = timestamp,
+                elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos(),
+                subsystem = DiagnosticSubsystem.CAPTURE,
+                code = when {
+                    sessionEngineGeneration == Settings.RecorderEngineGeneration.CLASSIC -> "engine.mode.classic"
+                    restored -> "engine.checkpoint.restored"
+                    resumeEngineCheckpoint -> "engine.checkpoint.rejected_or_missing"
+                    else -> "engine.mode.v2"
+                },
+                level = DiagnosticLevel.INFO,
+            ),
+        )
     }
 
     /**
@@ -334,6 +429,11 @@ class LocationRecordingService : Service() {
         // dangling sweep and closes it on the next stop. The tail asks on the main thread, where
         // [handleStart] runs, so no arm can land between the answer and the stop.
         val ending = session
+        val endingEngineSessionId = engineSessionId
+        synchronized(engineStateLock) {
+            engineReady = false
+            pendingEngineObservations.clear()
+        }
         scope.launch {
             mutex.withLock {
                 if (session != ending) return@withLock
@@ -343,6 +443,11 @@ class LocationRecordingService : Service() {
                 // waking a recorder the user has switched off. The core emits the teardown for every
                 // trigger, so which ones were armed stays one question with one answer.
                 dispatch(core.onDisarmed())
+            }
+            if (session == ending) {
+                val completion = CompletableDeferred<Boolean>()
+                enginePersistenceQueue.send(EnginePersistenceCommand.ClearSession(endingEngineSessionId, completion))
+                if (!completion.await()) DebugLog.w(TAG, "engine checkpoint cleanup was not confirmed")
             }
             withContext(Dispatchers.Main) {
                 if (session != ending) return@withContext
@@ -890,7 +995,9 @@ class LocationRecordingService : Service() {
     // current track) instead of racing them.
     private fun handleLocations(locations: List<Location>) {
         if (locations.isEmpty()) return
-        if (armed) locations.forEach(::processEngineLocation)
+        if (armed && sessionEngineGeneration == Settings.RecorderEngineGeneration.LOCOMOTION_V2) {
+            locations.forEach(::processEngineLocation)
+        }
         launchArmed("fixes") { ingestLocations(locations) }
     }
 
@@ -918,6 +1025,7 @@ class LocationRecordingService : Service() {
     }
 
     private fun processEngineActivity(activity: ActivityType, eventTimeMs: Long?) {
+        if (sessionEngineGeneration != Settings.RecorderEngineGeneration.LOCOMOTION_V2) return
         val coarseActivity = when (activity) {
             ActivityType.WALKING -> CoarseActivity.WALKING
             ActivityType.RUNNING -> CoarseActivity.RUNNING
@@ -978,12 +1086,37 @@ class LocationRecordingService : Service() {
     private fun observationIdForSensorWindow(elapsedNanos: Long) = "$engineSessionId:sensors:$elapsedNanos"
 
     private fun processEngineObservation(observation: Observation) {
-        val result = locomotionEngine.process(observation)
+        if (!armed || sessionEngineGeneration != Settings.RecorderEngineGeneration.LOCOMOTION_V2) return
+        synchronized(engineStateLock) {
+            if (!engineReady) {
+                // Startup callbacks can race the async Room restore. Preserve only a bounded tail;
+                // no Android provider is started twice and old observations are discarded by the engine.
+                if (pendingEngineObservations.size == MAX_PENDING_ENGINE_OBSERVATIONS) {
+                    pendingEngineObservations.removeFirst()
+                }
+                pendingEngineObservations.addLast(observation)
+                return
+            }
+            processEngineObservationLocked(observation)
+        }
+    }
+
+    private fun processEngineObservationLocked(observation: Observation) {
+        val sessionObservation = observation.copy(sessionId = engineSessionId, bootEpochId = bootEpochId)
+        val result = engineObservationGate.process(sessionEngineGeneration, sessionObservation) ?: return
         result.diagnostics.forEach(LocomotionDiagnostics::record)
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                AppDatabase.get(applicationContext).locomotionDao().insertObservation(observation.toEntity())
-            }.onFailure { DebugLog.e(TAG, "engine observation persistence failed", it) }
+        val timestamp = sessionObservation.wallTimeMs
+        val checkpoint = locomotionEngine.checkpoint(
+            sessionId = engineSessionId,
+            updatedAtWallTimeMs = timestamp,
+            recordingState = if (openTrack != null) RecordingState.RECORDING else RecordingState.IDLE,
+            activeSegmentId = openTrack?.id?.toString(),
+        )
+        val queued = enginePersistenceQueue.trySend(
+            EnginePersistenceCommand.Persist(sessionObservation.toEntity(), checkpoint.toEntity()),
+        )
+        if (queued.isFailure) {
+            DebugLog.e(TAG, "engine observation persistence queue unavailable", queued.exceptionOrNull())
         }
     }
 
@@ -1133,6 +1266,7 @@ class LocationRecordingService : Service() {
 
     companion object {
         private const val ACTIVITY_TRANSITION_CONFIDENCE = 80
+        private const val MAX_PENDING_ENGINE_OBSERVATIONS = 256
 
         @Volatile
         var instance: LocationRecordingService? = null
@@ -1188,3 +1322,17 @@ class LocationRecordingService : Service() {
 
 /** A core entry a Play-Services reading is applied through — [ActivityIngest.onReading] or [ActivityIngest.onSnapshot]. */
 private typealias ReadingEntry = (ActivityType, Long?, Long, Registration, ActivitySettings) -> List<Effect>
+
+private sealed interface EnginePersistenceCommand {
+    data class Persist(
+        val observation: io.github.valeronm.breadcrumb.data.db.EngineObservationEntity,
+        val checkpoint: io.github.valeronm.breadcrumb.data.db.EngineCheckpointEntity,
+    ) : EnginePersistenceCommand
+
+    data class ClearSession(
+        val sessionId: String,
+        val completed: CompletableDeferred<Boolean>,
+    ) : EnginePersistenceCommand
+
+    data class ClearAll(val completed: CompletableDeferred<Boolean>) : EnginePersistenceCommand
+}

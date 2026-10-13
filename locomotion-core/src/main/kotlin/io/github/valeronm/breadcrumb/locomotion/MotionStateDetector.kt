@@ -109,6 +109,24 @@ class MotionStateDetector(
         clearCandidate()
     }
 
+    @Synchronized
+    fun snapshot() = MotionStateDetectorSnapshot(
+        lastWindowEndElapsedRealtimeNanos = lastWindowEndNanos,
+        confirmedState = confirmedState,
+        candidateState = candidateState,
+        candidateStartElapsedRealtimeNanos = candidateStartNanos,
+        candidateCount = candidateCount,
+    )
+
+    @Synchronized
+    fun restore(snapshot: MotionStateDetectorSnapshot) {
+        lastWindowEndNanos = snapshot.lastWindowEndElapsedRealtimeNanos
+        confirmedState = snapshot.confirmedState
+        candidateState = snapshot.candidateState
+        candidateStartNanos = snapshot.candidateStartElapsedRealtimeNanos
+        candidateCount = snapshot.candidateCount
+    }
+
     private fun judge(evidence: MotionEvidence): Judgment {
         val accuracy = evidence.horizontalAccuracyMeters?.takeIf { it.isFinite() && it > 0.0 }
         val displacement = evidence.locationDisplacementMeters?.takeIf { it.isFinite() && it >= 0.0 }

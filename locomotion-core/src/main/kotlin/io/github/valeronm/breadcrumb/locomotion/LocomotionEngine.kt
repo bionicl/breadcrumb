@@ -32,6 +32,7 @@ class LocomotionEngine(
 ) {
     private var bootEpochId: String? = null
     private var lastProcessedElapsedNanos: Long? = null
+    private var lastProcessedObservationId: String? = null
     private var lastFilteredCoordinate: GeoCoordinate? = null
     private var lastSensorWindow: SensorWindow? = null
     private var lastSensorObservationId: String? = null
@@ -63,6 +64,7 @@ class LocomotionEngine(
             return ObservationProcessingResult(observation.id, diagnostics = listOf(stale), ignored = true)
         }
         lastProcessedElapsedNanos = observation.elapsedRealtimeNanos
+        lastProcessedObservationId = observation.id
 
         observation.sensors?.let {
             lastSensorWindow = it
@@ -171,6 +173,77 @@ class LocomotionEngine(
     fun latestMotionEstimate(): MotionEstimate? = latestMotion
 
     @Synchronized
+    fun snapshot() = LocomotionEngineSnapshot(
+        bootEpochId = bootEpochId,
+        lastProcessedElapsedRealtimeNanos = lastProcessedElapsedNanos,
+        lastProcessedObservationId = lastProcessedObservationId,
+        lastFilteredCoordinate = lastFilteredCoordinate,
+        filter = locationFilter.snapshot(),
+        lastSensorWindow = lastSensorWindow,
+        lastSensorObservationId = lastSensorObservationId,
+        lastActivity = lastActivity,
+        lastActivityObservationId = lastActivityObservationId,
+        motionDetector = motionDetector.snapshot(),
+        latestMotion = latestMotion,
+        latestMotionSignal = latestMotionSignal,
+    )
+
+    @Synchronized
+    fun checkpoint(
+        sessionId: String,
+        updatedAtWallTimeMs: Long,
+        recordingState: RecordingState,
+        activeSegmentId: String? = null,
+        configurationVersion: Int = 1,
+        modelVersion: String? = null,
+    ): EngineCheckpoint {
+        val state = snapshot()
+        val epoch = requireNotNull(state.bootEpochId) { "Cannot checkpoint before the first observation" }
+        return EngineCheckpoint(
+            sessionId = sessionId,
+            bootEpochId = epoch,
+            lastObservationId = state.lastProcessedObservationId,
+            lastElapsedRealtimeNanos = state.lastProcessedElapsedRealtimeNanos,
+            lastWallTimeMs = updatedAtWallTimeMs,
+            motionState = state.latestMotion?.state ?: state.motionDetector.confirmedState,
+            recordingState = recordingState,
+            filter = state.filter,
+            activeSegmentId = activeSegmentId,
+            configurationVersion = configurationVersion,
+            modelVersion = modelVersion,
+            updatedAtWallTimeMs = updatedAtWallTimeMs,
+            engineSnapshot = state,
+        )
+    }
+
+    /** Restore only within the same boot: elapsed realtime resets when Android reboots. */
+    @Synchronized
+    fun restore(snapshot: LocomotionEngineSnapshot, expectedBootEpochId: String): Boolean {
+        if (snapshot.bootEpochId != expectedBootEpochId) return false
+        reset()
+        bootEpochId = snapshot.bootEpochId
+        lastProcessedElapsedNanos = snapshot.lastProcessedElapsedRealtimeNanos
+        lastProcessedObservationId = snapshot.lastProcessedObservationId
+        snapshot.filter?.let(locationFilter::restore)
+        lastFilteredCoordinate = snapshot.lastFilteredCoordinate ?: locationFilter.currentCoordinate()
+        lastSensorWindow = snapshot.lastSensorWindow
+        lastSensorObservationId = snapshot.lastSensorObservationId
+        lastActivity = snapshot.lastActivity
+        lastActivityObservationId = snapshot.lastActivityObservationId
+        motionDetector.restore(snapshot.motionDetector)
+        latestMotion = snapshot.latestMotion
+        latestMotionSignal = snapshot.latestMotionSignal
+        return true
+    }
+
+    @Synchronized
+    fun restore(checkpoint: EngineCheckpoint, expectedBootEpochId: String): Boolean {
+        if (checkpoint.bootEpochId != expectedBootEpochId) return false
+        val state = checkpoint.engineSnapshot ?: return false
+        return restore(state, expectedBootEpochId)
+    }
+
+    @Synchronized
     fun motionSignal(nowElapsedRealtimeNanos: Long, maximumAgeNanos: Long = DEFAULT_MAX_SENSOR_AGE_NANOS): EngineMotionSignal? =
         latestMotionSignal?.takeIf {
             nowElapsedRealtimeNanos >= it.observedElapsedRealtimeNanos &&
@@ -194,6 +267,7 @@ class LocomotionEngine(
 
     private fun clearVolatileState() {
         lastProcessedElapsedNanos = null
+        lastProcessedObservationId = null
         lastFilteredCoordinate = null
         lastSensorWindow = null
         lastSensorObservationId = null

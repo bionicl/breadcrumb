@@ -48,6 +48,46 @@ class LocomotionEngineTest {
         assertFalse(nextEpoch.ignored)
     }
 
+    @Test fun `restored engine preserves detector hysteresis and cached evidence`() {
+        val uninterrupted = LocomotionEngine()
+        uninterrupted.process(observation("fix-1", FIVE_SECONDS, longitude = 0.0))
+        uninterrupted.process(observation("fix-2", 2 * FIVE_SECONDS, longitude = 0.0005))
+        val snapshot = uninterrupted.snapshot()
+        val persistedSnapshot = requireNotNull(
+            LocomotionEngineSnapshotCodec.decode(LocomotionEngineSnapshotCodec.encode(snapshot)),
+        )
+        val resumed = LocomotionEngine()
+
+        assertTrue(resumed.restore(persistedSnapshot, expectedBootEpochId = "boot-a"))
+        assertEquals(snapshot, resumed.snapshot())
+        val next = observation("fix-3", 3 * FIVE_SECONDS, longitude = 0.001)
+
+        assertEquals(uninterrupted.process(next), resumed.process(next))
+        val final = observation("fix-4", 4 * FIVE_SECONDS, longitude = 0.0015)
+        assertEquals(uninterrupted.process(final), resumed.process(final))
+        assertEquals(uninterrupted.snapshot(), resumed.snapshot())
+    }
+
+    @Test fun `engine refuses a checkpoint from another boot epoch without changing state`() {
+        val source = LocomotionEngine()
+        source.process(observation("source", FIVE_SECONDS, longitude = 0.0))
+        val target = LocomotionEngine()
+        val before = target.snapshot()
+
+        assertFalse(source.snapshot().let { target.restore(it, expectedBootEpochId = "boot-b") })
+        assertEquals(before, target.snapshot())
+    }
+
+    @Test fun `snapshot codec rejects truncated and unknown-version payloads`() {
+        val engine = LocomotionEngine()
+        engine.process(observation("one", FIVE_SECONDS, longitude = 0.0))
+        val encoded = LocomotionEngineSnapshotCodec.encode(engine.snapshot())
+
+        assertEquals(null, LocomotionEngineSnapshotCodec.decode(encoded.copyOf(encoded.size - 1)))
+        val unknownVersion = encoded.copyOf().apply { this[7] = (this[7] + 1).toByte() }
+        assertEquals(null, LocomotionEngineSnapshotCodec.decode(unknownVersion))
+    }
+
     private fun observation(id: String, timeNanos: Long, longitude: Double, epoch: String = "boot-a") =
         Observation(
             id = id,

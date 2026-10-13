@@ -23,6 +23,7 @@ data class EngineCheckpointEntity(
     val filterCovariance: ByteArray? = null,
     val filterProjectionOriginLatitudeDegrees: Double? = null,
     val filterProjectionOriginLongitudeDegrees: Double? = null,
+    val engineStateBlob: ByteArray? = null,
     val activeSegmentId: String?,
     val configurationVersion: Int,
     val modelVersion: String?,

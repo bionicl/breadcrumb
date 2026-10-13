@@ -99,6 +99,9 @@ class LocationKalmanFilter(
         )
     }
 
+    @Synchronized
+    fun currentCoordinate(): GeoCoordinate? = projection?.unproject(state[POS_EAST], state[POS_NORTH])
+
     /** Restores the exact filter state; callers must reject checkpoints from a different boot epoch. */
     @Synchronized
     fun restore(snapshot: FilterSnapshot) {

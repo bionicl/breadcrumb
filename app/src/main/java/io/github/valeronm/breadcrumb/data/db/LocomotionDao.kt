@@ -81,8 +81,14 @@ interface LocomotionDao {
     @Query("SELECT * FROM engine_checkpoints WHERE sessionId = :sessionId")
     suspend fun checkpoint(sessionId: String): EngineCheckpointEntity?
 
+    @Query("SELECT * FROM engine_checkpoints ORDER BY updatedAtWallTimeMs DESC LIMIT 1")
+    suspend fun latestCheckpoint(): EngineCheckpointEntity?
+
     @Query("DELETE FROM engine_checkpoints WHERE sessionId = :sessionId")
     suspend fun deleteCheckpoint(sessionId: String)
+
+    @Query("DELETE FROM engine_checkpoints")
+    suspend fun clearCheckpoints()
 
     /** Persist accepted inputs and their resulting state as one restart-safe unit. */
     @Transaction

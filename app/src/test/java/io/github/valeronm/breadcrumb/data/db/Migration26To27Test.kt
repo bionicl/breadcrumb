@@ -39,6 +39,7 @@ class Migration26To27Test {
     @Test
     fun `adds exact filter state columns and preserves prior checkpoint`() {
         AppDatabase.MIGRATION_26_27.migrate(db)
+        AppDatabase.MIGRATION_27_28.migrate(db)
 
         db.query("SELECT sessionId, filteredXmeters, filterCovariance FROM engine_checkpoints").use { cursor ->
             assertTrue(cursor.moveToFirst())

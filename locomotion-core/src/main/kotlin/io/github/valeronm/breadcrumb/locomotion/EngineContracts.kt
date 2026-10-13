@@ -202,6 +202,7 @@ data class EngineCheckpoint(
     val configurationVersion: Int,
     val modelVersion: String?,
     val updatedAtWallTimeMs: Long,
+    val engineSnapshot: LocomotionEngineSnapshot? = null,
 )
 
 data class FilterSnapshot(
@@ -226,3 +227,36 @@ data class FilterSnapshot(
         private const val FILTER_STATE_SIZE = 4
     }
 }
+
+/** Hysteresis state required to continue the same stationary/moving decision after a restart. */
+data class MotionStateDetectorSnapshot(
+    val lastWindowEndElapsedRealtimeNanos: Long?,
+    val confirmedState: MotionState,
+    val candidateState: MotionState?,
+    val candidateStartElapsedRealtimeNanos: Long?,
+    val candidateCount: Int,
+) {
+    init {
+        require(lastWindowEndElapsedRealtimeNanos == null || lastWindowEndElapsedRealtimeNanos >= 0L)
+        require(candidateStartElapsedRealtimeNanos == null || candidateStartElapsedRealtimeNanos >= 0L)
+        require(candidateCount >= 0)
+        require((candidateState == null) == (candidateStartElapsedRealtimeNanos == null))
+        require((candidateState == null) == (candidateCount == 0))
+    }
+}
+
+/** Full deterministic computation state; diagnostics themselves are intentionally not restored. */
+data class LocomotionEngineSnapshot(
+    val bootEpochId: String?,
+    val lastProcessedElapsedRealtimeNanos: Long?,
+    val lastProcessedObservationId: String?,
+    val lastFilteredCoordinate: GeoCoordinate?,
+    val filter: FilterSnapshot?,
+    val lastSensorWindow: SensorWindow?,
+    val lastSensorObservationId: String?,
+    val lastActivity: DetectedActivityEvidence?,
+    val lastActivityObservationId: String?,
+    val motionDetector: MotionStateDetectorSnapshot,
+    val latestMotion: MotionEstimate?,
+    val latestMotionSignal: EngineMotionSignal?,
+)

@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data.db
 
 import io.github.valeronm.breadcrumb.locomotion.EngineCheckpoint
 import io.github.valeronm.breadcrumb.locomotion.FilterSnapshot
+import io.github.valeronm.breadcrumb.locomotion.LocomotionEngineSnapshotCodec
 import io.github.valeronm.breadcrumb.locomotion.MotionState
 import io.github.valeronm.breadcrumb.locomotion.RecordingState
 import java.nio.ByteBuffer
@@ -27,6 +28,7 @@ fun EngineCheckpoint.toEntity() = EngineCheckpointEntity(
     },
     filterProjectionOriginLatitudeDegrees = filter?.projectionOriginLatitudeDegrees,
     filterProjectionOriginLongitudeDegrees = filter?.projectionOriginLongitudeDegrees,
+    engineStateBlob = engineSnapshot?.let(LocomotionEngineSnapshotCodec::encode),
     activeSegmentId = activeSegmentId,
     configurationVersion = configurationVersion,
     modelVersion = modelVersion,
@@ -46,9 +48,11 @@ fun EngineCheckpointEntity.toCore() = EngineCheckpoint(
     configurationVersion = configurationVersion,
     modelVersion = modelVersion,
     updatedAtWallTimeMs = updatedAtWallTimeMs,
+    engineSnapshot = engineStateBlob?.let(LocomotionEngineSnapshotCodec::decode),
 )
 
 private fun EngineCheckpointEntity.filterSnapshot(): FilterSnapshot? {
+    engineStateBlob?.let(LocomotionEngineSnapshotCodec::decode)?.filter?.let { return it }
     val x = filteredXmeters ?: return null
     val y = filteredYmeters ?: return null
     val velocityX = filteredVelocityXMetersPerSecond ?: return null

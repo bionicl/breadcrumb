@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -299,6 +299,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Store detector hysteresis and cached sensor/activity evidence with the location filter. */
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE engine_checkpoints ADD COLUMN engineStateBlob BLOB")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -310,7 +317,8 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27,
+            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
+            MIGRATION_26_27, MIGRATION_27_28,
         )
 
         fun get(context: Context): AppDatabase =
