@@ -707,14 +707,22 @@ class TrackRepositoryTest {
 
     @Test fun `a user delete is soft, and restore undoes it`() = runTest {
         val id = finishedWalk(0)
+        val projectedTrack = repository.observeSummaries().first().single { it.id == id }
 
         repository.deleteTrack(id)
         assertEquals(DiscardReason.DELETED.code, dao.track(id)!!.discardReason)
+        assertTrue(repository.engineCorrectionsForTrack(id).any { it is UserCorrection.DeleteSegment })
+        assertNull(
+            EngineTimelineCorrectionAdapter.apply(projectedTrack, repository.engineCorrectionsForTrack(id)),
+        )
 
         repository.restoreTrack(id)
         val restored = dao.track(id)!!
         assertNull(restored.discardedAt)
         assertNull(restored.discardReason)
+        val corrections = repository.engineCorrectionsForTrack(id)
+        assertTrue(corrections.any { it is UserCorrection.Undo })
+        assertEquals(projectedTrack, EngineTimelineCorrectionAdapter.apply(projectedTrack, corrections))
         test.assertStatsMatchPoints(id)
     }
 

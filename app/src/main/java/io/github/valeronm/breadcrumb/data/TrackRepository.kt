@@ -622,7 +622,17 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun deleteTrack(trackId: Long): Boolean =
         db.withTransaction {
             closedTrack(trackId) ?: return@withTransaction false
-            dao.setDiscarded(trackId, System.currentTimeMillis(), DiscardReason.DELETED.code)
+            val deletedAt = System.currentTimeMillis()
+            dao.setDiscarded(trackId, deletedAt, DiscardReason.DELETED.code)
+            db.locomotionDao().insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = UUID.randomUUID().toString(),
+                    operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = engineTrackSegmentId(trackId),
+                    kind = "DELETE_SEGMENT",
+                    createdAtWallTimeMs = deletedAt,
+                ),
+            )
             derivation.reknit(listOf(trackId))
             true
         }
@@ -645,6 +655,25 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val track = dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction true
         val end = checkNotNull(track.endedAt)
         if (spanTaken(track.startedAt, end, trackId)) return@withTransaction false
+        if (track.discardReason == DiscardReason.DELETED.code) {
+            val target = engineTrackSegmentId(trackId)
+            val corrections = db.locomotionDao().userCorrectionsFor(target).mapNotNull { it.toEngineCorrection() }
+            val undoneIds = corrections.filterIsInstance<UserCorrection.Undo>().map { it.correctionId }.toSet()
+            val deletion = corrections.filterIsInstance<UserCorrection.DeleteSegment>()
+                .lastOrNull { it.id !in undoneIds }
+            if (deletion != null) {
+                db.locomotionDao().insertUserCorrection(
+                    EngineUserCorrectionEntity(
+                        id = UUID.randomUUID().toString(),
+                        operationId = UUID.randomUUID().toString(),
+                        targetSegmentId = target,
+                        kind = "UNDO",
+                        createdAtWallTimeMs = System.currentTimeMillis(),
+                        referenceCorrectionId = deletion.id,
+                    ),
+                )
+            }
+        }
         dao.restoreTrack(trackId)
         derivation.reknit(listOf(trackId))
         true
