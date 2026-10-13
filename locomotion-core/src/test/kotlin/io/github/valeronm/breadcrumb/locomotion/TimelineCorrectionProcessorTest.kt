@@ -26,6 +26,19 @@ class TimelineCorrectionProcessorTest {
         assertNull(result.segment?.confirmedTransportMode)
     }
 
+    @Test fun `later transport confirmation turns a confirmed visit back into movement`() {
+        val result = TimelineCorrectionProcessor.apply(
+            segment(),
+            listOf(
+                UserCorrection.ConfirmVisit("visit", 10, "segment"),
+                UserCorrection.ConfirmTransport("train", 20, "segment", TransportMode.TRAIN),
+            ),
+        )
+
+        assertEquals(SegmentKind.MOVEMENT, result.segment?.kind)
+        assertEquals(TransportMode.TRAIN, result.segment?.confirmedTransportMode)
+    }
+
     @Test fun `locked user boundary is not replaced by later inferred boundary`() {
         val result = TimelineCorrectionProcessor.apply(
             segment(),

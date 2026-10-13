@@ -33,6 +33,7 @@ import io.github.valeronm.breadcrumb.locomotion.UserCorrection
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -86,7 +87,18 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     private val derivation = DerivationStore(context, db)
 
-    fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
+    fun observeSummaries(): Flow<List<TrackSummary>> = combine(
+        dao.observeSummaries(),
+        db.locomotionDao().observeUserCorrections(),
+    ) { tracks, rows ->
+        val correctionsBySegment = rows.mapNotNull { it.toEngineCorrection() }.groupBy { it.targetSegmentId }
+        tracks.mapNotNull { track ->
+            EngineTimelineCorrectionAdapter.apply(
+                track,
+                correctionsBySegment[engineTrackSegmentId(track.id)].orEmpty(),
+            )
+        }
+    }
 
     fun observeEndpoints(): Flow<List<TrackEndpoints>> = dao.observeEndpoints()
 

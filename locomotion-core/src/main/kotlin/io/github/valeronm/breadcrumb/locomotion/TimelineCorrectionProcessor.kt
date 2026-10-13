@@ -20,6 +20,7 @@ object TimelineCorrectionProcessor {
             val value = current ?: break
             current = when (correction) {
                 is UserCorrection.ConfirmTransport -> value.copy(
+                    kind = SegmentKind.MOVEMENT,
                     transportMode = correction.mode,
                     confirmedTransportMode = correction.mode,
                 )

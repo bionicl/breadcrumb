@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LocomotionDao {
@@ -22,6 +23,9 @@ interface LocomotionDao {
 
     @Query("SELECT * FROM engine_user_corrections ORDER BY createdAtWallTimeMs, id")
     suspend fun allUserCorrections(): List<EngineUserCorrectionEntity>
+
+    @Query("SELECT * FROM engine_user_corrections ORDER BY createdAtWallTimeMs, id")
+    fun observeUserCorrections(): Flow<List<EngineUserCorrectionEntity>>
 
     @Query("DELETE FROM engine_user_corrections WHERE operationId = :operationId")
     suspend fun deleteCorrectionsForOperation(operationId: String)

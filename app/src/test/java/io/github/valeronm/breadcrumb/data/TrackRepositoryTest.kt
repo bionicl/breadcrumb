@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -404,6 +405,25 @@ class TrackRepositoryTest {
         repository.setActivityType(id, ActivityType.STILL)
 
         assertTrue(repository.engineCorrectionsForTrack(id).any { it is UserCorrection.ConfirmVisit })
+    }
+
+    @Test fun `timeline projections apply persisted engine corrections`() = runTest {
+        val id = finishedWalk(0)
+        test.db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = "projection-label",
+                operationId = "projection-operation",
+                targetSegmentId = engineTrackSegmentId(id),
+                kind = "CONFIRM_TRANSPORT",
+                createdAtWallTimeMs = TEST_START,
+                transportMode = "BUS",
+            ),
+        )
+
+        val row = repository.observeSummaries().first().single { it.id == id }
+
+        assertEquals(ActivityType.BUS.name, row.activityType)
+        assertTrue(row.activityConfirmedByUser)
     }
 
     @Test fun `retyping to a faster activity hands back the fixes the old ceiling rejected`() = runTest {
