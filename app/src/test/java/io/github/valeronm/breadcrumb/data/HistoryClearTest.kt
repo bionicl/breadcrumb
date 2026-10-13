@@ -4,6 +4,13 @@ import androidx.room.useReaderConnection
 import androidx.room.useWriterConnection
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
+import io.github.valeronm.breadcrumb.data.db.toEntity
+import io.github.valeronm.breadcrumb.locomotion.EngineCheckpoint
+import io.github.valeronm.breadcrumb.locomotion.LocationMeasurement
+import io.github.valeronm.breadcrumb.locomotion.MotionState
+import io.github.valeronm.breadcrumb.locomotion.Observation
+import io.github.valeronm.breadcrumb.locomotion.ObservationSource
+import io.github.valeronm.breadcrumb.locomotion.RecordingState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -57,6 +64,33 @@ class HistoryClearTest {
         val home = test.db.placeDao().insert(test.place("Home", 1.0, -2.0))
         test.db.placeIdentityDao().upsert(listOf(PlaceIdentity("google_timeline", "home", home)))
         DerivationStore(ApplicationProvider.getApplicationContext(), test.db).reconcile()
+        test.db.locomotionDao().insertObservation(
+            Observation(
+                id = "history-clear-observation",
+                sessionId = "history-clear-session",
+                bootEpochId = "history-clear-boot",
+                wallTimeMs = TEST_START,
+                elapsedRealtimeNanos = 1L,
+                source = ObservationSource.RAW_GNSS,
+                location = LocationMeasurement(1.0, -2.0, 5.0),
+            ).toEntity(),
+        )
+        test.db.locomotionDao().saveCheckpoint(
+            EngineCheckpoint(
+                sessionId = "history-clear-session",
+                bootEpochId = "history-clear-boot",
+                lastObservationId = "history-clear-observation",
+                lastElapsedRealtimeNanos = 1L,
+                lastWallTimeMs = TEST_START,
+                motionState = MotionState.UNCERTAIN,
+                recordingState = RecordingState.IDLE,
+                filter = null,
+                activeSegmentId = null,
+                configurationVersion = 1,
+                modelVersion = null,
+                updatedAtWallTimeMs = TEST_START,
+            ).toEntity(),
+        )
     }
 
     private suspend fun tables(): List<String> = test.db.useReaderConnection { connection ->

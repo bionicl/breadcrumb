@@ -324,6 +324,12 @@ class EdgeStayDetectorTest {
             ActivityType.CYCLING to EdgeStayDetector.BRIEF_STOP,
             ActivityType.DRIVING to EdgeStayDetector.VEHICLE,
             ActivityType.TAXI to EdgeStayDetector.VEHICLE,
+            ActivityType.MOTORCYCLE to EdgeStayDetector.VEHICLE,
+            ActivityType.SCOOTER to EdgeStayDetector.VEHICLE,
+            ActivityType.BUS to EdgeStayDetector.VEHICLE,
+            ActivityType.TRAM to EdgeStayDetector.VEHICLE,
+            ActivityType.TRAIN to EdgeStayDetector.VEHICLE,
+            ActivityType.METRO to EdgeStayDetector.VEHICLE,
             ActivityType.FERRY to EdgeStayDetector.VEHICLE,
             ActivityType.TRANSIT to EdgeStayDetector.VEHICLE,
             // A recorded flight's edge overrun is gate and taxi time — vehicle-shaped drift.
