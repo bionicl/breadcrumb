@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
@@ -26,11 +27,14 @@ import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
+import io.github.valeronm.breadcrumb.locomotion.BoundaryKind
 import io.github.valeronm.breadcrumb.locomotion.PersonalTransportClassifier
+import io.github.valeronm.breadcrumb.locomotion.UserCorrection
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 private const val TAG = "Breadcrumb"
 
@@ -397,7 +401,37 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // from. A retype that moved neither leaves the derivation alone.
             if (jumpsRestored || applied.changed) derivation.reknit(listOf(trackId))
         }
-        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
+        correctedTrack?.let { track ->
+            persistActivityCorrection(track, activityType)
+            learnFromUserCorrection(track, activityType)
+        }
+    }
+
+    /** Read the durable user assertions associated with a legacy timeline track. */
+    suspend fun engineCorrectionsForTrack(trackId: Long): List<UserCorrection> =
+        db.locomotionDao().userCorrectionsFor(engineTrackSegmentId(trackId)).mapNotNull { it.toEngineCorrection() }
+
+    /** All assertions in replay order, for the timeline bridge as it is introduced. */
+    suspend fun allEngineCorrections(): List<UserCorrection> =
+        db.locomotionDao().allUserCorrections().mapNotNull { it.toEngineCorrection() }
+
+    private suspend fun persistActivityCorrection(track: Track, activityType: ActivityType) {
+        val target = engineTrackSegmentId(track.id)
+        val mode = activityType.toTransportMode()
+        val now = System.currentTimeMillis()
+        val operationId = UUID.randomUUID().toString()
+        val correction = when {
+            mode != null -> EngineUserCorrectionEntity(
+                id = UUID.randomUUID().toString(), operationId = operationId, targetSegmentId = target,
+                kind = "CONFIRM_TRANSPORT", createdAtWallTimeMs = now, transportMode = mode.name,
+            )
+            activityType == ActivityType.STILL -> EngineUserCorrectionEntity(
+                id = UUID.randomUUID().toString(), operationId = operationId, targetSegmentId = target,
+                kind = "CONFIRM_VISIT", createdAtWallTimeMs = now,
+            )
+            else -> null
+        }
+        correction?.let { db.locomotionDao().insertUserCorrection(it) }
     }
 
     /**
@@ -698,6 +732,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         /** The new track that took everything from the cut onwards. The first half is the original
          *  row, which keeps its id. */
         val secondId: Long,
+        /** Groups the user's two boundary locks so undo can remove them exactly. */
+        val correctionOperationId: String,
     )
 
     /**
@@ -751,6 +787,33 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.movePointsFrom(secondId, trackId, atTs)
             // Nothing states where the cut was.
             dao.closeTrackAtPlace(trackId, plan.firstEndTs, endPlaceId = null)
+            // A manual cut locks two boundaries. It is not evidence of a stationary visit.
+            val correctionOperationId = UUID.randomUUID().toString()
+            val correctedAt = System.currentTimeMillis()
+            val firstCorrectionId = UUID.randomUUID().toString()
+            val secondCorrectionId = UUID.randomUUID().toString()
+            db.locomotionDao().insertUserCorrections(
+                listOf(
+                    EngineUserCorrectionEntity(
+                        id = firstCorrectionId,
+                        operationId = correctionOperationId,
+                        targetSegmentId = engineTrackSegmentId(trackId),
+                        kind = "LOCK_BOUNDARY",
+                        createdAtWallTimeMs = correctedAt,
+                        boundaryKind = BoundaryKind.END.name,
+                        atWallTimeMs = plan.firstEndTs,
+                    ),
+                    EngineUserCorrectionEntity(
+                        id = secondCorrectionId,
+                        operationId = correctionOperationId,
+                        targetSegmentId = engineTrackSegmentId(secondId),
+                        kind = "LOCK_BOUNDARY",
+                        createdAtWallTimeMs = correctedAt,
+                        boundaryKind = BoundaryKind.START.name,
+                        atWallTimeMs = plan.secondStartTs,
+                    ),
+                ),
+            )
             // The points are the lists already in hand: the move rewrote one column and left every
             // row id, timestamp and flag alone, so re-reading them would buy nothing.
             val first = track.copy(endedAt = plan.firstEndTs, endPlaceId = null)
@@ -764,7 +827,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 "track $trackId split at $atTs: kept ${before.size} points, " +
                     "moved ${after.size} to new track $secondId",
             )
-            Split(secondId = secondId)
+            Split(secondId = secondId, correctionOperationId = correctionOperationId)
         }
     }
 
@@ -784,6 +847,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // a stop and a return is exactly what reopens it.
             val second = closedTrack(split.secondId) ?: return@withTransaction
             val rejoinedEnd = checkNotNull(second.endedAt)
+            db.locomotionDao().deleteCorrectionsForOperation(split.correctionOperationId)
             // Points first: purging the row while they still hang off it would cascade them away.
             dao.movePointsFrom(originalId, split.secondId, Long.MIN_VALUE)
             dao.purgeTrack(split.secondId)

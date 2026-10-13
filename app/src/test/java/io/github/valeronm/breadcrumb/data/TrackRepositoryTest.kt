@@ -9,6 +9,8 @@ import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.locomotion.BoundaryKind
+import io.github.valeronm.breadcrumb.locomotion.UserCorrection
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -376,6 +378,11 @@ class TrackRepositoryTest {
         // The clock ends where the drive did, and the row's aggregates followed the flags.
         assertTrue(after.endedAt!! < TEST_START + 40 * 10_000L)
         test.assertStatsMatchPoints(id)
+        assertTrue(
+            repository.engineCorrectionsForTrack(id).any {
+                it is UserCorrection.ConfirmTransport && it.mode.name == "TAXI"
+            },
+        )
     }
 
     @Test fun `retyping within the same tuning leaves the stored verdict alone`() = runTest {
@@ -389,6 +396,14 @@ class TrackRepositoryTest {
         assertEquals("RUNNING", after.activityType)
         assertEquals(before.ignoredCount, after.ignoredCount)
         assertEquals(before.endedAt, after.endedAt)
+    }
+
+    @Test fun `marking a track stationary records a confirmed visit`() = runTest {
+        val id = finishedWalk(0)
+
+        repository.setActivityType(id, ActivityType.STILL)
+
+        assertTrue(repository.engineCorrectionsForTrack(id).any { it is UserCorrection.ConfirmVisit })
     }
 
     @Test fun `retyping to a faster activity hands back the fixes the old ceiling rejected`() = runTest {
@@ -610,6 +625,14 @@ class TrackRepositoryTest {
         assertTrue(dao.allPointsFor(id).last().timestamp < cut)
         test.assertStatsMatchPoints(id)
         test.assertStatsMatchPoints(split.secondId)
+        val locks = repository.allEngineCorrections().filterIsInstance<UserCorrection.LockBoundary>()
+        assertEquals(2, locks.size)
+        assertTrue(locks.any { it.targetSegmentId == engineTrackSegmentId(id) && it.boundary == BoundaryKind.END })
+        assertTrue(
+            locks.any {
+                it.targetSegmentId == engineTrackSegmentId(split.secondId) && it.boundary == BoundaryKind.START
+            },
+        )
     }
 
     @Test fun `a cut at a stop takes the parked fixes off both halves' paths`() = runTest {
@@ -659,6 +682,7 @@ class TrackRepositoryTest {
         assertEquals(before.pointCount, reunited.pointCount)
         assertEquals(before.distanceMeters, reunited.distanceMeters, 0.5)
         test.assertStatsMatchPoints(id)
+        assertTrue(repository.allEngineCorrections().isEmpty())
     }
 
     @Test fun `a user delete is soft, and restore undoes it`() = runTest {

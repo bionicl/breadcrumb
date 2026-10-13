@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import androidx.room.useReaderConnection
 import androidx.room.useWriterConnection
 import androidx.test.core.app.ApplicationProvider
+import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.toEntity
 import io.github.valeronm.breadcrumb.locomotion.EngineCheckpoint
@@ -90,6 +91,16 @@ class HistoryClearTest {
                 modelVersion = null,
                 updatedAtWallTimeMs = TEST_START,
             ).toEntity(),
+        )
+        test.db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = "history-clear-correction",
+                operationId = "history-clear-operation",
+                targetSegmentId = "legacy-track:$deleted",
+                kind = "CONFIRM_TRANSPORT",
+                createdAtWallTimeMs = TEST_START,
+                transportMode = "WALKING",
+            ),
         )
     }
 

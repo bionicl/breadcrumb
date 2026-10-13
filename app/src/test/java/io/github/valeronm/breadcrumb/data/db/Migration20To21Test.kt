@@ -144,13 +144,14 @@ class Migration20To21Test {
         AppDatabase.MIGRATION_22_23.migrate(db)
         AppDatabase.MIGRATION_23_24.migrate(db)
         AppDatabase.MIGRATION_24_25.migrate(db)
+        AppDatabase.MIGRATION_25_26.migrate(db)
 
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()
         try {
             val generated = room.openHelper.writableDatabase
-            for (table in listOf("places", "place_identities", "tracks")) {
+            for (table in listOf("places", "place_identities", "tracks", "engine_user_corrections")) {
                 assertEquals(TableInfo.read(generated, table), TableInfo.read(db, table))
             }
         } finally {

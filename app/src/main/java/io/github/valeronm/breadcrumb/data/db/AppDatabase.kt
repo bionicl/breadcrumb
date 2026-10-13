@@ -14,9 +14,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
-        EngineObservationEntity::class, EngineCheckpointEntity::class,
+        EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -53,7 +53,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val HISTORY_TABLES = listOf(
             "tracks", "track_points", "places", "place_identities",
             "derived_clusters", "cluster_members", "derived_intervals",
-            "engine_observations", "engine_checkpoints",
+            "engine_observations", "engine_checkpoints", "engine_user_corrections",
         )
 
         @Volatile
@@ -269,6 +269,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Keep human transport, visit and boundary assertions available to future engine replay. */
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS engine_user_corrections (" +
+                        "id TEXT NOT NULL PRIMARY KEY, operationId TEXT NOT NULL, " +
+                        "targetSegmentId TEXT NOT NULL, kind TEXT NOT NULL, " +
+                        "createdAtWallTimeMs INTEGER NOT NULL, transportMode TEXT, boundaryKind TEXT, " +
+                        "atWallTimeMs INTEGER, referenceCorrectionId TEXT)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_engine_user_corrections_operationId " +
+                        "ON engine_user_corrections(operationId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_engine_user_corrections_targetSegmentId_createdAtWallTimeMs " +
+                        "ON engine_user_corrections(targetSegmentId, createdAtWallTimeMs)",
+                )
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -280,7 +301,7 @@ abstract class AppDatabase : RoomDatabase() {
          */
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
+            MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
         )
 
         fun get(context: Context): AppDatabase =

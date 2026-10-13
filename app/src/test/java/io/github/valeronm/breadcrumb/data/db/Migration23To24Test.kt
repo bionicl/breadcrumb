@@ -64,6 +64,7 @@ class Migration23To24Test {
     fun `migrated observation table matches Room`() {
         AppDatabase.MIGRATION_23_24.migrate(db)
         AppDatabase.MIGRATION_24_25.migrate(db)
+        AppDatabase.MIGRATION_25_26.migrate(db)
         val room = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()
@@ -71,6 +72,10 @@ class Migration23To24Test {
             assertEquals(
                 TableInfo.read(room.openHelper.writableDatabase, "engine_observations"),
                 TableInfo.read(db, "engine_observations"),
+            )
+            assertEquals(
+                TableInfo.read(room.openHelper.writableDatabase, "engine_user_corrections"),
+                TableInfo.read(db, "engine_user_corrections"),
             )
         } finally {
             room.close()

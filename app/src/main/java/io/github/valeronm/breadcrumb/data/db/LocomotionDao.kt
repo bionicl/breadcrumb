@@ -9,6 +9,24 @@ import androidx.room.Transaction
 @Dao
 interface LocomotionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertUserCorrection(correction: EngineUserCorrectionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertUserCorrections(corrections: List<EngineUserCorrectionEntity>)
+
+    @Query(
+        "SELECT * FROM engine_user_corrections WHERE targetSegmentId = :targetSegmentId " +
+            "ORDER BY createdAtWallTimeMs, id",
+    )
+    suspend fun userCorrectionsFor(targetSegmentId: String): List<EngineUserCorrectionEntity>
+
+    @Query("SELECT * FROM engine_user_corrections ORDER BY createdAtWallTimeMs, id")
+    suspend fun allUserCorrections(): List<EngineUserCorrectionEntity>
+
+    @Query("DELETE FROM engine_user_corrections WHERE operationId = :operationId")
+    suspend fun deleteCorrectionsForOperation(operationId: String)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertObservation(observation: EngineObservationEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
