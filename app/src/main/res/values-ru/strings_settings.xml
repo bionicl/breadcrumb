@@ -29,6 +29,15 @@
         <item quantity="many">Можно восстановить в течение %1$d дней</item>
         <item quantity="other">Можно восстановить в течение %1$d дня</item>
     </plurals>
+    <string name="settings_engine_diagnostics">Диагностика движка</string>
+    <string name="engine_diagnostics_title">Диагностика движка</string>
+    <string name="engine_diagnostics_legacy_status">Текущая запись</string>
+    <string name="engine_diagnostics_tracking">Автоматическая запись: %1$s</string>
+    <string name="engine_diagnostics_recording">Запись маршрута: %1$s</string>
+    <string name="engine_diagnostics_active">Активна</string>
+    <string name="engine_diagnostics_status_note">Новый движок создаётся поэтапно. Здесь появляются его структурированные события по мере подключения каждого слоя обработки.</string>
+    <string name="engine_diagnostics_event_count">Недавние решения движка (%1$d)</string>
+    <string name="engine_diagnostics_empty">В этом сеансе ещё нет решений движка.</string>
     <string name="settings_logs">Журнал</string>
     <string name="settings_reset">Сброс</string>
 

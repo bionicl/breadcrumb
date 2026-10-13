@@ -28,6 +28,15 @@
         <item quantity="many">Recuperáveis durante %1$d dias</item>
         <item quantity="other">Recuperáveis durante %1$d dias</item>
     </plurals>
+    <string name="settings_engine_diagnostics">Diagnóstico do motor</string>
+    <string name="engine_diagnostics_title">Diagnóstico do motor</string>
+    <string name="engine_diagnostics_legacy_status">Gravador atual</string>
+    <string name="engine_diagnostics_tracking">Gravação automática: %1$s</string>
+    <string name="engine_diagnostics_recording">Gravação do percurso: %1$s</string>
+    <string name="engine_diagnostics_active">Ativa</string>
+    <string name="engine_diagnostics_status_note">O novo motor está a ser construído por etapas. Esta página mostra os eventos estruturados à medida que cada camada de processamento é ligada.</string>
+    <string name="engine_diagnostics_event_count">Decisões recentes do motor (%1$d)</string>
+    <string name="engine_diagnostics_empty">Não há decisões do motor registadas nesta sessão.</string>
     <string name="settings_logs">Registos</string>
     <string name="settings_reset">Repor</string>
 

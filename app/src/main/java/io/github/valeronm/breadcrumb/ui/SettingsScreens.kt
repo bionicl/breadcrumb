@@ -69,9 +69,12 @@ import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.data.export.LogExporter
+import io.github.valeronm.breadcrumb.location.TrackingStatus
+import io.github.valeronm.breadcrumb.locomotion.DiagnosticLevel
 import io.github.valeronm.breadcrumb.ui.ImportExportController.RestoreOutcome
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
+import io.github.valeronm.breadcrumb.util.LocomotionDiagnostics
 import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.WebLinks
@@ -81,7 +84,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
-
 @Composable
 internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Unit) {
     SettingsSubScreen(
@@ -102,6 +104,7 @@ internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Un
         Spacer(Modifier.height(24.dp))
         GroupedRows(
             { NavRow(stringResource(R.string.settings_group_data), icon = Icons.Filled.ImportExport) { onOpenPage(SettingsPage.Data) } },
+            { NavRow(stringResource(R.string.settings_engine_diagnostics), icon = Icons.Filled.Info) { onOpenPage(SettingsPage.EngineDiagnostics) } },
             { NavRow(stringResource(R.string.settings_logs), icon = Icons.AutoMirrored.Filled.ReceiptLong) { onOpenPage(SettingsPage.Logs) } },
         )
         Spacer(Modifier.height(24.dp))
@@ -652,7 +655,53 @@ internal fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
+@Composable
+internal fun EngineDiagnosticsScreen(onBack: () -> Unit) {
+    val recorder by TrackingStatus.state.collectAsStateWithLifecycle()
+    val events by LocomotionDiagnostics.events.collectAsStateWithLifecycle()
+    SettingsSubScreen(stringResource(R.string.engine_diagnostics_title), onBack) {
+        Text(stringResource(R.string.engine_diagnostics_legacy_status), style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(
+                R.string.engine_diagnostics_tracking,
+                stringResource(if (recorder.tracking) R.string.engine_diagnostics_active else R.string.common_off),
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            stringResource(
+                R.string.engine_diagnostics_recording,
+                stringResource(if (recorder.recording) R.string.engine_diagnostics_active else R.string.common_off),
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(stringResource(R.string.engine_diagnostics_status_note), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(24.dp))
+        Text(
+            stringResource(R.string.engine_diagnostics_event_count, events.size),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        if (events.isEmpty()) {
+            Text(stringResource(R.string.engine_diagnostics_empty), style = MaterialTheme.typography.bodySmall)
+        } else {
+            events.asReversed().take(20).forEach { event ->
+                Text(
+                    "${DebugLog.formatTime(event.wallTimeMs)}  ${event.subsystem} · ${event.code}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = when (event.level) {
+                        DiagnosticLevel.ERROR -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(vertical = 3.dp),
+                )
+            }
+        }
+    }
+}
+
+internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, EngineDiagnostics, About }
 
 @Composable
 internal fun DisplaySettingsScreen(

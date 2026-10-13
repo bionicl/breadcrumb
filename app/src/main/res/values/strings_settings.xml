@@ -31,6 +31,15 @@
         <item quantity="one">Restorable for %1$d day</item>
         <item quantity="other">Restorable for %1$d days</item>
     </plurals>
+    <string name="settings_engine_diagnostics">Engine diagnostics</string>
+    <string name="engine_diagnostics_title">Engine diagnostics</string>
+    <string name="engine_diagnostics_legacy_status">Current recorder</string>
+    <string name="engine_diagnostics_tracking">Automatic recording: %1$s</string>
+    <string name="engine_diagnostics_recording">Track recording: %1$s</string>
+    <string name="engine_diagnostics_active">Active</string>
+    <string name="engine_diagnostics_status_note">The new engine is being built in stages. This page shows its structured events as each processing layer is connected.</string>
+    <string name="engine_diagnostics_event_count">Recent engine decisions (%1$d)</string>
+    <string name="engine_diagnostics_empty">No engine decisions have been recorded in this session.</string>
     <string name="settings_logs">Logs</string>
     <string name="settings_reset">Reset</string>
 

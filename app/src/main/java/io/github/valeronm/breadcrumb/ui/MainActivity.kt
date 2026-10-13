@@ -1012,6 +1012,7 @@ private fun SettingsPagesOverlay(
                 onOpenTrack = onOpenTrack,
             )
             SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
+            SettingsPage.EngineDiagnostics -> EngineDiagnosticsScreen(onBack = layer.dismiss)
             SettingsPage.About -> AboutSettingsScreen(layer.dismiss)
         }
     }
