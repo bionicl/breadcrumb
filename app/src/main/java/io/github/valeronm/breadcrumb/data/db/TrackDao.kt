@@ -37,6 +37,18 @@ interface TrackDao {
     @Insert
     suspend fun insertPoints(points: List<TrackPoint>)
 
+    @Insert
+    suspend fun insertComposition(composition: TrackCompositionEntity)
+
+    @Query("SELECT * FROM track_compositions WHERE mergedTrackId = :trackId")
+    suspend fun compositionFor(trackId: Long): TrackCompositionEntity?
+
+    @Query("SELECT * FROM track_compositions")
+    suspend fun allCompositions(): List<TrackCompositionEntity>
+
+    @Query("DELETE FROM track_compositions WHERE mergedTrackId = :trackId")
+    suspend fun deleteComposition(trackId: Long)
+
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
     suspend fun closeTrack(trackId: Long, endedAt: Long)
 
@@ -131,7 +143,11 @@ interface TrackDao {
 
     /** Hard-delete soft-deleted tracks discarded at or before [through] (points cascade). Returns
      *  the count. */
-    @Query("DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt <= :through")
+    @Query(
+        "DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt <= :through " +
+            "AND id NOT IN (SELECT earlierTrackId FROM track_compositions) " +
+            "AND id NOT IN (SELECT laterTrackId FROM track_compositions)",
+    )
     suspend fun purgeDiscardedThrough(through: Long): Int
 
     // --- Track merge and split (one copies points onto a new track, the other rehomes them) -----

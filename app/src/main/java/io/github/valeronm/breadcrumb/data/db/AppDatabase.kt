@@ -15,8 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
+        TrackCompositionEntity::class,
     ],
-    version = 29,
+    version = 30,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -53,7 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val HISTORY_TABLES = listOf(
             "tracks", "track_points", "places", "place_identities",
             "derived_clusters", "cluster_members", "derived_intervals",
-            "engine_observations", "engine_checkpoints", "engine_user_corrections",
+            "engine_observations", "engine_checkpoints", "engine_user_corrections", "track_compositions",
         )
 
         @Volatile
@@ -318,6 +319,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Preserve the component tracks and stationary interval behind a merged movement row. */
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS track_compositions (
+                      mergedTrackId INTEGER NOT NULL,
+                      earlierTrackId INTEGER NOT NULL,
+                      laterTrackId INTEGER NOT NULL,
+                      visitAfterTrackId INTEGER NOT NULL,
+                      visitStartMs INTEGER NOT NULL,
+                      visitEndMs INTEGER NOT NULL,
+                      visitCorrectionId TEXT,
+                      PRIMARY KEY(mergedTrackId),
+                      FOREIGN KEY(mergedTrackId) REFERENCES tracks(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """,
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_track_compositions_earlierTrackId " +
+                        "ON track_compositions(earlierTrackId)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_track_compositions_laterTrackId " +
+                        "ON track_compositions(laterTrackId)",
+                )
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -330,7 +360,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
             MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
-            MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
+            MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30,
         )
 
         fun get(context: Context): AppDatabase =

@@ -8,6 +8,8 @@ import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionEntity
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -728,6 +730,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun restoreTrack(trackId: Long): Boolean = db.withTransaction {
         // Reopening clears the discard columns, so a discarded row is never the one the recorder holds.
         val track = dao.track(trackId)?.takeIf { it.discardedAt != null } ?: return@withTransaction true
+        if (dao.allCompositions().any { it.earlierTrackId == trackId || it.laterTrackId == trackId }) {
+            // Its points already have a live copy in the merged movement; only restoring the
+            // composition can bring this source row back without duplicating the timeline.
+            return@withTransaction false
+        }
         val end = checkNotNull(track.endedAt)
         if (spanTaken(track.startedAt, end, trackId)) return@withTransaction false
         if (track.discardReason == DiscardReason.DELETED.code) {
@@ -778,14 +785,34 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * and restorable from Settings → Recently deleted until the retention purge, not destroyed. The
      * derived stay disappears because the discarded originals leave the timeline. Returns the merged
      * track's id (null if either original is gone), which [unmergeTracks] needs to undo it.
+     * When [composition] is supplied, the stationary interval and correction stay attached to the
+     * merged row beyond the transient Undo snackbar.
      */
-    suspend fun mergeTracks(earlierId: Long, laterId: Long): Long? {
+    suspend fun mergeTracks(
+        earlierId: Long,
+        laterId: Long,
+        composition: TrackCompositionDraft? = null,
+    ): Long? {
         return db.withTransaction {
             val earlier = closedTrack(earlierId) ?: return@withTransaction null
             val later = closedTrack(laterId) ?: return@withTransaction null
             // The merged row copies these two columns from one side, so [TrackMerge.plan]'s
             // refusals are re-checked against the rows as they are now, not as the offer saw them.
-            if (earlier.activityType != later.activityType || earlier.source != later.source) {
+            if (earlier.discardedAt != null ||
+                later.discardedAt != null ||
+                earlier.activityType != later.activityType ||
+                earlier.source != later.source
+            ) {
+                return@withTransaction null
+            }
+            // Composition remains deliberately one level deep so a future restore can atomically
+            // put back exactly these two source rows and the interval between them.
+            if (dao.compositionFor(earlierId) != null || dao.compositionFor(laterId) != null) {
+                return@withTransaction null
+            }
+            if (composition != null &&
+                (composition.visitAfterTrackId != earlierId || composition.visitEndMs < composition.visitStartMs)
+            ) {
                 return@withTransaction null
             }
             val mergedId = dao.insertTrack(
@@ -798,6 +825,19 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     endPlaceId = later.endPlaceId,
                 ),
             )
+            composition?.let {
+                dao.insertComposition(
+                    TrackCompositionEntity(
+                        mergedTrackId = mergedId,
+                        earlierTrackId = earlierId,
+                        laterTrackId = laterId,
+                        visitAfterTrackId = it.visitAfterTrackId,
+                        visitStartMs = it.visitStartMs,
+                        visitEndMs = it.visitEndMs,
+                        visitCorrectionId = it.visitCorrectionId,
+                    ),
+                )
+            }
             dao.copyPointsInto(mergedId, earlierId)
             dao.copyPointsInto(mergedId, laterId)
             dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
@@ -815,6 +855,61 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             derivation.reknit(listOf(mergedId, earlierId, laterId))
             mergedId
         }
+    }
+
+    suspend fun compositionFor(trackId: Long): TrackCompositionEntity? = dao.compositionFor(trackId)
+
+    /** Restore a merged movement and explicitly promote its stationary component to a visit. */
+    suspend fun restoreComposition(mergedTrackId: Long, placeId: Long): Boolean {
+        var visitTarget: String? = null
+        db.withTransaction {
+            val composition = dao.compositionFor(mergedTrackId) ?: return@withTransaction
+            val merged = closedTrack(mergedTrackId) ?: return@withTransaction
+            val earlier = dao.track(composition.earlierTrackId) ?: return@withTransaction
+            val later = dao.track(composition.laterTrackId) ?: return@withTransaction
+            if (earlier.discardReason != DiscardReason.MERGED.code ||
+                later.discardReason != DiscardReason.MERGED.code ||
+                merged.discardedAt != null
+            ) {
+                return@withTransaction
+            }
+
+            composition.visitCorrectionId?.let { correctionId ->
+                val original = db.locomotionDao().allUserCorrections().firstOrNull { it.id == correctionId }
+                    ?: return@withTransaction
+                db.locomotionDao().insertUserCorrection(
+                    EngineUserCorrectionEntity(
+                        id = UUID.randomUUID().toString(),
+                        operationId = UUID.randomUUID().toString(),
+                        targetSegmentId = original.targetSegmentId,
+                        kind = "UNDO",
+                        createdAtWallTimeMs = System.currentTimeMillis(),
+                        referenceCorrectionId = correctionId,
+                    ),
+                )
+            }
+
+            val assignedTarget = engineVisitSegmentId(composition.visitAfterTrackId)
+            visitTarget = assignedTarget
+            db.locomotionDao().insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = UUID.randomUUID().toString(),
+                    operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = assignedTarget,
+                    kind = "ASSIGN_VISIT_PLACE",
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    correctedPlaceId = placeId,
+                    visitStartWallTimeMs = composition.visitStartMs,
+                    visitEndWallTimeMs = composition.visitEndMs,
+                ),
+            )
+            dao.purgeTrack(mergedTrackId)
+            dao.restoreTrack(composition.earlierTrackId)
+            dao.restoreTrack(composition.laterTrackId)
+            derivation.reknit(listOf(mergedTrackId, composition.earlierTrackId, composition.laterTrackId))
+        }
+        visitTarget?.let { refreshVisitTrainingLabels(it) }
+        return visitTarget != null
     }
 
     /**
@@ -989,8 +1084,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Hard-delete soft-deleted tracks older than the retention window — discarded tracks are kept
-     * only long enough to tune the keep-thresholds against, not forever. Called on app open.
+     * Hard-delete soft-deleted tracks older than the retention window, except originals referenced
+     * by a live merge composition, which remain restorable with their merged movement.
      */
     suspend fun purgeOldDiscarded(retentionDays: Int = DISCARDED_RETENTION_DAYS) {
         val cutoff = System.currentTimeMillis() - retentionDays * 86_400_000L

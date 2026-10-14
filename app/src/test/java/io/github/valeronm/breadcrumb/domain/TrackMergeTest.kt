@@ -22,16 +22,10 @@ class TrackMergeTest {
         )
     }
 
-    @Test fun `a 5 minute interval is still eligible (boundary)`() {
+    @Test fun `an arbitrarily long stationary interval is mergeable when movement agrees`() {
         assertEquals(
             TrackMerge.Plan(earlierId = 1, laterId = 2),
-            TrackMerge.plan(before, after, intervalStart = 0, intervalEnd = TrackMerge.MAX_INTERVAL_MS),
-        )
-    }
-
-    @Test fun `an interval longer than 5 minutes is not mergeable`() {
-        assertNull(
-            TrackMerge.plan(before, after, intervalStart = 0, intervalEnd = TrackMerge.MAX_INTERVAL_MS + 1),
+            TrackMerge.plan(before, after, intervalStart = 0, intervalEnd = 2 * 60 * 60_000),
         )
     }
 
@@ -90,13 +84,12 @@ class TrackMergeTest {
         val slices = TimelineRows.slicePerDay(listOf(stay), { Clocks.both(ZoneId.of("UTC")) }, nowMs = 2 * DAY)
             .map { it.interval }
         assertEquals(2, slices.size)
-        assertTrue(slices.any { it.end!! - it.start <= TrackMerge.MAX_INTERVAL_MS })
 
         val plans = TrackMerge.plansByAnchor(listOf(stay), neighbors)
-        // Every slice looks its offer up by the same anchor, so the short one gets the same
-        // verdict as the stop it belongs to: none.
-        assertNull(plans[before.id])
-        assertTrue(slices.all { plans[it.afterTrackId] == null })
+        // Every slice looks its offer up by the same anchor; judging the whole interval means each
+        // carries the same merge plan, even where one rendered slice is short.
+        assertEquals(TrackMerge.Plan(earlierId = 1, laterId = 2), plans[before.id])
+        assertTrue(slices.all { plans[it.afterTrackId] != null })
     }
 
     @Test fun `an interval whose later side is missing yields no plan`() {

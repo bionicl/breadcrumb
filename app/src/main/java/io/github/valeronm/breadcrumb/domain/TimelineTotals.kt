@@ -145,7 +145,7 @@ fun activityTotals(tracks: List<TrackSummary>, nowMs: Long): List<ActivityTotal>
  * shape. The floor is on the **summed** total, not on any one stop — several brief errands still
  * add up to an errand-shaped afternoon, which is the case that would be wrong to hide.
  *
- * **Not a sibling of [TrackMerge.MAX_INTERVAL_MS], which happens to hold the same number.** That one
+ * **Not a sibling of [StationaryVisitPolicy.MIN_SEPARATE_VISIT_MS].** That one
  * bounds a *single* stay, being how long a stop may be and still be absorbed by merging the trips
  * either side; this bounds a *category's whole day*. Three mergeable two-minute stops clear this
  * floor together and are meant to. Tying the two would silently make one quantity the other.

@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -604,6 +606,35 @@ class TrackRepositoryTest {
             assertNull(track.discardReason)
             test.assertStatsMatchPoints(id)
         }
+    }
+
+    @Test fun `composition retains its sources through purge and restores the assigned stationary visit`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+        val visitStart = TEST_START + 70_000
+        val visitEnd = TEST_START + 120_000
+        val correctionId = repository.correctVisit(first, visitStart, visitEnd, "DELETE_VISIT")
+        val mergedId = repository.mergeTracks(
+            first,
+            second,
+            TrackCompositionDraft(first, visitStart, visitEnd, correctionId),
+        )!!
+        val placeId = test.db.placeDao().insert(
+            Place(label = "Home", lat = 1.0, lon = 1.0, createdAt = TEST_START, radiusM = 100.0),
+        )
+
+        repository.purgeDiscarded(Long.MAX_VALUE)
+        assertNotNull("component rows remain while restoration is possible", dao.track(first))
+        assertNotNull(dao.track(second))
+
+        assertTrue(repository.restoreComposition(mergedId, placeId))
+
+        assertNull(dao.track(mergedId))
+        assertNull(dao.track(first)!!.discardedAt)
+        assertNull(dao.track(second)!!.discardedAt)
+        val corrections = repository.observeVisitCorrections().first()
+        assertTrue(corrections.any { it.kind == "UNDO" && it.referenceCorrectionId == correctionId })
+        assertTrue(corrections.any { it.kind == "ASSIGN_VISIT_PLACE" && it.correctedPlaceId == placeId })
     }
 
     /**

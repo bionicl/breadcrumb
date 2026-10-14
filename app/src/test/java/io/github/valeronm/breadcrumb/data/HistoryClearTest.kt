@@ -5,6 +5,7 @@ import androidx.room.useWriterConnection
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.toEntity
 import io.github.valeronm.breadcrumb.locomotion.EngineCheckpoint
 import io.github.valeronm.breadcrumb.locomotion.LocationMeasurement
@@ -59,8 +60,14 @@ class HistoryClearTest {
 
     private suspend fun fillEveryTable() {
         val deleted = test.walk(TEST_START, 0, 5)
-        test.walk(TEST_START + 120_000L, 6, 11)
-        test.walk(TEST_START + 240_000L, 11, 6)
+        val first = test.walk(TEST_START + 120_000L, 6, 11)
+        val second = test.walk(TEST_START + 240_000L, 11, 16)
+        test.walk(TEST_START + 360_000L, 16, 21)
+        repository.mergeTracks(
+            first,
+            second,
+            TrackCompositionDraft(first, TEST_START + 180_000L, TEST_START + 240_000L),
+        )
         repository.deleteTrack(deleted)
         val home = test.db.placeDao().insert(test.place("Home", 1.0, -2.0))
         test.db.placeIdentityDao().upsert(listOf(PlaceIdentity("google_timeline", "home", home)))

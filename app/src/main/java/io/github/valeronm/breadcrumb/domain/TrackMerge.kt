@@ -12,15 +12,12 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
  */
 object TrackMerge {
 
-    /** An interval this short (or shorter) between same-activity tracks is a candidate for merging. */
-    const val MAX_INTERVAL_MS = 5 * 60_000L
-
     /** Merge the two tracks bracketing the interval into a new track; [earlierId] precedes [laterId]. */
     data class Plan(val earlierId: Long, val laterId: Long)
 
     /**
      * A plan to merge across the interval between [before] (ends into it) and [after] (starts out
-     * of it), or null if the interval is too long, still ongoing, or the tracks aren't the same
+     * of it), or null if the interval is still ongoing or the tracks aren't the same
      * activity or from the same writer. Refusing across writers is what keeps [TrackSummary.source]
      * true of every row: a merge fuses two tracks' fixes into one, so a recorded track joined to an
      * imported one would leave a row no single source describes — and no "mixed" code could rescue
@@ -37,9 +34,11 @@ object TrackMerge {
         intervalStart: Long,
         intervalEnd: Long?,
     ): Plan? {
-        if (intervalEnd == null || intervalEnd - intervalStart > MAX_INTERVAL_MS) return null
+        if (intervalEnd == null || intervalEnd < intervalStart) return null
         if (before.activityType != after.activityType) return null
         if (before.source != after.source) return null
+        val activity = ActivityType.ofName(before.activityType) ?: return null
+        if (!activity.recording || activity.trackGroup == TrackGroup.UNKNOWN) return null
         return Plan(earlierId = before.id, laterId = after.id)
     }
 
