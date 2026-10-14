@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartEntity
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.data.db.TrackPathPointUpdate
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -35,6 +36,8 @@ import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.locomotion.BoundaryKind
 import io.github.valeronm.breadcrumb.locomotion.PersonalTransportClassifier
+import io.github.valeronm.breadcrumb.locomotion.RoutePathSmoother
+import io.github.valeronm.breadcrumb.locomotion.RouteSmoothingFix
 import io.github.valeronm.breadcrumb.locomotion.UserCorrection
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
@@ -627,6 +630,82 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 applyStoredModelSuggestion(it)
             }
         }
+        smoothPathIfNeeded(trackId)
+    }
+
+    /** Process only finished paths explicitly requested by the caller or newly finished now. */
+    suspend fun processUnprocessedPaths(trackIds: List<Long>): Int = withContext(Dispatchers.IO) {
+        var processed = 0
+        for (batch in trackIds.distinct().chunked(IDS_PER_STATEMENT)) {
+            for (track in dao.unprocessedTracks(batch)) {
+                if (smoothPathIfNeeded(track.id)) processed++
+            }
+        }
+        processed
+    }
+
+    /**
+     * Smooth a finished path once, retaining raw coordinates as the source of all derived facts.
+     * The read/compute/write split keeps the CPU pass off Room's writer transaction; the final
+     * transaction rechecks the marker so concurrent day refreshes and track completion are safe.
+     */
+    suspend fun smoothPathIfNeeded(trackId: Long): Boolean {
+        val snapshot = db.withTransaction {
+            val track = dao.track(trackId) ?: return@withTransaction null
+            if (track.endedAt == null || track.discardedAt != null || track.pathProcessed) return@withTransaction null
+            track to dao.allPointsFor(trackId)
+        } ?: return false
+
+        val updates = withContext(Dispatchers.Default) {
+            val output = mutableListOf<TrackPathPointUpdate>()
+            var run = mutableListOf<TrackPoint>()
+            fun flush() {
+                if (run.isEmpty()) return
+                val result = RoutePathSmoother.smooth(run.map { point ->
+                    RouteSmoothingFix(
+                        latitudeDegrees = point.latitude,
+                        longitudeDegrees = point.longitude,
+                        timestampMs = point.timestamp,
+                        horizontalAccuracyMeters = point.accuracy?.toDouble(),
+                        speedMetersPerSecond = point.speed?.toDouble(),
+                        bearingDegrees = point.bearing?.toDouble(),
+                        speedAccuracyMetersPerSecond = point.speedAccuracy?.toDouble(),
+                        bearingAccuracyDegrees = point.bearingAccuracy?.toDouble(),
+                        segmentStart = point.segmentStart,
+                    )
+                })
+                run.forEachIndexed { index, point ->
+                    result[index]?.let { coordinate ->
+                        output += TrackPathPointUpdate(point.id, coordinate.latitudeDegrees, coordinate.longitudeDegrees)
+                    }
+                }
+                run = mutableListOf()
+            }
+            var previousTimestamp: Long? = null
+            for (point in snapshot.second) {
+                if (point.ignored) {
+                    flush()
+                    previousTimestamp = null
+                    continue
+                }
+                if (point.segmentStart && run.isNotEmpty()) flush()
+                if (previousTimestamp != null && point.timestamp - previousTimestamp!! > RoutePathSmoother.MAX_CONTIGUOUS_GAP_MS) {
+                    flush()
+                }
+                run += point
+                previousTimestamp = point.timestamp
+            }
+            flush()
+            output
+        }
+
+        return db.withTransaction {
+            val current = dao.track(trackId) ?: return@withTransaction false
+            if (current.endedAt == null || current.discardedAt != null || current.pathProcessed) return@withTransaction false
+            if (updates.isNotEmpty()) dao.updateSmoothedPoints(updates)
+            dao.setPathProcessed(trackId, true)
+            true
+        }
     }
 
     /** A manual correction is the only event that labels live windows for local learning. */
@@ -832,6 +911,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     source = earlier.source,
                     startPlaceId = earlier.startPlaceId,
                     endPlaceId = later.endPlaceId,
+                    pathProcessed = earlier.pathProcessed && later.pathProcessed,
                 ),
             )
             composition?.let {
@@ -1046,6 +1126,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 source = first.source,
                 startPlaceId = first.startPlaceId,
                 endPlaceId = last.endPlaceId,
+                pathProcessed = paths.all { it.pathProcessed },
             ),
         )
         dao.insertComposition(
@@ -1406,6 +1487,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 // The half is the same recording, cut: a split never introduces a writer.
                 source = track.source,
                 endPlaceId = track.endPlaceId,
+                pathProcessed = track.pathProcessed,
             )
             val secondId = dao.insertTrack(secondRow)
             dao.movePointsFrom(secondId, trackId, atTs)
@@ -1536,7 +1618,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * the recorder's hot path.
      */
     suspend fun pointsFor(trackId: Long): List<TrackPoint> {
-        val points = SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
+        val points = SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId)).map(TrackPoint::withPathCoordinates)
         if (points.isEmpty() || dao.compositionFor(trackId) == null) return points
         val joinedPathStarts = compositionTreePartsFor(trackId)
             .asSequence()
@@ -1578,7 +1660,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val ignored = all.filter { it.ignored }
         val (edgeStay, noisy) = ignored.partition(EdgeStayIgnore::isEdgeStay)
         return TrackPoints(
-            good = SegmentBreaks.goodWithCarriedBreaks(all),
+            good = SegmentBreaks.goodWithCarriedBreaks(all).map(TrackPoint::withPathCoordinates),
             noisy = noisy,
             edgeStay = edgeStay,
         )
@@ -1619,3 +1701,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         return dropped
     }
 }
+
+private fun TrackPoint.withPathCoordinates(): TrackPoint =
+    if (smoothedLatitude != null && smoothedLongitude != null) {
+        copy(latitude = smoothedLatitude, longitude = smoothedLongitude)
+    } else {
+        this
+    }

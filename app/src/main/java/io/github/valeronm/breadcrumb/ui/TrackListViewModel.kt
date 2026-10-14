@@ -94,11 +94,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val candidateCount: Int,
         val mergedCount: Int,
         val rejectionReason: String? = null,
+        val processedTrackCount: Int = 0,
+        val processingFailed: Boolean = false,
     )
     private data class DayRepairRequest(
         val trackIds: Set<Long>,
         val revision: Long,
         val onComplete: ((DayRepairResult) -> Unit)?,
+        val processedTrackCount: Int,
+        val processingFailed: Boolean,
     )
     private val dayRepairRequest = MutableStateFlow<DayRepairRequest?>(null)
     private var dayRepairRevision = 0L
@@ -106,13 +110,34 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private var processedDayRepairRevision = 0L
 
     /** Re-run the automatic small-gap composition rules for paths shown on one timeline day. */
-    fun repairDay(trackIds: List<Long>, onComplete: ((DayRepairResult) -> Unit)? = null) {
+    fun repairDay(
+        trackIds: List<Long>,
+        processUnprocessedPaths: Boolean = false,
+        onComplete: ((DayRepairResult) -> Unit)? = null,
+    ) {
         val ids = trackIds.toSet()
         if (ids.isEmpty()) {
             onComplete?.invoke(DayRepairResult(0, 0))
             return
         }
-        dayRepairRequest.value = DayRepairRequest(ids, ++dayRepairRevision, onComplete)
+        val revision = ++dayRepairRevision
+        viewModelScope.launch {
+            var processedTrackCount = 0
+            var processingFailed = false
+            if (processUnprocessedPaths) {
+                try {
+                    processedTrackCount = repository.processUnprocessedPaths(ids.toList())
+                } catch (_: Exception) {
+                    processingFailed = true
+                }
+            }
+            val latestRequested = dayRepairRequest.value?.revision ?: processedDayRepairRevision
+            if (revision >= latestRequested) {
+                dayRepairRequest.value = DayRepairRequest(
+                    ids, revision, onComplete, processedTrackCount, processingFailed,
+                )
+            }
+        }
     }
 
     val tracks: StateFlow<List<TrackSummary>> = trackRows
@@ -376,7 +401,15 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             processedDayRepairRevision = request.revision
             request.onComplete?.let { callback ->
                 viewModelScope.launch {
-                    callback(DayRepairResult(sequencesToMerge.size, mergedSequenceCount, firstRejectionReason))
+                    callback(
+                        DayRepairResult(
+                            sequencesToMerge.size,
+                            mergedSequenceCount,
+                            firstRejectionReason,
+                            request.processedTrackCount,
+                            request.processingFailed,
+                        ),
+                    )
                 }
             }
         }
@@ -843,8 +876,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repository.setActivityType(trackId, activityType)
             // A retype re-derives the timeline, but that emission is shared with other edits and
-            // can race an in-flight composition write. Explicitly request the same repair the
-            // day's refresh button runs, after the correction transaction has completed.
+            // can race an in-flight composition write. Request the merge repair without processing
+            // old route geometry; that is reserved for the day's explicit refresh action.
             repairDay(listOf(trackId))
         }
     }

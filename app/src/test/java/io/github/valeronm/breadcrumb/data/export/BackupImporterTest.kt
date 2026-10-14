@@ -50,7 +50,7 @@ class BackupImporterTest {
             id = 3, activityType = "IN_VEHICLE", startedAt = 1_000L, endedAt = 9_000L,
             source = "recorded", distanceMeters = 42.5, pointCount = 2, ignoredCount = 1,
             startLat = 1.25, startLon = 2.5, endLat = 3.75, endLon = -4.5,
-            startPlaceId = 7, endPlaceId = 8,
+            startPlaceId = 7, endPlaceId = 8, pathProcessed = true,
         )
         val points = listOf(
             TrackPoint(
@@ -58,6 +58,7 @@ class BackupImporterTest {
                 accuracy = 4.5f, speed = 1.25f, bearing = 270.5f, timestamp = 1_000L,
                 verticalAccuracy = 2.5f, speedAccuracy = 0.5f, bearingAccuracy = 10.2f,
                 satellitesInFix = 17, cn0 = 33.8f, segmentStart = true,
+                smoothedLatitude = 1.051, smoothedLongitude = -2.051,
             ),
             TrackPoint(
                 id = 11, trackId = 3, latitude = 1.06, longitude = -2.06, altitude = null,

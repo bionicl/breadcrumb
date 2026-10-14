@@ -508,8 +508,8 @@ private fun TimelineListPage(
                             away = away,
                             onOpenJourney = onOpenJourney,
                             onRepair = {
-                                viewModel.repairDay(dayTracks.map { it.id }) { result ->
-                                    val message = when {
+                                viewModel.repairDay(dayTracks.map { it.id }, processUnprocessedPaths = true) { result ->
+                                    val mergeMessage = when {
                                         result.candidateCount == 0 -> context.getString(R.string.timeline_repair_no_candidates)
                                         result.mergedCount == 0 -> context.getString(
                                             R.string.timeline_repair_failed,
@@ -532,6 +532,13 @@ private fun TimelineListPage(
                                             result.mergedCount,
                                         )
                                     }
+                                    val message = buildList {
+                                        if (result.processedTrackCount > 0) {
+                                            add(context.getString(R.string.timeline_repair_processed, result.processedTrackCount))
+                                        }
+                                        if (result.processingFailed) add(context.getString(R.string.timeline_repair_processing_failed))
+                                        if (result.processedTrackCount == 0 || result.candidateCount > 0) add(mergeMessage)
+                                    }.joinToString("\n")
                                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                                 }
                             },

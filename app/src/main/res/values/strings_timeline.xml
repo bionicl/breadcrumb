@@ -54,6 +54,8 @@
     <string name="timeline_away_day">Day %1$d</string>
     <string name="timeline_share_day">Share %1$s tracks</string>
     <string name="timeline_repair_day">Repair %1$s routes</string>
+    <string name="timeline_repair_processed">Processed %1$d route(s).</string>
+    <string name="timeline_repair_processing_failed">Route smoothing could not finish; try again.</string>
     <string name="timeline_repair_no_candidates">No nearby same-type routes can be merged on this day.</string>
     <string name="timeline_repair_failed">Found %1$d route group(s), but could not save the merge: %2$s.</string>
     <string name="timeline_repair_reason_stale">one of the trips has already changed</string>

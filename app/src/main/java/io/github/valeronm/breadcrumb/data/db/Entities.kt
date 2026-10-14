@@ -93,6 +93,8 @@ data class Track(
     val engineSuggestedActivityType: String? = null,
     val engineSuggestionConfidence: Float? = null,
     val engineSuggestionModelVersion: String? = null,
+    /** True after route geometry was evaluated by the post-recording path smoother. */
+    @ColumnInfo(defaultValue = "0") val pathProcessed: Boolean = false,
 )
 
 @Entity(
@@ -146,7 +148,13 @@ data class TrackPoint(
      * into it, though distance counts that leg like any other: unobserved is not untravelled.
      */
     val segmentStart: Boolean = false,
-)
+    /** Smoothed display/export geometry; raw latitude/longitude remain authoritative for derivation. */
+    val smoothedLatitude: Double? = null,
+    val smoothedLongitude: Double? = null,
+) {
+    val pathLatitude: Double get() = smoothedLatitude ?: latitude
+    val pathLongitude: Double get() = smoothedLongitude ?: longitude
+}
 
 /**
  * A group of track endpoints that are one spot, and **the durable entity a stay belongs to** — the
@@ -361,4 +369,5 @@ data class TrackSummary(
     val engineSuggestedActivityType: String? = null,
     val engineSuggestionConfidence: Float? = null,
     val engineSuggestionModelVersion: String? = null,
+    val pathProcessed: Boolean = false,
 )

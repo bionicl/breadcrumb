@@ -190,6 +190,33 @@ class TrackRepositoryTest {
         test.assertStatsMatchPoints(id)
     }
 
+    @Test fun `finishing a path stores smoothed geometry but keeps raw coordinates for derivation`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        val points = (0..6).map { index ->
+            test.point(id, index, lat = 1.0 + index * 0.0005).copy(
+                longitude = if (index == 3) 0.0002 else 0.0,
+                accuracy = if (index == 3) 40f else 5f,
+                timestamp = TEST_START + index * 10_000L,
+            )
+        }
+        repository.addPoints(points)
+
+        repository.finishTrack(id, TEST_START + 60_000L)
+
+        val track = dao.track(id)!!
+        assertTrue(track.pathProcessed)
+        val raw = dao.allPointsFor(id)
+        assertEquals(0.0002, raw[3].longitude, 1e-9)
+        assertNotNull(raw[3].smoothedLongitude)
+        assertTrue(kotlin.math.abs(raw[3].smoothedLongitude!! - raw[3].longitude) < 0.0002)
+        assertEquals(raw[3].smoothedLongitude!!, repository.pointsFor(id)[3].longitude, 1e-9)
+        assertEquals(raw[3].smoothedLongitude!!, repository.trackPointsFor(id).good[3].longitude, 1e-9)
+        test.assertStatsMatchPoints(id)
+        dao.setPathProcessed(id, false)
+        assertEquals(1, repository.processUnprocessedPaths(listOf(id)))
+        assertEquals(0, repository.processUnprocessedPaths(listOf(id)))
+    }
+
     @Test fun `a track with two points or fewer is purged outright, not discarded`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.addPoints(listOf(test.point(id, 0), test.point(id, 1)))

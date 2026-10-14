@@ -49,13 +49,13 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
     }
 
     private val mutex = Mutex()
-    private val cache = object : LinkedHashMap<Pair<Long, Long?>, JourneyLine>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Long, Long?>, JourneyLine>) =
+    private val cache = object : LinkedHashMap<Triple<Long, Long?, Boolean>, JourneyLine>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Triple<Long, Long?, Boolean>, JourneyLine>) =
             size > MAX_LINES
     }
 
     private suspend fun lineFor(track: TrackSummary): JourneyLine {
-        val key = track.id to track.endedAt
+        val key = Triple(track.id, track.endedAt, track.pathProcessed)
         mutex.withLock { cache[key] }?.let { return it }
         val points = repository.pointsFor(track.id)
         val line = withContext(Dispatchers.Default) {

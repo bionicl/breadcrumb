@@ -23,6 +23,7 @@ class BackupExporterTest {
         startedAt = 1_000L,
         endedAt = 2_000L,
         source = source,
+        pathProcessed = true,
         distanceMeters = 123.5,
         pointCount = 2,
         ignoredCount = 1,
@@ -37,6 +38,7 @@ class BackupExporterTest {
         ignored: Boolean = false,
         ignoreReason: String? = null,
         segmentStart: Boolean = false,
+        smoothed: Boolean = false,
     ) = TrackPoint(
         trackId = 1,
         latitude = 1.05,
@@ -51,6 +53,8 @@ class BackupExporterTest {
         ignored = ignored,
         ignoreReason = ignoreReason,
         segmentStart = segmentStart,
+        smoothedLatitude = if (smoothed) 1.051 else null,
+        smoothedLongitude = if (smoothed) -2.051 else null,
     )
 
     /** Builds the whole document tree through the production pull-reader. */
@@ -106,6 +110,7 @@ class BackupExporterTest {
         assertEquals(1L, t["id"])
         assertEquals("WALKING", t["activityType"])
         assertEquals("recorded", t["source"])
+        assertEquals(1L, t["pathProcessed"])
         assertEquals(2_000L, t["endedAt"])
         assertEquals(123.5, t["distanceMeters"])
         val points = t["points"].arr()
@@ -120,6 +125,8 @@ class BackupExporterTest {
         assertEquals(12L, p[10]) // satellitesInFix
         assertEquals(0L, p[14]) // segmentStart
         assertEquals(1L, points[1].arr()[14])
+        assertNull(p[15])
+        assertNull(p[16])
     }
 
     @Test fun `a track that names no writer exports a null, not a guess`() {

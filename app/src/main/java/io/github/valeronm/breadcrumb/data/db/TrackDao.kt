@@ -11,6 +11,12 @@ import kotlinx.coroutines.flow.Flow
  * Row-shaped projection of [io.github.valeronm.breadcrumb.data.TrackStats.Stats] for
  * [TrackDao.updateStats]: the aggregate columns plus the key, nothing else touched.
  */
+data class TrackPathPointUpdate(
+    val id: Long,
+    val smoothedLatitude: Double?,
+    val smoothedLongitude: Double?,
+)
+
 data class TrackStatsUpdate(
     val id: Long,
     val distanceMeters: Double,
@@ -64,6 +70,15 @@ interface TrackDao {
     @Query("DELETE FROM track_compositions WHERE mergedTrackId = :trackId")
     suspend fun deleteComposition(trackId: Long)
 
+    @Query("UPDATE tracks SET pathProcessed = :processed WHERE id = :trackId AND endedAt IS NOT NULL AND discardedAt IS NULL")
+    suspend fun setPathProcessed(trackId: Long, processed: Boolean)
+
+    @Query("SELECT * FROM tracks WHERE id IN (:trackIds) AND endedAt IS NOT NULL AND discardedAt IS NULL AND pathProcessed = 0 ORDER BY startedAt ASC")
+    suspend fun unprocessedTracks(trackIds: List<Long>): List<Track>
+
+    @Query("UPDATE track_points SET smoothedLatitude = :latitude, smoothedLongitude = :longitude WHERE id = :pointId")
+    suspend fun setSmoothedCoordinates(pointId: Long, latitude: Double?, longitude: Double?)
+
     @Query("UPDATE tracks SET endedAt = :endedAt WHERE id = :trackId")
     suspend fun closeTrack(trackId: Long, endedAt: Long)
 
@@ -78,6 +93,9 @@ interface TrackDao {
      */
     @Update(entity = Track::class)
     suspend fun updateStats(stats: TrackStatsUpdate)
+
+    @Update(entity = TrackPoint::class)
+    suspend fun updateSmoothedPoints(points: List<TrackPathPointUpdate>)
 
     @Query("UPDATE tracks SET activityType = :activityType WHERE id = :trackId")
     suspend fun setActivityType(trackId: Long, activityType: String)
@@ -174,10 +192,10 @@ interface TrackDao {
         INSERT INTO track_points
             (trackId, latitude, longitude, altitude, accuracy, speed, bearing, timestamp,
              verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0,
-             ignored, ignoreReason, segmentStart)
+             ignored, ignoreReason, segmentStart, smoothedLatitude, smoothedLongitude)
         SELECT :newId, latitude, longitude, altitude, accuracy, speed, bearing, timestamp,
                verticalAccuracy, speedAccuracy, bearingAccuracy, satellitesInFix, cn0,
-               ignored, ignoreReason, segmentStart
+               ignored, ignoreReason, segmentStart, smoothedLatitude, smoothedLongitude
         FROM track_points WHERE trackId = :srcId
         """,
     )

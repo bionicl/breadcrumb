@@ -48,7 +48,7 @@ object BackupExporter {
     internal val POINT_FIELDS = listOf(
         "timestamp", "lat", "lon", "alt", "accuracy", "speed", "bearing",
         "verticalAccuracy", "speedAccuracy", "bearingAccuracy", "satellitesInFix", "cn0",
-        "ignored", "ignoreReason", "segmentStart",
+        "ignored", "ignoreReason", "segmentStart", "smoothedLat", "smoothedLon",
     )
 
     /**
@@ -237,6 +237,7 @@ object BackupExporter {
         cells.text("""{"id":${t.id},"activityType":${str(t.activityType)}""")
         cells.text(""","startedAt":${t.startedAt},"endedAt":${t.endedAt}""")
         cells.text(""","source":${strOrNull(t.source)}""")
+        cells.text(""","pathProcessed":${if (t.pathProcessed) 1 else 0}""")
         cells.text(""","distanceMeters":${t.distanceMeters}""")
         cells.text(""","pointCount":${t.pointCount},"ignoredCount":${t.ignoredCount}""")
         cells.coordinate(""","startLat":""", t.startLat)
@@ -282,6 +283,10 @@ object BackupExporter {
         cells.text(quotedIgnoreReason(p.ignoreReason))
         cells.char(',')
         cells.char(if (p.segmentStart) '1' else '0')
+        cells.char(',')
+        cells.decimalOrNull(p.smoothedLatitude, COORD_DECIMALS)
+        cells.char(',')
+        cells.decimalOrNull(p.smoothedLongitude, COORD_DECIMALS)
         cells.char(']')
     }
 

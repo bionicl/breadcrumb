@@ -178,6 +178,8 @@ object BackupImporter {
         val ignored = at("ignored")
         val ignoreReason = at("ignoreReason")
         val segmentStart = at("segmentStart")
+        val smoothedLatitude = at("smoothedLat")
+        val smoothedLongitude = at("smoothedLon")
     }
 
     private fun readTrack(
@@ -198,6 +200,7 @@ object BackupImporter {
         var endLon: Double? = null
         var startPlaceId: Long? = null
         var endPlaceId: Long? = null
+        var pathProcessed = false
         val points = mutableListOf<TrackPoint>()
         val values = mutableListOf<Any?>() // one point's cells, reused across the whole track
         json.beginObject()
@@ -217,6 +220,7 @@ object BackupImporter {
                 "endLon" -> endLon = json.nextNumberOrNull()?.toDouble()
                 "startPlaceId" -> startPlaceId = json.nextNumberOrNull()?.toLong()
                 "endPlaceId" -> endPlaceId = json.nextNumberOrNull()?.toLong()
+                "pathProcessed" -> pathProcessed = json.nextNumber().toInt() != 0
                 "points" -> {
                     json.beginArray()
                     while (json.hasNext()) points.add(readPoint(json, fields, id, values))
@@ -243,6 +247,7 @@ object BackupImporter {
             endLon = endLon,
             startPlaceId = startPlaceId,
             endPlaceId = endPlaceId,
+            pathProcessed = pathProcessed,
         )
         return track to points
     }
@@ -278,6 +283,8 @@ object BackupImporter {
             ignored = flag(fields.ignored),
             ignoreReason = raw(fields.ignoreReason) as String?,
             segmentStart = flag(fields.segmentStart),
+            smoothedLatitude = num(fields.smoothedLatitude)?.toDouble(),
+            smoothedLongitude = num(fields.smoothedLongitude)?.toDouble(),
         )
     }
 
