@@ -810,7 +810,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setTrackActivity(trackId: Long, activityType: ActivityType) {
-        viewModelScope.launch { repository.setActivityType(trackId, activityType) }
+        viewModelScope.launch {
+            repository.setActivityType(trackId, activityType)
+            // A retype re-derives the timeline, but that emission is shared with other edits and
+            // can race an in-flight composition write. Explicitly request the same repair the
+            // day's refresh button runs, after the correction transaction has completed.
+            repairDay(listOf(trackId))
+        }
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
@@ -872,7 +878,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         onRestored: () -> Unit,
     ) {
         viewModelScope.launch {
-            if (repository.retypeCompositionPart(mergedTrackId, componentTrackId, activityType)) onRestored()
+            if (repository.retypeCompositionPart(mergedTrackId, componentTrackId, activityType)) {
+                repairDay(listOf(mergedTrackId, componentTrackId))
+                onRestored()
+            }
         }
     }
 
