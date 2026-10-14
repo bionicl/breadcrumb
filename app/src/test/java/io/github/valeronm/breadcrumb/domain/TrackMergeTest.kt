@@ -97,6 +97,55 @@ class TrackMergeTest {
         assertNull(TrackMerge.plansByAnchor(listOf(stay(0, 60_000)), emptyMap())[before.id])
     }
 
+    @Test fun `auto merge accepts both inclusive boundaries`() {
+        val sequence = autoSequence(gapMs = 4 * MINUTE, distanceM = 300.0)
+        assertEquals(1, sequence.size)
+        assertEquals(listOf(1L, 2L), sequence.single().tracks.map { it.id })
+    }
+
+    @Test fun `auto merge rejects a gap over four minutes or 300 meters`() {
+        assertTrue(autoSequence(gapMs = 4 * MINUTE + 1, distanceM = 100.0).isEmpty())
+        assertTrue(autoSequence(gapMs = 4 * MINUTE, distanceM = 300.01).isEmpty())
+    }
+
+    @Test fun `auto merge rejects missing endpoints and mismatched sources`() {
+        assertTrue(autoSequence(distanceM = 10.0, hasEndpoints = false).isEmpty())
+        assertTrue(autoSequence(distanceM = 10.0, secondSource = TrackOrigin.IMPORTED.code).isEmpty())
+    }
+
+    @Test fun `auto merge accepts stationary and unknown small gaps`() {
+        assertEquals(1, autoSequence(gapKind = "STAY", distanceM = 10.0).size)
+        assertEquals(1, autoSequence(gapKind = "GAP", distanceM = 10.0).size)
+    }
+
+    private fun autoSequence(
+        gapMs: Long = MINUTE,
+        distanceM: Double,
+        hasEndpoints: Boolean = true,
+        secondSource: String? = null,
+        gapKind: String = "STAY",
+    ): List<TrackMerge.AutoSequence> {
+        val first = track(1, "WALKING", 0, TrackOrigin.RECORDED.code)
+        val second = track(2, "WALKING", 100_000 + gapMs, secondSource ?: TrackOrigin.RECORDED.code)
+        val interval: StayDeriver.Interval = if (gapKind == "STAY") {
+            StayDeriver.Stay(100_000, 100_000 + gapMs, afterTrackId = first.id, clusterId = 0)
+        } else {
+            StayDeriver.Gap(100_000, 100_000 + gapMs, StayDeriver.GapReason.MOVED_UNRECORDED,
+                afterTrackId = first.id)
+        }
+        val p1 = Coordinate(52.0, 21.0)
+        val p2 = Coordinate(52.0, 21.0)
+        val endpoints = if (hasEndpoints) mapOf(
+            1L to StayDeriver.TrackEnd(1, 0, 100_000, p1, p1),
+            2L to StayDeriver.TrackEnd(2, 100_000 + gapMs, 200_000 + gapMs, p2, p2),
+        ) else emptyMap()
+        return TrackMerge.autoSequences(
+            summariesNewestFirst = listOf(second, first), intervals = listOf(interval),
+            endpoints = endpoints, assignedVisitAnchors = emptySet(),
+            distance = DistanceFn { _, _, _, _ -> distanceM },
+        )
+    }
+
     private companion object {
         const val MINUTE = 60_000L
         const val DAY = 24 * 60 * MINUTE

@@ -16,6 +16,7 @@ import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
@@ -282,31 +283,54 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             .filterNot { it.id in undoneCorrectionIds }
             .groupBy { it.targetSegmentId }
             .mapValues { (_, rows) -> rows.maxWith(compareBy<EngineUserCorrectionEntity> { it.createdAtWallTimeMs }.thenBy { it.id }) }
-        // Short, same-mode pauses live inside a movement block. Persist the merge and its visit
-        // bounds before projecting rows so the detail view can later restore the original break.
+        // Very short same-mode stays and gaps form one trip. Distances and times are rechecked in
+        // TrackRepository before any rows are changed; the ordered interval list remains editable.
         val autoMergedTrackIds = mutableSetOf<Long>()
-        for (stay in d.stays) {
-            if (StationaryVisitPolicy.qualifies(stay.start, stay.end)) continue
-            if (activeVisitCorrections["derived-visit:${stay.afterTrackId}"] != null) continue
-            val adjacent = neighbors[stay.afterTrackId] ?: continue
-            val plan = TrackMerge.plan(
-                before = adjacent.before,
-                after = adjacent.after,
-                intervalStart = stay.start,
-                intervalEnd = stay.end,
-            ) ?: continue
-            val mergedId = repository.mergeTracks(
-                plan.earlierId,
-                plan.laterId,
-                TrackCompositionDraft(
-                    visitAfterTrackId = stay.afterTrackId,
-                    visitStartMs = stay.start,
-                    visitEndMs = stay.end ?: continue,
-                ),
-            ) ?: continue
-            autoMergedTrackIds += plan.earlierId
-            autoMergedTrackIds += plan.laterId
-            check(mergedId > 0L)
+        val assignedVisitAnchors = activeVisitCorrections.asSequence()
+            .filter { it.value.kind == "ASSIGN_VISIT_PLACE" }
+            .mapNotNull { it.key.removePrefix("derived-visit:").toLongOrNull() }
+            .toSet()
+        val trackEnds = d.tracks.associateBy { it.trackId }
+        val autoSequences = TrackMerge.autoSequences(
+            summariesNewestFirst = summaries,
+            intervals = d.derivation.intervals,
+            endpoints = trackEnds,
+            assignedVisitAnchors = assignedVisitAnchors,
+            distance = AndroidDistance,
+        )
+        for (sequence in autoSequences) {
+            val parts = buildList {
+                sequence.tracks.forEachIndexed { index, track ->
+                    add(
+                        TrackCompositionPartDraft(
+                            kind = "PATH",
+                            sourceTrackId = track.id,
+                            activityType = track.activityType,
+                            startedAt = track.startedAt,
+                            endedAt = track.endedAt ?: return@forEachIndexed,
+                        ),
+                    )
+                    val interval = sequence.intervals.getOrNull(index) ?: return@forEachIndexed
+                    val end = interval.end ?: return@forEachIndexed
+                    val correctionId = activeVisitCorrections["derived-visit:${interval.afterTrackId}"]
+                        ?.takeIf { it.kind == "DELETE_VISIT" }
+                        ?.id
+                    add(
+                        TrackCompositionPartDraft(
+                            kind = if (interval is StayDeriver.Stay) "STATIONARY" else "UNKNOWN",
+                            activityType = if (interval is StayDeriver.Stay) ActivityType.STILL.name else ActivityType.UNKNOWN.name,
+                            startedAt = interval.start,
+                            endedAt = end,
+                            beforeTrackId = track.id,
+                            afterTrackId = sequence.tracks[index + 1].id,
+                            visitCorrectionId = correctionId,
+                        ),
+                    )
+                }
+            }
+            if (parts.size != sequence.tracks.size * 2 - 1) continue
+            if (repository.mergeTrackSequence(parts) == null) continue
+            autoMergedTrackIds += sequence.tracks.map { it.id }
         }
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
@@ -330,11 +354,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
-                is TimelineItem.GapItem -> item.copy(
-                    fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull),
-                    toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull),
-                    merge = mergePlans[item.gap.afterTrackId],
-                )
+                is TimelineItem.GapItem -> if (item.gap.afterTrackId in autoMergedTrackIds) {
+                    null
+                } else {
+                    item.copy(
+                        fromPlace = item.gap.fromClusterId?.let(clusterPlaces::getOrNull)
+                            ?.takeIf { it.place?.isNamed == true },
+                        toPlace = item.gap.toClusterId?.let(clusterPlaces::getOrNull)
+                            ?.takeIf { it.place?.isNamed == true },
+                        merge = mergePlans[item.gap.afterTrackId],
+                    )
+                }
                 // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]
                 // reads it.
                 is TimelineItem.StayItem -> {
@@ -666,6 +696,18 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** The same visit deletion offered by the timeline, available from a place's visit history. */
+    fun deleteVisit(stay: StayDeriver.Stay, onSaved: (String, Long?, TrackMerge.Plan?) -> Unit) {
+        val chronological = tracks.value.asReversed()
+        val index = chronological.indexOfFirst { it.id == stay.afterTrackId }
+        val merge = if (index >= 0 && index + 1 < chronological.size) {
+            TrackMerge.plan(chronological[index], chronological[index + 1], stay.start, stay.end)
+        } else {
+            null
+        }
+        correctVisit(stay, "DELETE_VISIT", merge = merge, onSaved = { id, merged -> onSaved(id, merged, merge) })
+    }
+
     fun undoVisitCorrection(correctionId: String, mergedId: Long?, merge: TrackMerge.Plan?) {
         viewModelScope.launch {
             repository.undoVisitCorrection(correctionId)
@@ -742,9 +784,45 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun getTrackComposition(trackId: Long) = repository.compositionFor(trackId)
 
+    suspend fun getTrackCompositionParts(trackId: Long) = repository.compositionTreePartsFor(trackId)
+
     fun restoreTrackComposition(trackId: Long, placeId: Long, onRestored: () -> Unit) {
         viewModelScope.launch {
             if (repository.restoreComposition(trackId, placeId)) onRestored()
+        }
+    }
+
+    fun restoreTrackCompositionPart(trackId: Long, partOrdinal: Int, placeId: Long, onRestored: () -> Unit) {
+        viewModelScope.launch {
+            if (repository.restoreCompositionPart(trackId, partOrdinal, placeId)) onRestored()
+        }
+    }
+
+    fun createPlaceFromComposition(trackId: Long, partOrdinal: Int, onRestored: () -> Unit) {
+        viewModelScope.launch {
+            val pin = repository.compositionPartCenter(trackId, partOrdinal) ?: return@launch
+            val now = System.currentTimeMillis()
+            val id = placeRepository.create(
+                Place(
+                    label = null,
+                    lat = pin.lat,
+                    lon = pin.lon,
+                    createdAt = now,
+                    radiusM = PlaceClusterer.DEFAULT_RADIUS_M,
+                    source = PlaceOrigin.MANUAL.code,
+                ),
+            )
+            if (repository.restoreCompositionPart(trackId, partOrdinal, id)) onRestored()
+        }
+    }
+
+    fun splitTrackComposition(trackId: Long, onRestored: () -> Unit) {
+        viewModelScope.launch { if (repository.splitComposition(trackId)) onRestored() }
+    }
+
+    fun setUnknownCompositionPartType(trackId: Long, partOrdinal: Int, activityType: ActivityType, onSaved: () -> Unit) {
+        viewModelScope.launch {
+            if (repository.setUnknownCompositionPartType(trackId, partOrdinal, activityType)) onSaved()
         }
     }
 
@@ -755,7 +833,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         onRestored: () -> Unit,
     ) {
         viewModelScope.launch {
-            if (repository.retypeCompositionTrack(mergedTrackId, componentTrackId, activityType)) onRestored()
+            if (repository.retypeCompositionPart(mergedTrackId, componentTrackId, activityType)) onRestored()
         }
     }
 

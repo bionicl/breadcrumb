@@ -210,6 +210,7 @@ private fun MainScreen(
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
+    val deletedVisitMessage = stringResource(R.string.timeline_undo_deleted_visit)
     LaunchedEffect(viewModel, language) { viewModel.useLanguage(language) }
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
 
@@ -591,6 +592,13 @@ private fun MainScreen(
                 timelineJump = TimelineJump.Visit(stay)
                 landOnTimeline()
             },
+            onDeleteVisit = { stay ->
+                viewModel.deleteVisit(stay) { correctionId, mergedId, merge ->
+                    undo.show(deletedVisitMessage) {
+                        viewModel.undoVisitCorrection(correctionId, mergedId, merge)
+                    }
+                }
+            },
             onAdjustArea = { editingArea = true },
             onRemove = { place ->
                 placeLayer.dismiss()
@@ -744,6 +752,7 @@ private fun DiscardedTrackOverlay(
             // being organized on it. A deleted trip is restored first and edited after.
             onSplit = null,
             onEditTrip = null,
+            onDelete = null,
         )
     }
 }
@@ -762,6 +771,7 @@ private fun MainDestinationOverlay(
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
     val splitUndoMessage = stringResource(R.string.undo_track_split)
+    val deleteUndoMessage = stringResource(R.string.timeline_undo_deleted)
     OverlayFrame(layer) { rendered ->
         when (rendered) {
             is MainDestination.TrackDetail -> {
@@ -783,6 +793,15 @@ private fun MainDestinationOverlay(
                     // The form stacks *on* this screen, so it stays open underneath and shows the
                     // rewritten track when the form closes over it.
                     onEditTrip = onEditTrip,
+                    onDelete = {
+                        val trackId = rendered.id
+                        viewModel.delete(trackId) {
+                            undo.show(deleteUndoMessage) {
+                                viewModel.restoreTrack(trackId)
+                            }
+                            layer.dismiss()
+                        }
+                    },
                 )
             }
 
@@ -808,6 +827,7 @@ private fun PlaceDetailOverlay(
     snapshot: PlaceResolver.PlaceSummary?,
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
+    onDeleteVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
     onRemove: (Place) -> Unit,
     onOpenMerge: () -> Unit,
@@ -833,6 +853,7 @@ private fun PlaceDetailOverlay(
                 viewModel = viewModel,
                 onBack = layer.dismiss,
                 onOpenVisit = onOpenVisit,
+                onDeleteVisit = onDeleteVisit,
                 onAdjustArea = onAdjustArea,
                 onRemove = onRemove,
                 canMerge = canMerge,

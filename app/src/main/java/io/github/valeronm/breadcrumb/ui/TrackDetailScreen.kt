@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -110,6 +111,8 @@ internal fun TrackDetailScreen(
      * the reason [onSplit] is.
      */
     onEditTrip: ((TripDraft) -> Unit)?,
+    /** Soft-delete this finished trip and return to its timeline. */
+    onDelete: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     // One load of everything the screen draws (null = still reading), keyed on the row as well as
@@ -195,9 +198,23 @@ internal fun TrackDetailScreen(
     var showCompositionPlacePicker by remember(trackId) { mutableStateOf(false) }
     var showCompositionTypePicker by remember(trackId) { mutableStateOf(false) }
     var compositionTrackToRetype by remember(trackId) { mutableStateOf<Long?>(null) }
+    var compositionUnknownOrdinal by remember(trackId) { mutableStateOf<Int?>(null) }
+    var compositionCurrentType by remember(trackId) { mutableStateOf<ActivityType?>(null) }
+    var compositionStationaryOrdinal by remember(trackId) { mutableStateOf<Int?>(null) }
     var compositionPlaceSearch by remember(trackId) { mutableStateOf("") }
     val composition by produceState<TrackCompositionEntity?>(initialValue = null, trackId) {
         value = viewModel.getTrackComposition(trackId)
+    }
+    val compositionParts by produceState(initialValue = emptyList(), trackId) {
+        value = viewModel.getTrackCompositionParts(trackId)
+    }
+    val unknownBridges = remember(points, compositionParts) {
+        compositionParts.asSequence().filter { it.kind == "UNKNOWN" }.mapNotNull { part ->
+            val from = points.orEmpty().lastOrNull { it.timestamp <= part.startedAt }
+            val to = points.orEmpty().firstOrNull { it.timestamp >= part.endedAt }
+            if (from == null || to == null) null else
+                Coordinate(from.latitude, from.longitude) to Coordinate(to.latitude, to.longitude)
+        }.toList()
     }
     // Whether this track can be cut at all — a caller that handles the split, and a track that has
     // finished, since a still-recording one's last edge is still moving.
@@ -217,6 +234,14 @@ internal fun TrackDetailScreen(
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (summary != null) {
+                        if (summary.endedAt != null && onDelete != null) {
+                            IconButton(onClick = onDelete) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = stringResource(R.string.common_delete),
+                                )
+                            }
+                        }
                         if (composition != null) {
                             IconButton(onClick = { showCompositionDialog = true }) {
                                 Icon(
@@ -344,6 +369,7 @@ internal fun TrackDetailScreen(
                                     showLegend = true,
                                     selectedPoint = selectedIndex?.let { load.good.getOrNull(it) },
                                     dwells = dwells,
+                                    unknownBridges = unknownBridges,
                                     overruns = overruns,
                                     endPlaces = endPlaces,
                                     precomputedColoring = graph?.coloring ?: solidLine,
@@ -447,7 +473,6 @@ internal fun TrackDetailScreen(
     }
 
     if (showCompositionDialog && composition != null && summary != null) {
-        val details = checkNotNull(composition)
         AlertDialog(
             onDismissRequest = { showCompositionDialog = false },
             title = { Text(stringResource(R.string.track_segments_title)) },
@@ -456,52 +481,58 @@ internal fun TrackDetailScreen(
                     Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    TextButton(onClick = {
-                        showCompositionDialog = false
-                        compositionTrackToRetype = details.earlierTrackId
-                        showCompositionTypePicker = true
-                    }) {
-                        Text(
-                            stringResource(
-                                R.string.track_segments_move_part,
-                                1,
-                                activityLabel(context, summary.activityType),
-                            ),
-                        )
+                    var movementIndex = 0
+                    compositionParts.forEach { part ->
+                        when (part.kind) {
+                            "PATH" -> {
+                                movementIndex++
+                                TextButton(onClick = {
+                                    showCompositionDialog = false
+                                    compositionTrackToRetype = part.sourceTrackId
+                                    compositionUnknownOrdinal = null
+                                    compositionCurrentType = part.activityType?.let(ActivityType::ofName)
+                                    showCompositionTypePicker = true
+                                }) {
+                                    Text(
+                                        stringResource(
+                                            R.string.track_segments_move_part,
+                                            movementIndex,
+                                            activityLabel(context, part.activityType ?: summary.activityType),
+                                        ),
+                                    )
+                                }
+                            }
+                            "STATIONARY" -> TextButton(onClick = {
+                                showCompositionDialog = false
+                                compositionStationaryOrdinal = part.ordinal
+                                showCompositionPlacePicker = true
+                            }) {
+                                Text(stringResource(
+                                    R.string.track_segments_stationary_minutes,
+                                    ((part.endedAt - part.startedAt).coerceAtLeast(0L) / 60_000L).toInt(),
+                                ))
+                            }
+                            "UNKNOWN" -> TextButton(onClick = {
+                                showCompositionDialog = false
+                                compositionUnknownOrdinal = part.ordinal
+                                compositionTrackToRetype = null
+                                compositionCurrentType = part.activityType?.let(ActivityType::ofName)
+                                showCompositionTypePicker = true
+                            }) {
+                                Text(stringResource(
+                                    R.string.track_segments_unknown_minutes,
+                                    ((part.endedAt - part.startedAt).coerceAtLeast(0L) / 60_000L).toInt(),
+                                ))
+                            }
+                        }
                     }
-                    TextButton(
-                        onClick = {
-                            showCompositionDialog = false
-                            showCompositionPlacePicker = true
-                        },
-                    ) {
-                        Text(
-                            stringResource(
-                                R.string.track_segments_stationary_minutes,
-                                ((details.visitEndMs - details.visitStartMs).coerceAtLeast(0L) / 60_000L).toInt(),
-                            ),
-                        )
-                    }
                     TextButton(onClick = {
-                        showCompositionDialog = false
-                        compositionTrackToRetype = details.laterTrackId
-                        showCompositionTypePicker = true
+                        viewModel.splitTrackComposition(trackId) { onBack() }
                     }) {
-                        Text(
-                            stringResource(
-                                R.string.track_segments_move_part,
-                                2,
-                                activityLabel(context, summary.activityType),
-                            ),
-                        )
+                        Text(stringResource(R.string.track_segments_split_into_routes))
                     }
                     Text(
                         stringResource(R.string.track_segments_restore_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        stringResource(R.string.track_segments_retype_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -515,11 +546,15 @@ internal fun TrackDetailScreen(
         )
     }
 
-    if (showCompositionTypePicker && summary != null && compositionTrackToRetype != null) {
+    if (showCompositionTypePicker && summary != null &&
+        (compositionTrackToRetype != null || compositionUnknownOrdinal != null)
+    ) {
         AlertDialog(
             onDismissRequest = {
                 showCompositionTypePicker = false
                 compositionTrackToRetype = null
+                compositionUnknownOrdinal = null
+                compositionCurrentType = null
             },
             title = { Text(stringResource(R.string.track_segments_change_type)) },
             text = {
@@ -529,12 +564,19 @@ internal fun TrackDetailScreen(
                             icon = activityIcon(option),
                             label = stringResource(option.labelRes),
                             tint = activityColor(option),
-                            selected = option.name == summary.activityType,
+                            selected = option == compositionCurrentType,
                         ) {
                             showCompositionTypePicker = false
-                            val componentId = checkNotNull(compositionTrackToRetype)
+                            val componentId = compositionTrackToRetype
+                            val unknownOrdinal = compositionUnknownOrdinal
                             compositionTrackToRetype = null
-                            viewModel.retypeCompositionTrack(trackId, componentId, option, onBack)
+                            compositionUnknownOrdinal = null
+                            compositionCurrentType = null
+                            if (unknownOrdinal != null) {
+                                viewModel.setUnknownCompositionPartType(trackId, unknownOrdinal, option, onBack)
+                            } else if (componentId != null) {
+                                viewModel.retypeCompositionTrack(trackId, componentId, option, onBack)
+                            }
                         }
                     }
                 }
@@ -543,6 +585,8 @@ internal fun TrackDetailScreen(
                 TextButton(onClick = {
                     showCompositionTypePicker = false
                     compositionTrackToRetype = null
+                    compositionUnknownOrdinal = null
+                    compositionCurrentType = null
                 }) {
                     Text(stringResource(R.string.common_cancel))
                 }
@@ -550,7 +594,7 @@ internal fun TrackDetailScreen(
         )
     }
 
-    if (showCompositionPlacePicker && composition != null) {
+    if (showCompositionPlacePicker && composition != null && compositionStationaryOrdinal != null) {
         val matches = storedPlaces.filter { place ->
             compositionPlaceSearch.isBlank() ||
                 place.label.orEmpty().contains(compositionPlaceSearch, ignoreCase = true) ||
@@ -560,6 +604,7 @@ internal fun TrackDetailScreen(
             onDismissRequest = {
                 showCompositionPlacePicker = false
                 compositionPlaceSearch = ""
+                compositionStationaryOrdinal = null
             },
             title = { Text(stringResource(R.string.timeline_choose_visit_place)) },
             text = {
@@ -576,12 +621,23 @@ internal fun TrackDetailScreen(
                                 onClick = {
                                     showCompositionPlacePicker = false
                                     compositionPlaceSearch = ""
-                                    viewModel.restoreTrackComposition(trackId, place.id, onBack)
+                                    val ordinal = checkNotNull(compositionStationaryOrdinal)
+                                    compositionStationaryOrdinal = null
+                                    viewModel.restoreTrackCompositionPart(trackId, ordinal, place.id, onBack)
                                 },
                             ) {
                                 Text(place.label?.takeIf(String::isNotBlank) ?: "#${place.id}")
-                            }
                         }
+                        TextButton(onClick = {
+                            val ordinal = checkNotNull(compositionStationaryOrdinal)
+                            showCompositionPlacePicker = false
+                            compositionPlaceSearch = ""
+                            compositionStationaryOrdinal = null
+                            viewModel.createPlaceFromComposition(trackId, ordinal, onBack)
+                        }) {
+                            Text(stringResource(R.string.track_segments_create_place))
+                        }
+                    }
                         if (matches.isEmpty()) Text(stringResource(R.string.timeline_no_places_found))
                     }
                 }
@@ -590,6 +646,7 @@ internal fun TrackDetailScreen(
                 TextButton(onClick = {
                     showCompositionPlacePicker = false
                     compositionPlaceSearch = ""
+                    compositionStationaryOrdinal = null
                 }) {
                     Text(stringResource(R.string.common_cancel))
                 }

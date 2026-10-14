@@ -36,3 +36,42 @@ data class TrackCompositionDraft(
     val visitEndMs: Long,
     val visitCorrectionId: String? = null,
 )
+
+/** One ordered part of a composed trip. Source paths remain soft-deleted and recoverable. */
+@Entity(
+    tableName = "track_composition_parts",
+    foreignKeys = [
+        ForeignKey(
+            entity = Track::class,
+            parentColumns = ["id"],
+            childColumns = ["mergedTrackId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("mergedTrackId"), Index("sourceTrackId"), Index("beforeTrackId"), Index("afterTrackId")],
+)
+data class TrackCompositionPartEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val mergedTrackId: Long,
+    val ordinal: Int,
+    /** PATH, STATIONARY, or UNKNOWN. */
+    val kind: String,
+    val sourceTrackId: Long? = null,
+    val activityType: String? = null,
+    val startedAt: Long,
+    val endedAt: Long,
+    val beforeTrackId: Long? = null,
+    val afterTrackId: Long? = null,
+    val visitCorrectionId: String? = null,
+)
+
+data class TrackCompositionPartDraft(
+    val kind: String,
+    val sourceTrackId: Long? = null,
+    val activityType: String? = null,
+    val startedAt: Long,
+    val endedAt: Long,
+    val beforeTrackId: Long? = null,
+    val afterTrackId: Long? = null,
+    val visitCorrectionId: String? = null,
+)

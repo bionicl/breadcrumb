@@ -148,6 +148,7 @@ internal fun PlaceDetailScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
+    onDeleteVisit: (StayDeriver.Stay) -> Unit,
     onAdjustArea: () -> Unit,
     /** Removes an unnamed row and leaves this screen. */
     onRemove: (Place) -> Unit,
@@ -348,7 +349,7 @@ internal fun PlaceDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             contentPadding = PaddingValues(bottom = 16.dp),
                         ) {
-                            placeVisits(visitGroups, zone, today, nowMs, onOpenVisit)
+                            placeVisits(visitGroups, zone, today, nowMs, onOpenVisit, onDeleteVisit)
                         }
                         FastScroller(
                             state = visitsState,
@@ -472,6 +473,7 @@ private fun LazyListScope.placeVisits(
     today: LocalDate,
     nowMs: Long,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
+    onDeleteVisit: (StayDeriver.Stay) -> Unit,
 ) {
     groups.forEach { (month, visits) ->
         item(key = "month:$month") {
@@ -489,7 +491,7 @@ private fun LazyListScope.placeVisits(
                 shape = groupedRowShape(index, visits.size),
                 onClick = { onOpenVisit(stay) },
             ) {
-                VisitRowContent(stay, zone, nowMs)
+                VisitRowContent(stay, zone, nowMs, onDelete = { onDeleteVisit(stay) })
             }
         }
     }
@@ -511,7 +513,7 @@ private fun LazyListScope.placeVisits(
 }
 
 @Composable
-private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
+private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long, onDelete: () -> Unit) {
     Row(
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -533,6 +535,12 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary,
         )
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = stringResource(R.string.timeline_delete_visit),
+            )
+        }
     }
 }
 

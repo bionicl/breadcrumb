@@ -60,6 +60,8 @@ internal fun MapLibreTrackMap(
     selectedPoint: TrackPoint? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
     dwells: List<DwellDetector.Dwell> = emptyList(),
+    // Short unrecorded bridges retained as Unknown composition parts, drawn without adding fixes.
+    unknownBridges: List<Pair<Coordinate, Coordinate>> = emptyList(),
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
     // drawn grayed off the end of the track line.
     overruns: List<EdgeStayIgnore.Overrun> = emptyList(),
@@ -105,6 +107,7 @@ internal fun MapLibreTrackMap(
                 addEndPlaceAreas(style, endPlaces)
                 addDwellLayers(style, dwells)
                 addTrackLine(style, points, colors, greatCircleLegs)
+                addUnknownBridgeLayer(style, unknownBridges)
                 addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
                 // Over the recorder's own markers: at an end the two land within a capture radius of
@@ -119,6 +122,7 @@ internal fun MapLibreTrackMap(
                 applied.noisy = noisyPoints
                 applied.colors = colors
                 applied.endPlaces = endPlaces
+                applied.unknownBridges = unknownBridges
                 applied.framed = true
             },
             onUpdate = { map, style ->
@@ -162,6 +166,11 @@ internal fun MapLibreTrackMap(
                 if (applied.dwells !== dwells) {
                     applied.dwells = dwells
                     style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
+                }
+                if (applied.unknownBridges !== unknownBridges) {
+                    applied.unknownBridges = unknownBridges
+                    style.getSourceAs<GeoJsonSource>(UNKNOWN_BRIDGE_SOURCE)
+                        ?.setGeoJson(unknownBridgeCollection(unknownBridges))
                 }
                 // Keyed on the overruns alone: they are loaded with the track, so a growing live
                 // track that has none (the record screen) never rebuilds this source.
@@ -211,6 +220,7 @@ private class AppliedTrackInputs {
     /** The named places at the path's ends — identity, the resolution handing back a fresh list only
      *  when the path or the places table changed. */
     var endPlaces: List<Place>? = null
+    var unknownBridges: List<Pair<Coordinate, Coordinate>>? = null
 
     /** Frame once per map; later updates must not move the camera (the live preview re-frames
      *  only when the current position nears the viewport edge). */
@@ -240,6 +250,8 @@ private const val DWELL_LINE = "dwell-line"
 
 private const val EDGE_STAY_SOURCE = "edge-stay-src"
 private const val EDGE_STAY_LAYER = "edge-stay-layer"
+private const val UNKNOWN_BRIDGE_SOURCE = "unknown-bridge-src"
+private const val UNKNOWN_BRIDGE_LAYER = "unknown-bridge-layer"
 
 private const val END_PLACE_AREA_SOURCE = "end-place-area-src"
 private const val END_PLACE_AREA_FILL = "end-place-area-fill"
@@ -273,6 +285,27 @@ private fun addEdgeStayLayer(
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             PropertyFactory.lineColor(if (dark) EDGE_STAY_DIM_DARK else EDGE_STAY_DIM_LIGHT),
+        ),
+    )
+}
+
+private fun unknownBridgeCollection(bridges: List<Pair<Coordinate, Coordinate>>) =
+    FeatureCollection.fromFeatures(bridges.map { (from, to) ->
+        Feature.fromGeometry(
+            LineString.fromLngLats(
+                listOf(Point.fromLngLat(from.lon, from.lat), Point.fromLngLat(to.lon, to.lat)),
+            ),
+        )
+    })
+
+private fun addUnknownBridgeLayer(style: Style, bridges: List<Pair<Coordinate, Coordinate>>) {
+    style.addSource(GeoJsonSource(UNKNOWN_BRIDGE_SOURCE, unknownBridgeCollection(bridges)))
+    style.addLayer(
+        LineLayer(UNKNOWN_BRIDGE_LAYER, UNKNOWN_BRIDGE_SOURCE).withProperties(
+            PropertyFactory.lineWidth(2.5f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            PropertyFactory.lineColor(0xFF8E8E93.toInt()),
         ),
     )
 }

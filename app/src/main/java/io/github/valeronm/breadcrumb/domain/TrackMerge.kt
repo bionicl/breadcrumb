@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 
 /**
  * Decides whether the interval between two tracks can be closed by merging them — the fix for a
@@ -11,6 +12,9 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
  * merge on a swipe and the repository performs it.
  */
 object TrackMerge {
+
+    const val AUTO_MAX_INTERVAL_MS = 4 * 60_000L
+    const val AUTO_MAX_ENDPOINT_DISTANCE_M = 300.0
 
     /** Merge the two tracks bracketing the interval into a new track; [earlierId] precedes [laterId]. */
     data class Plan(val earlierId: Long, val laterId: Long)
@@ -63,6 +67,64 @@ object TrackMerge {
             val n = neighbors[anchor] ?: continue
             plan(n.before, n.after, interval.start, interval.end)?.let { put(anchor, it) }
         }
+    }
+
+    /** Consecutive same-mode paths that can be quietly presented as one trip. */
+    data class AutoSequence(
+        val tracks: List<TrackSummary>,
+        val intervals: List<StayDeriver.Interval>,
+    )
+
+    /**
+     * Auto-merge only intervals whose clock span and endpoint distance both fit the user's small-gap
+     * rule. Missing coordinates are not evidence of proximity. Explicitly assigned places remain
+     * separate; a DELETE_VISIT correction does not block absorbing the stop into the trip.
+     */
+    fun autoSequences(
+        summariesNewestFirst: List<TrackSummary>,
+        intervals: List<StayDeriver.Interval>,
+        endpoints: Map<Long, TrackEnd>,
+        assignedVisitAnchors: Set<Long>,
+        distance: DistanceFn,
+    ): List<AutoSequence> {
+        val chronological = summariesNewestFirst.asReversed()
+        if (chronological.size < 2) return emptyList()
+        val intervalByAnchor = intervals.associateBy { it.afterTrackId }
+        val groups = mutableListOf<AutoSequence>()
+        var tracks = mutableListOf<TrackSummary>()
+        var links = mutableListOf<StayDeriver.Interval>()
+
+        fun finish() {
+            if (tracks.size >= 2) groups += AutoSequence(tracks.toList(), links.toList())
+            tracks = mutableListOf()
+            links = mutableListOf()
+        }
+
+        for (index in 0 until chronological.lastIndex) {
+            val before = chronological[index]
+            val after = chronological[index + 1]
+            val interval = intervalByAnchor[before.id]
+            val intervalEnd = interval?.end
+            val beforeEnd = endpoints[before.id]?.end
+            val afterStart = endpoints[after.id]?.start
+            val eligible = interval != null && before.id !in assignedVisitAnchors &&
+                !before.activityConfirmedByUser && !after.activityConfirmedByUser &&
+                plan(before, after, interval.start, intervalEnd) != null &&
+                intervalEnd != null && intervalEnd >= interval.start &&
+                intervalEnd - interval.start <= AUTO_MAX_INTERVAL_MS &&
+                beforeEnd != null && afterStart != null &&
+                distance.meters(beforeEnd.lat, beforeEnd.lon, afterStart.lat, afterStart.lon) <= AUTO_MAX_ENDPOINT_DISTANCE_M
+
+            if (eligible) {
+                if (tracks.isEmpty()) tracks += before
+                tracks += after
+                links += checkNotNull(interval)
+            } else {
+                finish()
+            }
+        }
+        finish()
+        return groups
     }
 
     data class Neighbors(val before: TrackSummary, val after: TrackSummary)

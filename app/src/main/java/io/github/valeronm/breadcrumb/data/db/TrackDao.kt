@@ -40,6 +40,21 @@ interface TrackDao {
     @Insert
     suspend fun insertComposition(composition: TrackCompositionEntity)
 
+    @Insert
+    suspend fun insertCompositionParts(parts: List<TrackCompositionPartEntity>)
+
+    @Query("SELECT * FROM track_composition_parts WHERE mergedTrackId = :trackId ORDER BY ordinal")
+    suspend fun compositionPartsFor(trackId: Long): List<TrackCompositionPartEntity>
+
+    @Query("DELETE FROM track_composition_parts WHERE mergedTrackId = :trackId")
+    suspend fun deleteCompositionParts(trackId: Long)
+
+    @Query("UPDATE track_composition_parts SET activityType = :activityType WHERE mergedTrackId = :trackId AND ordinal = :ordinal AND kind = 'UNKNOWN'")
+    suspend fun setCompositionUnknownType(trackId: Long, ordinal: Int, activityType: String)
+
+    @Query("UPDATE track_composition_parts SET activityType = :activityType WHERE id = :partId AND kind = 'UNKNOWN'")
+    suspend fun setCompositionPartType(partId: Long, activityType: String)
+
     @Query("SELECT * FROM track_compositions WHERE mergedTrackId = :trackId")
     suspend fun compositionFor(trackId: Long): TrackCompositionEntity?
 
@@ -146,7 +161,8 @@ interface TrackDao {
     @Query(
         "DELETE FROM tracks WHERE discardedAt IS NOT NULL AND discardedAt <= :through " +
             "AND id NOT IN (SELECT earlierTrackId FROM track_compositions) " +
-            "AND id NOT IN (SELECT laterTrackId FROM track_compositions)",
+            "AND id NOT IN (SELECT laterTrackId FROM track_compositions) " +
+            "AND id NOT IN (SELECT sourceTrackId FROM track_composition_parts WHERE sourceTrackId IS NOT NULL)",
     )
     suspend fun purgeDiscardedThrough(through: Long): Int
 

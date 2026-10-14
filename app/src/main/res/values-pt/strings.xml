@@ -58,6 +58,9 @@
     <string name="track_segments_stationary_minutes">Parado · %1$d min</string>
     <string name="track_segments_move_part">Movimento %1$d · %2$s</string>
     <string name="track_segments_change_type">Alterar tipo de movimento</string>
-    <string name="track_segments_retype_hint">Toque num segmento de movimento para alterar o tipo de transporte.</string>
-    <string name="track_segments_restore_hint">Escolha a paragem e associe um local guardado para restaurar os itens originais da cronologia.</string>
+    <string name="track_segments_retype_hint">Toque num segmento de movimento para alterar o tipo de transporte. Divida a viagem para mostrar os percursos separadamente.</string>
+    <string name="track_segments_restore_hint">Transforme um segmento parado num local para restaurá-lo como visita separada.</string>
+    <string name="track_segments_unknown_minutes">Trecho desconhecido · %1$d min</string>
+    <string name="track_segments_split_into_routes">Dividir em percursos separados</string>
+    <string name="track_segments_create_place">Criar um novo local aqui</string>
 </resources>

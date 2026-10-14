@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
@@ -10,6 +11,8 @@ import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionEntity
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartEntity
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -410,7 +413,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         dao.confirmActivityType(trackId, activityType.name)
         activityCorrection(trackId, activityType)?.let { db.locomotionDao().insertUserCorrection(it) }
         val correctedTrack = track.copy(activityType = activityType.name, activityConfirmedByUser = true)
-        if (!retuned && !raised) return correctedTrack
+        if (!retuned && !raised) {
+            if (reknit) derivation.reknit(listOf(trackId))
+            return correctedTrack
+        }
         val stored = dao.allPointsFor(trackId)
         val restored = if (raised) settler.restoreJumps(trackId, stored, activityType) else null
         val applied = settler.settleAndRefresh(
@@ -419,7 +425,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             restored ?: stored,
             totalsStale = restored != null,
         )
-        if (reknit && (restored != null || applied.changed)) derivation.reknit(listOf(trackId))
+        if (reknit) derivation.reknit(listOf(trackId))
         return correctedTrack
     }
 
@@ -839,6 +845,39 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                         visitCorrectionId = it.visitCorrectionId,
                     ),
                 )
+                dao.insertCompositionParts(
+                    listOf(
+                        TrackCompositionPartEntity(
+                            mergedTrackId = mergedId,
+                            ordinal = 0,
+                            kind = "PATH",
+                            sourceTrackId = earlierId,
+                            activityType = earlier.activityType,
+                            startedAt = earlier.startedAt,
+                            endedAt = earlier.endedAt!!,
+                        ),
+                        TrackCompositionPartEntity(
+                            mergedTrackId = mergedId,
+                            ordinal = 1,
+                            kind = "STATIONARY",
+                            activityType = ActivityType.STILL.name,
+                            startedAt = it.visitStartMs,
+                            endedAt = it.visitEndMs,
+                            beforeTrackId = it.visitAfterTrackId,
+                            afterTrackId = laterId,
+                            visitCorrectionId = it.visitCorrectionId,
+                        ),
+                        TrackCompositionPartEntity(
+                            mergedTrackId = mergedId,
+                            ordinal = 2,
+                            kind = "PATH",
+                            sourceTrackId = laterId,
+                            activityType = later.activityType,
+                            startedAt = later.startedAt,
+                            endedAt = later.endedAt!!,
+                        ),
+                    ),
+                )
             }
             dao.copyPointsInto(mergedId, earlierId)
             dao.copyPointsInto(mergedId, laterId)
@@ -860,6 +899,177 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     suspend fun compositionFor(trackId: Long): TrackCompositionEntity? = dao.compositionFor(trackId)
+
+    suspend fun compositionPartsFor(trackId: Long): List<TrackCompositionPartEntity> =
+        dao.compositionPartsFor(trackId).ifEmpty {
+            dao.compositionFor(trackId)?.let { legacy ->
+                val earlier = dao.track(legacy.earlierTrackId)
+                val later = dao.track(legacy.laterTrackId)
+                listOfNotNull(
+                    earlier?.let {
+                        TrackCompositionPartEntity(
+                            mergedTrackId = trackId, ordinal = 0, kind = "PATH", sourceTrackId = it.id,
+                            activityType = it.activityType, startedAt = it.startedAt, endedAt = it.endedAt ?: it.startedAt,
+                        )
+                    },
+                    TrackCompositionPartEntity(
+                        mergedTrackId = trackId, ordinal = 1, kind = "STATIONARY", activityType = ActivityType.STILL.name,
+                        startedAt = legacy.visitStartMs, endedAt = legacy.visitEndMs,
+                        beforeTrackId = legacy.earlierTrackId, afterTrackId = legacy.laterTrackId,
+                        visitCorrectionId = legacy.visitCorrectionId,
+                    ),
+                    later?.let {
+                        TrackCompositionPartEntity(
+                            mergedTrackId = trackId, ordinal = 2, kind = "PATH", sourceTrackId = it.id,
+                            activityType = it.activityType, startedAt = it.startedAt, endedAt = it.endedAt ?: it.startedAt,
+                        )
+                    },
+                )
+            }.orEmpty()
+        }
+
+    /** Flatten nested automatic merges for the segment editor while retaining source-track ids. */
+    suspend fun compositionTreePartsFor(trackId: Long): List<TrackCompositionPartEntity> {
+        suspend fun expand(id: Long, rootId: Long, ancestors: Set<Long>): List<TrackCompositionPartEntity> {
+            if (id in ancestors) return emptyList()
+            val direct = compositionPartsFor(id)
+            if (direct.isEmpty()) {
+                val track = dao.track(id) ?: return emptyList()
+                return listOf(
+                    TrackCompositionPartEntity(
+                        mergedTrackId = rootId, ordinal = 0, kind = "PATH", sourceTrackId = id,
+                        activityType = track.activityType, startedAt = track.startedAt,
+                        endedAt = track.endedAt ?: track.startedAt,
+                    ),
+                )
+            }
+            val nextAncestors = ancestors + id
+            val pathExpansions = direct.filter { it.kind == "PATH" }.associate { part ->
+                val sourceId = checkNotNull(part.sourceTrackId)
+                sourceId to if (dao.compositionFor(sourceId) != null) expand(sourceId, rootId, nextAncestors)
+                else listOf(part.copy(mergedTrackId = rootId))
+            }
+            val ordered = mutableListOf<TrackCompositionPartEntity>()
+            val paths = direct.filter { it.kind == "PATH" }
+            for ((index, part) in direct.withIndex()) {
+                if (part.kind == "PATH") {
+                    ordered += pathExpansions.getValue(checkNotNull(part.sourceTrackId))
+                } else {
+                    val prior = paths.getOrNull(paths.indexOfLast { it.ordinal < part.ordinal })
+                    val next = paths.firstOrNull { it.ordinal > part.ordinal }
+                    val beforeId = prior?.sourceTrackId?.let(pathExpansions::get)?.lastOrNull { it.kind == "PATH" }?.sourceTrackId
+                    val afterId = next?.sourceTrackId?.let(pathExpansions::get)?.firstOrNull { it.kind == "PATH" }?.sourceTrackId
+                    ordered += part.copy(mergedTrackId = rootId, beforeTrackId = beforeId, afterTrackId = afterId)
+                }
+            }
+            return ordered.mapIndexed { ordinal, part -> part.copy(ordinal = ordinal) }
+        }
+        return expand(trackId, trackId, emptySet())
+    }
+
+    suspend fun compositionPartCenter(trackId: Long, ordinal: Int): Coordinate? {
+        val part = compositionTreePartsFor(trackId).firstOrNull { it.ordinal == ordinal && it.kind == "STATIONARY" }
+            ?: return null
+        val beforeId = part.beforeTrackId
+        val afterId = part.afterTrackId
+        val before = if (beforeId == null) null else dao.track(beforeId)
+        val after = if (afterId == null) null else dao.track(afterId)
+        val beforeLat = before?.endLat
+        val beforeLon = before?.endLon
+        val afterLat = after?.startLat
+        val afterLon = after?.startLon
+        val coords = buildList {
+            if (beforeLat != null && beforeLon != null) add(Coordinate(beforeLat, beforeLon))
+            if (afterLat != null && afterLon != null) add(Coordinate(afterLat, afterLon))
+        }
+        if (coords.isEmpty()) return null
+        return Coordinate(coords.map { it.lat }.average(), coords.map { it.lon }.average())
+    }
+
+    /**
+     * Store a small-gap trip as an ordered, undoable composition. Eligibility is rechecked here,
+     * inside the write transaction, so stale timeline offers cannot absorb a long or distant gap.
+     * Inputs that are themselves composed tracks remain intact as soft-deleted children; nothing is
+     * hard-deleted by this operation.
+     */
+    suspend fun mergeTrackSequence(parts: List<TrackCompositionPartDraft>): Long? = db.withTransaction {
+        if (parts.size < 3 || parts.size % 2 == 0 || parts.first().kind != "PATH" || parts.last().kind != "PATH") {
+            return@withTransaction null
+        }
+        val pathParts = parts.filterIndexed { index, _ -> index % 2 == 0 }
+        val gapParts = parts.filterIndexed { index, _ -> index % 2 == 1 }
+        if (pathParts.any { it.sourceTrackId == null } || gapParts.any { it.kind !in setOf("STATIONARY", "UNKNOWN") }) {
+            return@withTransaction null
+        }
+        val paths = pathParts.map { draft -> closedTrack(checkNotNull(draft.sourceTrackId)) ?: return@withTransaction null }
+        if (paths.any { it.discardedAt != null || it.activityType != paths.first().activityType || it.source != paths.first().source }) {
+            return@withTransaction null
+        }
+        val activity = ActivityType.ofName(paths.first().activityType) ?: return@withTransaction null
+        if (!activity.recording || activity.trackGroup == io.github.valeronm.breadcrumb.domain.TrackGroup.UNKNOWN) {
+            return@withTransaction null
+        }
+        for (index in gapParts.indices) {
+            val before = paths[index]
+            val after = paths[index + 1]
+            val gap = gapParts[index]
+            val beforeEndedAt = before.endedAt ?: return@withTransaction null
+            val afterStartedAt = after.startedAt
+            if (gap.beforeTrackId != before.id || gap.afterTrackId != after.id ||
+                gap.startedAt != beforeEndedAt || gap.endedAt != afterStartedAt ||
+                afterStartedAt < beforeEndedAt || afterStartedAt - beforeEndedAt > 4 * 60_000L
+            ) return@withTransaction null
+            val endLat = before.endLat ?: return@withTransaction null
+            val endLon = before.endLon ?: return@withTransaction null
+            val startLat = after.startLat ?: return@withTransaction null
+            val startLon = after.startLon ?: return@withTransaction null
+            if (AndroidDistance.meters(endLat, endLon, startLat, startLon) > 300.0) return@withTransaction null
+        }
+        val first = paths.first()
+        val last = paths.last()
+        val firstGap = gapParts.first()
+        val mergedId = dao.insertTrack(
+            Track(
+                activityType = first.activityType,
+                startedAt = first.startedAt,
+                endedAt = last.endedAt,
+                source = first.source,
+                startPlaceId = first.startPlaceId,
+                endPlaceId = last.endPlaceId,
+            ),
+        )
+        dao.insertComposition(
+            TrackCompositionEntity(
+                mergedTrackId = mergedId,
+                earlierTrackId = first.id,
+                laterTrackId = last.id,
+                visitAfterTrackId = checkNotNull(firstGap.beforeTrackId),
+                visitStartMs = firstGap.startedAt,
+                visitEndMs = firstGap.endedAt,
+                visitCorrectionId = firstGap.visitCorrectionId,
+            ),
+        )
+        dao.insertCompositionParts(
+            parts.mapIndexed { ordinal, part ->
+                TrackCompositionPartEntity(
+                    mergedTrackId = mergedId, ordinal = ordinal, kind = part.kind,
+                    sourceTrackId = part.sourceTrackId, activityType = part.activityType,
+                    startedAt = part.startedAt, endedAt = part.endedAt,
+                    beforeTrackId = part.beforeTrackId, afterTrackId = part.afterTrackId,
+                    visitCorrectionId = part.visitCorrectionId,
+                )
+            },
+        )
+        for ((index, path) in paths.withIndex()) {
+            dao.copyPointsInto(mergedId, path.id)
+            if (index > 0) dao.firstPointAtOrAfter(mergedId, path.startedAt)?.let { dao.markSegmentStart(it) }
+            dao.setDiscarded(path.id, System.currentTimeMillis(), DiscardReason.MERGED.code)
+        }
+        val merged = dao.track(mergedId)!!
+        settler.settleAndRefresh(merged, merged.endedAt!!, dao.allPointsFor(mergedId), totalsStale = true)
+        derivation.reknit(paths.map { it.id } + mergedId)
+        mergedId
+    }
 
     /** Restore a merged movement and explicitly promote its stationary component to a visit. */
     suspend fun restoreComposition(mergedTrackId: Long, placeId: Long): Boolean {
@@ -914,6 +1124,139 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         return visitTarget != null
     }
 
+    /** Promote one stationary part of a multi-path trip to a named or detected visit. */
+    suspend fun restoreCompositionPart(mergedTrackId: Long, ordinal: Int, placeId: Long): Boolean {
+        val parts = compositionTreePartsFor(mergedTrackId)
+        if (parts.size <= 3) return restoreComposition(mergedTrackId, placeId)
+        var target: String? = null
+        db.withTransaction {
+            val merged = closedTrack(mergedTrackId)?.takeIf { it.discardedAt == null }
+                ?: return@withTransaction
+            val selected = parts.firstOrNull { it.ordinal == ordinal && it.kind == "STATIONARY" }
+                ?: return@withTransaction
+            val beforeId = selected.beforeTrackId ?: return@withTransaction
+            val endAt = selected.endedAt.coerceAtLeast(selected.startedAt)
+            selected.visitCorrectionId?.let { correctionId ->
+                val original = db.locomotionDao().allUserCorrections().firstOrNull { it.id == correctionId }
+                    ?: return@withTransaction
+                db.locomotionDao().insertUserCorrection(
+                    EngineUserCorrectionEntity(
+                        id = UUID.randomUUID().toString(), operationId = UUID.randomUUID().toString(),
+                        targetSegmentId = original.targetSegmentId, kind = "UNDO",
+                        createdAtWallTimeMs = System.currentTimeMillis(), referenceCorrectionId = correctionId,
+                    ),
+                )
+            }
+            val assignedTarget = engineVisitSegmentId(beforeId)
+            target = assignedTarget
+            db.locomotionDao().insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = UUID.randomUUID().toString(), operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = assignedTarget, kind = "ASSIGN_VISIT_PLACE",
+                    createdAtWallTimeMs = System.currentTimeMillis(), correctedPlaceId = placeId,
+                    visitStartWallTimeMs = selected.startedAt, visitEndWallTimeMs = endAt,
+                ),
+            )
+            val sourceIds = parts.filter { it.kind == "PATH" }.mapNotNull { it.sourceTrackId }.distinct()
+            if (sourceIds.isEmpty() || sourceIds.any { dao.track(it)?.discardReason != DiscardReason.MERGED.code }) {
+                return@withTransaction
+            }
+            dao.setDiscarded(mergedTrackId, System.currentTimeMillis(), DiscardReason.MERGED.code)
+            for (sourceId in sourceIds) dao.restoreTrack(sourceId)
+            derivation.reknit(sourceIds + mergedTrackId)
+        }
+        target?.let { refreshVisitTrainingLabels(it) }
+        return target != null
+    }
+
+    suspend fun retypeCompositionPart(
+        mergedTrackId: Long,
+        componentTrackId: Long,
+        activityType: ActivityType,
+    ): Boolean {
+        val parts = compositionTreePartsFor(mergedTrackId)
+        if (parts.size <= 3) return retypeCompositionTrack(mergedTrackId, componentTrackId, activityType)
+        val currentType = parts.firstOrNull { it.kind == "PATH" && it.sourceTrackId == componentTrackId }
+            ?.activityType?.let(ActivityType::ofName)
+        if (currentType == activityType) {
+            derivation.reknit(listOf(mergedTrackId))
+            return true
+        }
+        var correctedTrack: Track? = null
+        db.withTransaction {
+            val merged = closedTrack(mergedTrackId)?.takeIf { it.discardedAt == null }
+                ?: return@withTransaction
+            val sourceIds = parts.filter { it.kind == "PATH" }.mapNotNull { it.sourceTrackId }.distinct()
+            val component = dao.track(componentTrackId)
+            if (component == null || componentTrackId !in sourceIds || ActivityType.ofName(component.activityType) == activityType ||
+                sourceIds.any { dao.track(it)?.discardReason != DiscardReason.MERGED.code }
+            ) return@withTransaction
+            val correctionRows = parts.mapNotNull { it.visitCorrectionId }.distinct()
+            val allCorrections = db.locomotionDao().allUserCorrections().associateBy { it.id }
+            for (correctionId in correctionRows) {
+                val correction = allCorrections[correctionId] ?: continue
+                db.locomotionDao().insertUserCorrection(
+                    EngineUserCorrectionEntity(
+                        id = UUID.randomUUID().toString(), operationId = UUID.randomUUID().toString(),
+                        targetSegmentId = correction.targetSegmentId, kind = "UNDO",
+                        createdAtWallTimeMs = System.currentTimeMillis(), referenceCorrectionId = correctionId,
+                    ),
+                )
+            }
+            dao.setDiscarded(mergedTrackId, System.currentTimeMillis(), DiscardReason.MERGED.code)
+            for (sourceId in sourceIds) dao.restoreTrack(sourceId)
+            correctedTrack = setActivityTypeInTransaction(componentTrackId, activityType, reknit = false)
+            derivation.reknit(sourceIds + mergedTrackId)
+        }
+        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
+        return correctedTrack != null
+    }
+
+    /** Split a composed trip into its original paths and make the boundary user-owned. */
+    suspend fun splitComposition(mergedTrackId: Long): Boolean {
+        val parts = compositionTreePartsFor(mergedTrackId)
+        if (parts.isEmpty()) return false
+        return db.withTransaction {
+            val merged = closedTrack(mergedTrackId)?.takeIf { it.discardedAt == null }
+                ?: return@withTransaction false
+            val sourceIds = parts.filter { it.kind == "PATH" }.mapNotNull { it.sourceTrackId }.distinct()
+            if (sourceIds.isEmpty() || sourceIds.any { dao.track(it)?.discardReason != DiscardReason.MERGED.code }) {
+                return@withTransaction false
+            }
+            val correctionRows = parts.mapNotNull { it.visitCorrectionId }.distinct()
+            val allCorrections = db.locomotionDao().allUserCorrections().associateBy { it.id }
+            for (correctionId in correctionRows) {
+                val correction = allCorrections[correctionId] ?: continue
+                db.locomotionDao().insertUserCorrection(
+                    EngineUserCorrectionEntity(
+                        id = UUID.randomUUID().toString(), operationId = UUID.randomUUID().toString(),
+                        targetSegmentId = correction.targetSegmentId, kind = "UNDO",
+                        createdAtWallTimeMs = System.currentTimeMillis(), referenceCorrectionId = correctionId,
+                    ),
+                )
+            }
+            dao.setDiscarded(mergedTrackId, System.currentTimeMillis(), DiscardReason.MERGED.code)
+            sourceIds.forEach { id ->
+                dao.restoreTrack(id)
+                dao.track(id)?.let { dao.confirmActivityType(id, it.activityType) }
+            }
+            derivation.reknit(sourceIds + mergedTrackId)
+            true
+        }
+    }
+
+    /** Change the activity of an unknown bridge without inventing any GPS fixes. */
+    suspend fun setUnknownCompositionPartType(mergedTrackId: Long, ordinal: Int, activityType: ActivityType): Boolean =
+        db.withTransaction {
+            val part = compositionTreePartsFor(mergedTrackId).firstOrNull {
+                it.ordinal == ordinal && it.kind == "UNKNOWN"
+            } ?: return@withTransaction false
+            if (part.id <= 0L) return@withTransaction false
+            dao.setCompositionPartType(part.id, activityType.name)
+            derivation.reknit(listOf(mergedTrackId))
+            true
+        }
+
     /** Restore a merged row's original movement tracks and atomically retype one component. */
     suspend fun retypeCompositionTrack(
         mergedTrackId: Long,
@@ -921,6 +1264,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         activityType: ActivityType,
     ): Boolean {
         var correctedTrack: Track? = null
+        var sameTypeRefresh = false
         db.withTransaction {
             val composition = dao.compositionFor(mergedTrackId) ?: return@withTransaction
             if (componentTrackId != composition.earlierTrackId && componentTrackId != composition.laterTrackId) {
@@ -932,9 +1276,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val component = dao.track(componentTrackId) ?: return@withTransaction
             if (merged.discardedAt != null ||
                 earlier.discardReason != DiscardReason.MERGED.code ||
-                later.discardReason != DiscardReason.MERGED.code ||
-                ActivityType.ofName(component.activityType) == activityType
+                later.discardReason != DiscardReason.MERGED.code
             ) {
+                return@withTransaction
+            }
+
+            if (ActivityType.ofName(component.activityType) == activityType) {
+                derivation.reknit(listOf(mergedTrackId))
+                correctedTrack = component
+                sameTypeRefresh = true
                 return@withTransaction
             }
 
@@ -963,7 +1313,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 derivation.reknit(listOf(mergedTrackId, composition.earlierTrackId, composition.laterTrackId))
             }
         }
-        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
+        if (!sameTypeRefresh) correctedTrack?.let { learnFromUserCorrection(it, activityType) }
         return correctedTrack != null
     }
 

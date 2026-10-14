@@ -74,6 +74,9 @@
     <string name="track_segments_stationary_minutes">Stationary · %1$d min</string>
     <string name="track_segments_move_part">Move %1$d · %2$s</string>
     <string name="track_segments_change_type">Change movement type</string>
-    <string name="track_segments_retype_hint">Tap either Move segment to change its transport type.</string>
-    <string name="track_segments_restore_hint">Choose the stop to assign a saved place and restore the original timeline entries.</string>
+    <string name="track_segments_retype_hint">Tap a Move segment to change its transport type. Split the trip to show its paths separately.</string>
+    <string name="track_segments_restore_hint">Turn a stationary segment into a place to restore it as a separate visit.</string>
+    <string name="track_segments_unknown_minutes">Unknown gap · %1$d min</string>
+    <string name="track_segments_split_into_routes">Split into separate routes</string>
+    <string name="track_segments_create_place">Create a new place here</string>
 </resources>

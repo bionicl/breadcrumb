@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -635,6 +636,40 @@ class TrackRepositoryTest {
         val corrections = repository.observeVisitCorrections().first()
         assertTrue(corrections.any { it.kind == "UNDO" && it.referenceCorrectionId == correctionId })
         assertTrue(corrections.any { it.kind == "ASSIGN_VISIT_PLACE" && it.correctedPlaceId == placeId })
+    }
+
+    @Test fun `a short sequence keeps its ordered unknown bridge and can be split back`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(6)
+        val firstRow = dao.track(first)!!
+        val secondRow = dao.track(second)!!
+        val firstEnd = checkNotNull(firstRow.endedAt)
+        val mergedId = repository.mergeTrackSequence(
+            listOf(
+                TrackCompositionPartDraft(
+                    kind = "PATH", sourceTrackId = first, activityType = ActivityType.WALKING.name,
+                    startedAt = firstRow.startedAt, endedAt = firstEnd,
+                ),
+                TrackCompositionPartDraft(
+                    kind = "UNKNOWN", activityType = ActivityType.UNKNOWN.name,
+                    startedAt = firstEnd, endedAt = secondRow.startedAt,
+                    beforeTrackId = first, afterTrackId = second,
+                ),
+                TrackCompositionPartDraft(
+                    kind = "PATH", sourceTrackId = second, activityType = ActivityType.WALKING.name,
+                    startedAt = secondRow.startedAt, endedAt = secondRow.endedAt!!,
+                ),
+            ),
+        )!!
+
+        assertEquals(listOf("PATH", "UNKNOWN", "PATH"),
+            repository.compositionTreePartsFor(mergedId).map { it.kind })
+        assertEquals(DiscardReason.MERGED.code, dao.track(first)!!.discardReason)
+        assertEquals(DiscardReason.MERGED.code, dao.track(second)!!.discardReason)
+        assertTrue(repository.splitComposition(mergedId))
+        assertEquals(DiscardReason.MERGED.code, dao.track(mergedId)!!.discardReason)
+        assertNull(dao.track(first)!!.discardedAt)
+        assertNull(dao.track(second)!!.discardedAt)
     }
 
     @Test fun `retyping a composition movement restores and changes only that source track`() = runTest {

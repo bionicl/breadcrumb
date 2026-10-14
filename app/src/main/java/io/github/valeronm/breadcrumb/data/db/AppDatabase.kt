@@ -15,9 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
-        TrackCompositionEntity::class,
+        TrackCompositionEntity::class, TrackCompositionPartEntity::class,
     ],
-    version = 30,
+    version = 31,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
             "tracks", "track_points", "places", "place_identities",
             "derived_clusters", "cluster_members", "derived_intervals",
             "engine_observations", "engine_checkpoints", "engine_user_corrections", "track_compositions",
+            "track_composition_parts",
         )
 
         @Volatile
@@ -348,6 +349,64 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS track_composition_parts (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                      mergedTrackId INTEGER NOT NULL,
+                      ordinal INTEGER NOT NULL,
+                      kind TEXT NOT NULL,
+                      sourceTrackId INTEGER,
+                      activityType TEXT,
+                      startedAt INTEGER NOT NULL,
+                      endedAt INTEGER NOT NULL,
+                      beforeTrackId INTEGER,
+                      afterTrackId INTEGER,
+                      visitCorrectionId TEXT,
+                      FOREIGN KEY(mergedTrackId) REFERENCES tracks(id) ON UPDATE NO ACTION ON DELETE CASCADE )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_track_composition_parts_mergedTrackId ON track_composition_parts(mergedTrackId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_track_composition_parts_sourceTrackId ON track_composition_parts(sourceTrackId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_track_composition_parts_beforeTrackId ON track_composition_parts(beforeTrackId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_track_composition_parts_afterTrackId ON track_composition_parts(afterTrackId)")
+                // Existing two-path compositions keep the same undo and editor behavior, represented
+                // now as an ordered path / stationary / path sequence.
+                db.execSQL(
+                    """
+                    INSERT INTO track_composition_parts
+                      (mergedTrackId, ordinal, kind, sourceTrackId, activityType, startedAt, endedAt,
+                       beforeTrackId, afterTrackId, visitCorrectionId)
+                    SELECT c.mergedTrackId, 0, 'PATH', c.earlierTrackId, t.activityType, t.startedAt, COALESCE(t.endedAt, t.startedAt),
+                           NULL, NULL, NULL
+                    FROM track_compositions c JOIN tracks t ON t.id = c.earlierTrackId
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO track_composition_parts
+                      (mergedTrackId, ordinal, kind, sourceTrackId, activityType, startedAt, endedAt,
+                       beforeTrackId, afterTrackId, visitCorrectionId)
+                    SELECT c.mergedTrackId, 1, 'STATIONARY', NULL, 'STILL', c.visitStartMs, c.visitEndMs,
+                           c.earlierTrackId, c.laterTrackId, c.visitCorrectionId
+                    FROM track_compositions c
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO track_composition_parts
+                      (mergedTrackId, ordinal, kind, sourceTrackId, activityType, startedAt, endedAt,
+                       beforeTrackId, afterTrackId, visitCorrectionId)
+                    SELECT c.mergedTrackId, 2, 'PATH', c.laterTrackId, t.activityType, t.startedAt, COALESCE(t.endedAt, t.startedAt),
+                           NULL, NULL, NULL
+                    FROM track_compositions c JOIN tracks t ON t.id = c.laterTrackId
+                    """.trimIndent(),
+                )
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -360,7 +419,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
             MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
-            MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30,
+            MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
         )
 
         fun get(context: Context): AppDatabase =
