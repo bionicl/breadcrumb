@@ -56,5 +56,8 @@
     <string name="track_segments_action">Ver segmentos da rota</string>
     <string name="track_segments_title">Segmentos que compõem este movimento</string>
     <string name="track_segments_stationary_minutes">Parado · %1$d min</string>
+    <string name="track_segments_move_part">Movimento %1$d · %2$s</string>
+    <string name="track_segments_change_type">Alterar tipo de movimento</string>
+    <string name="track_segments_retype_hint">Toque num segmento de movimento para alterar o tipo de transporte.</string>
     <string name="track_segments_restore_hint">Escolha a paragem e associe um local guardado para restaurar os itens originais da cronologia.</string>
 </resources>

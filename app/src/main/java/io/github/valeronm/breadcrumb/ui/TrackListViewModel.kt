@@ -748,6 +748,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun retypeCompositionTrack(
+        mergedTrackId: Long,
+        componentTrackId: Long,
+        activityType: ActivityType,
+        onRestored: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            if (repository.retypeCompositionTrack(mergedTrackId, componentTrackId, activityType)) onRestored()
+        }
+    }
+
     /**
      * The clocks a track's ends ran on, from the same derivation its timeline row reads. A track
      * the derivation never saw, such as a discarded one, gets the device's clock.

@@ -193,6 +193,8 @@ internal fun TrackDetailScreen(
     var showSplitDialog by remember(trackId) { mutableStateOf(false) }
     var showCompositionDialog by remember(trackId) { mutableStateOf(false) }
     var showCompositionPlacePicker by remember(trackId) { mutableStateOf(false) }
+    var showCompositionTypePicker by remember(trackId) { mutableStateOf(false) }
+    var compositionTrackToRetype by remember(trackId) { mutableStateOf<Long?>(null) }
     var compositionPlaceSearch by remember(trackId) { mutableStateOf("") }
     val composition by produceState<TrackCompositionEntity?>(initialValue = null, trackId) {
         value = viewModel.getTrackComposition(trackId)
@@ -454,7 +456,19 @@ internal fun TrackDetailScreen(
                     Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(activityLabel(context, summary.activityType))
+                    TextButton(onClick = {
+                        showCompositionDialog = false
+                        compositionTrackToRetype = details.earlierTrackId
+                        showCompositionTypePicker = true
+                    }) {
+                        Text(
+                            stringResource(
+                                R.string.track_segments_move_part,
+                                1,
+                                activityLabel(context, summary.activityType),
+                            ),
+                        )
+                    }
                     TextButton(
                         onClick = {
                             showCompositionDialog = false
@@ -468,9 +482,26 @@ internal fun TrackDetailScreen(
                             ),
                         )
                     }
-                    Text(activityLabel(context, summary.activityType))
+                    TextButton(onClick = {
+                        showCompositionDialog = false
+                        compositionTrackToRetype = details.laterTrackId
+                        showCompositionTypePicker = true
+                    }) {
+                        Text(
+                            stringResource(
+                                R.string.track_segments_move_part,
+                                2,
+                                activityLabel(context, summary.activityType),
+                            ),
+                        )
+                    }
                     Text(
                         stringResource(R.string.track_segments_restore_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(R.string.track_segments_retype_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -478,6 +509,41 @@ internal fun TrackDetailScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showCompositionDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    if (showCompositionTypePicker && summary != null && compositionTrackToRetype != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showCompositionTypePicker = false
+                compositionTrackToRetype = null
+            },
+            title = { Text(stringResource(R.string.track_segments_change_type)) },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    for (option in ActivityType.entries.filter { it != ActivityType.UNKNOWN }) {
+                        OptionRow(
+                            icon = activityIcon(option),
+                            label = stringResource(option.labelRes),
+                            tint = activityColor(option),
+                            selected = option.name == summary.activityType,
+                        ) {
+                            showCompositionTypePicker = false
+                            val componentId = checkNotNull(compositionTrackToRetype)
+                            compositionTrackToRetype = null
+                            viewModel.retypeCompositionTrack(trackId, componentId, option, onBack)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCompositionTypePicker = false
+                    compositionTrackToRetype = null
+                }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },

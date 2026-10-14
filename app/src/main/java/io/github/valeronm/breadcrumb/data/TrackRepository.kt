@@ -391,34 +391,36 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * activity it detects and settles the edges when it finishes.
      */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
-        var correctedTrack: Track? = null
-        db.withTransaction {
-            val track = dao.track(trackId) ?: return@withTransaction
-            val endedAt = track.endedAt ?: return@withTransaction
-            val retuned = settler.tuningChanges(track, to = activityType)
-            // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
-            val wasType = ActivityType.ofName(track.activityType)
-            val raised = wasType != null &&
-                TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
-            // The label decides the ceiling every arriving fix is gated on, so a row the recorder
-            // has reopened must be refused before the write, not after it.
-            dao.confirmActivityType(trackId, activityType.name)
-            activityCorrection(trackId, activityType)?.let { db.locomotionDao().insertUserCorrection(it) }
-            correctedTrack = track.copy(activityType = activityType.name, activityConfirmedByUser = true)
-            if (!retuned && !raised) return@withTransaction
-            val retyped = track.copy(activityType = activityType.name)
-            val stored = dao.allPointsFor(trackId)
-            val restored = if (raised) settler.restoreJumps(trackId, stored, activityType) else null
-            val jumpsRestored = restored != null
-            // Run unconditionally once either rule is in play: restoring a fix moves the first or
-            // last *good* point, which is where the overrun rule takes its bearings from.
-            val applied = settler.settleAndRefresh(retyped, endedAt, restored ?: stored, totalsStale = jumpsRestored)
-            // Not the free column write it looks like: either rule moves the track's bounds and
-            // its first and last good coordinates, which are the whole of what a stay is derived
-            // from. A retype that moved neither leaves the derivation alone.
-            if (jumpsRestored || applied.changed) derivation.reknit(listOf(trackId))
-        }
+        val correctedTrack = db.withTransaction { setActivityTypeInTransaction(trackId, activityType) }
         correctedTrack?.let { learnFromUserCorrection(it, activityType) }
+    }
+
+    private suspend fun setActivityTypeInTransaction(
+        trackId: Long,
+        activityType: ActivityType,
+        reknit: Boolean = true,
+    ): Track? {
+        val track = dao.track(trackId) ?: return null
+        val endedAt = track.endedAt ?: return null
+        val retuned = settler.tuningChanges(track, to = activityType)
+        // An unreadable stored activity has no ceiling to compare against, so nothing is withdrawn.
+        val wasType = ActivityType.ofName(track.activityType)
+        val raised = wasType != null &&
+            TrackQuality.jumpCeiling(activityType) > TrackQuality.jumpCeiling(wasType)
+        dao.confirmActivityType(trackId, activityType.name)
+        activityCorrection(trackId, activityType)?.let { db.locomotionDao().insertUserCorrection(it) }
+        val correctedTrack = track.copy(activityType = activityType.name, activityConfirmedByUser = true)
+        if (!retuned && !raised) return correctedTrack
+        val stored = dao.allPointsFor(trackId)
+        val restored = if (raised) settler.restoreJumps(trackId, stored, activityType) else null
+        val applied = settler.settleAndRefresh(
+            track.copy(activityType = activityType.name),
+            endedAt,
+            restored ?: stored,
+            totalsStale = restored != null,
+        )
+        if (reknit && (restored != null || applied.changed)) derivation.reknit(listOf(trackId))
+        return correctedTrack
     }
 
     /** Read the durable user assertions associated with a legacy timeline track. */
@@ -910,6 +912,59 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
         visitTarget?.let { refreshVisitTrainingLabels(it) }
         return visitTarget != null
+    }
+
+    /** Restore a merged row's original movement tracks and atomically retype one component. */
+    suspend fun retypeCompositionTrack(
+        mergedTrackId: Long,
+        componentTrackId: Long,
+        activityType: ActivityType,
+    ): Boolean {
+        var correctedTrack: Track? = null
+        db.withTransaction {
+            val composition = dao.compositionFor(mergedTrackId) ?: return@withTransaction
+            if (componentTrackId != composition.earlierTrackId && componentTrackId != composition.laterTrackId) {
+                return@withTransaction
+            }
+            val merged = closedTrack(mergedTrackId) ?: return@withTransaction
+            val earlier = dao.track(composition.earlierTrackId) ?: return@withTransaction
+            val later = dao.track(composition.laterTrackId) ?: return@withTransaction
+            val component = dao.track(componentTrackId) ?: return@withTransaction
+            if (merged.discardedAt != null ||
+                earlier.discardReason != DiscardReason.MERGED.code ||
+                later.discardReason != DiscardReason.MERGED.code ||
+                ActivityType.ofName(component.activityType) == activityType
+            ) {
+                return@withTransaction
+            }
+
+            // A DELETE_VISIT composition must stop suppressing its interval once the source moves
+            // return as distinct timeline rows. Ordinary short-stop compositions have no correction.
+            composition.visitCorrectionId?.let { correctionId ->
+                val correction = db.locomotionDao().allUserCorrections().firstOrNull { it.id == correctionId }
+                    ?: return@withTransaction
+                db.locomotionDao().insertUserCorrection(
+                    EngineUserCorrectionEntity(
+                        id = UUID.randomUUID().toString(),
+                        operationId = UUID.randomUUID().toString(),
+                        targetSegmentId = correction.targetSegmentId,
+                        kind = "UNDO",
+                        createdAtWallTimeMs = System.currentTimeMillis(),
+                        referenceCorrectionId = correctionId,
+                    ),
+                )
+            }
+
+            dao.purgeTrack(mergedTrackId)
+            dao.restoreTrack(composition.earlierTrackId)
+            dao.restoreTrack(composition.laterTrackId)
+            correctedTrack = setActivityTypeInTransaction(componentTrackId, activityType, reknit = false)
+            if (correctedTrack != null) {
+                derivation.reknit(listOf(mergedTrackId, composition.earlierTrackId, composition.laterTrackId))
+            }
+        }
+        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
+        return correctedTrack != null
     }
 
     /**

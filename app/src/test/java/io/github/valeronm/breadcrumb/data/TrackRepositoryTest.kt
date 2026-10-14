@@ -637,6 +637,41 @@ class TrackRepositoryTest {
         assertTrue(corrections.any { it.kind == "ASSIGN_VISIT_PLACE" && it.correctedPlaceId == placeId })
     }
 
+    @Test fun `retyping a composition movement restores and changes only that source track`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(12)
+        val correctionId = repository.correctVisit(
+            first,
+            TEST_START + 70_000,
+            TEST_START + 120_000,
+            "DELETE_VISIT",
+        )
+        val mergedId = repository.mergeTracks(
+            first,
+            second,
+            TrackCompositionDraft(
+                visitAfterTrackId = first,
+                visitStartMs = TEST_START + 70_000,
+                visitEndMs = TEST_START + 120_000,
+                visitCorrectionId = correctionId,
+            ),
+        )!!
+
+        assertTrue(repository.retypeCompositionTrack(mergedId, first, ActivityType.CYCLING))
+
+        assertNull("the combined copy is replaced by its source rows", dao.track(mergedId))
+        assertEquals(ActivityType.CYCLING.name, dao.track(first)!!.activityType)
+        assertEquals(ActivityType.WALKING.name, dao.track(second)!!.activityType)
+        assertNull(dao.track(first)!!.discardedAt)
+        assertNull(dao.track(second)!!.discardedAt)
+        assertNull("restoring consumes the composition", repository.compositionFor(mergedId))
+        assertTrue(
+            repository.observeVisitCorrections().first().any {
+                it.kind == "UNDO" && it.referenceCorrectionId == correctionId
+            },
+        )
+    }
+
     /**
      * One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked out of again
      * — the stop sits mid-track, beyond any edge rule. It is 10 min to the tail's 6 so a cut through its

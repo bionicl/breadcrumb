@@ -61,5 +61,8 @@
     <string name="track_segments_action">Показать сегменты маршрута</string>
     <string name="track_segments_title">Сегменты этого перемещения</string>
     <string name="track_segments_stationary_minutes">Остановка · %1$d мин</string>
+    <string name="track_segments_move_part">Перемещение %1$d · %2$s</string>
+    <string name="track_segments_change_type">Изменить тип перемещения</string>
+    <string name="track_segments_retype_hint">Нажмите на сегмент перемещения, чтобы изменить тип транспорта.</string>
     <string name="track_segments_restore_hint">Выберите остановку и укажите сохранённое место, чтобы восстановить исходные записи истории.</string>
 </resources>
