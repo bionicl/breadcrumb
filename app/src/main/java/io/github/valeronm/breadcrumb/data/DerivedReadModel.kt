@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.ClusterMember
 import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
+import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -18,6 +19,7 @@ class StoredDerivation(
     val members: List<ClusterMember>,
     val intervals: List<DerivedInterval>,
     val places: List<Place>,
+    val visitCorrections: List<EngineUserCorrectionEntity> = emptyList(),
 )
 
 /**
@@ -72,9 +74,30 @@ internal object DerivedReadModel {
             )
         }
 
+        val undone = stored.visitCorrections.asSequence()
+            .filter { it.kind == "UNDO" }
+            .mapNotNull { it.referenceCorrectionId }
+            .toSet()
+        val activeCorrections = stored.visitCorrections.asSequence()
+            .filter { it.kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE") }
+            .filterNot { it.id in undone }
+            .groupBy { it.targetSegmentId }
+            .mapValues { (_, rows) ->
+                rows.maxWith(compareBy<EngineUserCorrectionEntity> { it.createdAtWallTimeMs }.thenBy { it.id })
+            }
+        val assignedGapPlaces = activeCorrections.mapNotNull { (target, correction) ->
+            if (correction.kind != "ASSIGN_VISIT_PLACE") return@mapNotNull null
+            val afterTrackId = target.removePrefix("derived-visit:").toLongOrNull() ?: return@mapNotNull null
+            val placeId = correction.correctedPlaceId ?: return@mapNotNull null
+            val clusterId = ordered.firstOrNull { it.placeId == placeId }?.id ?: return@mapNotNull null
+            afterTrackId to clusterId
+        }.toMap()
+
         return MappedRows(
             clusters = clusters,
-            intervals = stored.intervals.mapNotNull { it.toInterval(indexOfRow) },
+            intervals = stored.intervals.mapNotNull { interval ->
+                interval.toInterval(indexOfRow, assignedGapPlaces[interval.afterTrackId])
+            },
             tailAnchor = tailAnchor(stored.members, indexOfRow),
         )
     }
@@ -113,7 +136,10 @@ internal object DerivedReadModel {
      * which is a broken reference and says so in the log rather than quietly shortening the
      * timeline.
      */
-    private fun DerivedInterval.toInterval(indexOfRow: Map<Long, Int>): StayDeriver.Interval? =
+    private fun DerivedInterval.toInterval(
+        indexOfRow: Map<Long, Int>,
+        assignedGapPlaceClusterId: Long?,
+    ): StayDeriver.Interval? =
         when (type) {
             DerivedInterval.TYPE_STAY -> {
                 val cluster = clusterId?.let(indexOfRow::get)
@@ -129,16 +155,26 @@ internal object DerivedReadModel {
                     )
                 }
             }
-            DerivedInterval.TYPE_GAP -> StayDeriver.Gap(
-                start = start,
-                end = endedAt,
-                reason = reasonOf(reason),
-                afterTrackId = afterTrackId,
-                fromClusterId = fromClusterId?.let(indexOfRow::get),
-                toClusterId = toClusterId?.let(indexOfRow::get),
-                from = coordinateOf(fromLat, fromLon),
-                to = coordinateOf(toLat, toLon),
-            )
+            DerivedInterval.TYPE_GAP -> assignedGapPlaceClusterId
+                ?.let(indexOfRow::get)
+                ?.let { clusterId ->
+                    StayDeriver.Stay(
+                        start = start,
+                        end = endedAt,
+                        afterTrackId = afterTrackId,
+                        clusterId = clusterId,
+                    )
+                }
+                ?: StayDeriver.Gap(
+                    start = start,
+                    end = endedAt,
+                    reason = reasonOf(reason),
+                    afterTrackId = afterTrackId,
+                    fromClusterId = fromClusterId?.let(indexOfRow::get),
+                    toClusterId = toClusterId?.let(indexOfRow::get),
+                    from = coordinateOf(fromLat, fromLon),
+                    to = coordinateOf(toLat, toLon),
+                )
             else -> null
         }
 

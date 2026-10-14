@@ -70,7 +70,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      */
     fun observeStored(): Flow<StoredDerivation> =
         db.invalidationTracker
-            .createFlow(TABLE_PLACES, *DERIVED_TABLES)
+            .createFlow(TABLE_PLACES, TABLE_CORRECTIONS, *DERIVED_TABLES)
             .runningFold(null as StoredDerivation?) { previous, invalidated ->
                 db.withTransaction {
                     var carriedPlaces = previous?.places?.takeIf { TABLE_PLACES !in invalidated }
@@ -87,6 +87,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
                         members = carriedDerived?.members ?: derived.membersOnce(),
                         intervals = carriedDerived?.intervals ?: derived.intervalsOnce(),
                         places = rows,
+                        visitCorrections = db.locomotionDao().allUserCorrections(),
                     )
                 }
             }
@@ -414,7 +415,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             of.clusters === stored.clusters &&
                 of.members === stored.members &&
                 of.intervals === stored.intervals &&
-                of.places === stored.places
+                of.places === stored.places &&
+                of.visitCorrections === stored.visitCorrections
     }
 
     private var mapped: Mapped? = null
@@ -498,5 +500,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             arrayOf("derived_clusters", "cluster_members", "derived_intervals")
 
         private const val TABLE_PLACES = "places"
+        private const val TABLE_CORRECTIONS = "engine_user_corrections"
     }
 }

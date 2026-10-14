@@ -14,7 +14,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
 object TrackMerge {
 
     const val AUTO_MAX_INTERVAL_MS = 4 * 60_000L
-    const val AUTO_MAX_ENDPOINT_DISTANCE_M = 300.0
+    const val AUTO_MAX_ENDPOINT_DISTANCE_M = 800.0
 
     /** Merge the two tracks bracketing the interval into a new track; [earlierId] precedes [laterId]. */
     data class Plan(val earlierId: Long, val laterId: Long)
@@ -22,12 +22,9 @@ object TrackMerge {
     /**
      * A plan to merge across the interval between [before] (ends into it) and [after] (starts out
      * of it), or null if the interval is still ongoing or the tracks aren't the same
-     * activity or from the same writer. Refusing across writers is what keeps [TrackSummary.source]
-     * true of every row: a merge fuses two tracks' fixes into one, so a recorded track joined to an
-     * imported one would leave a row no single source describes — and no "mixed" code could rescue
-     * it, since a split of that row would stamp both halves mixed and the rule that fills rows
-     * predating the column cannot recognise mixedness at all (a recorded track may hold fixes the
-     * platform gave no accuracy radius for, which is what a half-imported one looks like). A stay on
+     * activity and source. This direct two-track merge copies fixes into one row, which must have a
+     * single truthful source. Small-gap composition merges retain original child rows and can keep
+     * different sources per path. A stay on
      * a named place is mergeable like any other: the pin is untouched, only
      * that one visit stops counting, and the merge undoes — the stay re-derives from the tracks
      * the moment it does.
@@ -39,11 +36,14 @@ object TrackMerge {
         intervalEnd: Long?,
     ): Plan? {
         if (intervalEnd == null || intervalEnd < intervalStart) return null
-        if (before.activityType != after.activityType) return null
-        if (before.source != after.source) return null
-        val activity = ActivityType.ofName(before.activityType) ?: return null
-        if (!activity.recording || activity.trackGroup == TrackGroup.UNKNOWN) return null
+        if (!sameRecordedActivity(before, after) || before.source != after.source) return null
         return Plan(earlierId = before.id, laterId = after.id)
+    }
+
+    private fun sameRecordedActivity(before: TrackSummary, after: TrackSummary): Boolean {
+        if (before.activityType != after.activityType) return false
+        val activity = ActivityType.ofName(before.activityType) ?: return false
+        return activity.recording && activity.trackGroup != TrackGroup.UNKNOWN
     }
 
     /**
@@ -108,8 +108,7 @@ object TrackMerge {
             val beforeEnd = endpoints[before.id]?.end
             val afterStart = endpoints[after.id]?.start
             val eligible = interval != null && before.id !in assignedVisitAnchors &&
-                !before.activityConfirmedByUser && !after.activityConfirmedByUser &&
-                plan(before, after, interval.start, intervalEnd) != null &&
+                sameRecordedActivity(before, after) &&
                 intervalEnd != null && intervalEnd >= interval.start &&
                 intervalEnd - interval.start <= AUTO_MAX_INTERVAL_MS &&
                 beforeEnd != null && afterStart != null &&

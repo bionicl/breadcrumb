@@ -163,6 +163,8 @@ internal fun TimelineTab(
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     /** Open the add-trip form on an absence, holding whatever the gap row it came from knows. */
     onAddTrip: (TripDraft) -> Unit,
+    /** Turn a missing interval into an explicitly placed visit. */
+    onSaveGapAsPlace: (TimelineItem.GapItem) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
     onOpenRecording: () -> Unit,
@@ -310,6 +312,7 @@ internal fun TimelineTab(
                     onOpenPlace = onOpenPlace,
                     onOpenJourney = onOpenJourney,
                     onAddTrip = onAddTrip,
+                    onSaveGapAsPlace = onSaveGapAsPlace,
                     onReplay = onReplay,
                     onOpenRecording = onOpenRecording,
                     awayDays = awayDays,
@@ -344,6 +347,7 @@ private fun TimelineListPage(
     onOpenPlace: (String) -> Unit,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
+    onSaveGapAsPlace: (TimelineItem.GapItem) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     onOpenRecording: () -> Unit,
     /** Open the map page on this day — a day header's date is the way in from here. */
@@ -502,6 +506,7 @@ private fun TimelineListPage(
                             dayItems = dayItems,
                             away = away,
                             onOpenJourney = onOpenJourney,
+                            onRepair = { viewModel.repairDay(dayTracks.map { it.id }) },
                         ) {
                             viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
                                 if (intent != null) context.startActivity(intent)
@@ -559,7 +564,7 @@ private fun TimelineListPage(
                                 },
                             )
                             is TimelineItem.GapItem ->
-                                GapRow(item, shape, item.clock, onOpenPlace, onMerge, onAddTrip)
+                                GapRow(item, shape, item.clock, onOpenPlace, onMerge, onAddTrip, onSaveGapAsPlace)
                         }
                     }
                 }
@@ -789,6 +794,7 @@ private fun ColumnScope.DayHeader(
     dayItems: List<TimelineItem>,
     away: AwayDay?,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
+    onRepair: () -> Unit,
     onShare: () -> Unit,
 ) {
     away?.let { TravelHeading(it) { onOpenJourney(it.summary) } }
@@ -812,14 +818,24 @@ private fun ColumnScope.DayHeader(
         // Share exports the day's tracks as GPX — nothing to offer on a day with only stays.
         if (dayTracks.isNotEmpty()) {
             // Compact: a full 48dp/24dp action on every header outweighs the content rows.
-            IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Filled.Share,
-                    contentDescription = stringResource(R.string.timeline_share_day, label),
-                    // Match the top bar's action-icon tint — plain onSurface reads too bright here.
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onRepair, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = stringResource(R.string.timeline_repair_day, label),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.Share,
+                        contentDescription = stringResource(R.string.timeline_share_day, label),
+                        // Match the top bar's action-icon tint — plain onSurface reads too bright here.
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
@@ -1451,11 +1467,14 @@ private fun GapRow(
     onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
+    onSaveAsPlace: (TimelineItem.GapItem) -> Unit,
 ) {
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace, onAddTrip) }
+    MergeSwipeable(item.merge, shape, onMerge) {
+        GapCard(item, shape, zone, onOpenPlace, onAddTrip, onSaveAsPlace)
+    }
 }
 
 @Composable
@@ -1465,6 +1484,7 @@ internal fun GapCard(
     zone: ZoneId,
     onOpenPlace: (String) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
+    onSaveAsPlace: (TimelineItem.GapItem) -> Unit,
 ) {
     val gap = item.gap
     // The whole card is drawn from the two questions the slicer answered when it cut — see
@@ -1498,6 +1518,7 @@ internal fun GapCard(
             destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
         )
     }
+    var actionsExpanded by remember(item.gap.afterTrackId) { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
         // One whole sentence per case, worded here because the Text below is not a composable scope.
         // A duration says the same thing on any clock, so the two-end case states one and is marked
@@ -1559,12 +1580,33 @@ internal fun GapCard(
                 // Timeline's own top bar opens the form with. Offered on every gap row, because
                 // every gap row now speaks for at least one end: the rows that could offer nothing
                 // were the per-day middles, and those are no longer cut.
-                IconButton(onClick = { onAddTrip(draft) }) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = stringResource(R.string.action_add_missing_trip),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+                Box {
+                    IconButton(onClick = { actionsExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = stringResource(R.string.action_add_missing_trip),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = actionsExpanded,
+                        onDismissRequest = { actionsExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.timeline_gap_save_as_trip)) },
+                            onClick = {
+                                actionsExpanded = false
+                                onAddTrip(draft)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.timeline_gap_save_as_place)) },
+                            onClick = {
+                                actionsExpanded = false
+                                onSaveAsPlace(item)
+                            },
+                        )
+                    }
                 }
             }
             GapPlaceLine(departure, departureAt, onOpenPlace)

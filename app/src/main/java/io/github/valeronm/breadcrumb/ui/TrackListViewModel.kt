@@ -90,6 +90,19 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val visitCorrections: Flow<List<EngineUserCorrectionEntity>> = repository.observeVisitCorrections()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
+    private data class DayRepairRequest(val trackIds: Set<Long>, val revision: Long)
+    private val dayRepairRequest = MutableStateFlow<DayRepairRequest?>(null)
+    private var dayRepairRevision = 0L
+    /** Read and written only by the resolved timeline flow's collector. */
+    private var processedDayRepairRevision = 0L
+
+    /** Re-run the automatic small-gap composition rules for paths shown on one timeline day. */
+    fun repairDay(trackIds: List<Long>) {
+        val ids = trackIds.toSet()
+        if (ids.isEmpty()) return
+        dayRepairRequest.value = DayRepairRequest(ids, ++dayRepairRevision)
+    }
+
     val tracks: StateFlow<List<TrackSummary>> = trackRows
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -265,7 +278,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * Shared, so a change to [pendingPlace] costs a map over these rows rather than a walk of the
      * history.
      */
-    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived, visitCorrections) { summaries, d, correctionRows ->
+    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived, visitCorrections, dayRepairRequest) { summaries, d, correctionRows, repairRequest ->
         // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
         // Slicing keeps cluster ids, so the sliced items look these up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
@@ -298,7 +311,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             assignedVisitAnchors = assignedVisitAnchors,
             distance = AndroidDistance,
         )
-        for (sequence in autoSequences) {
+        val pendingRepair = repairRequest?.takeIf { it.revision > processedDayRepairRevision }
+        val sequencesToMerge = pendingRepair?.let { request ->
+            autoSequences.filter { sequence -> sequence.tracks.any { it.id in request.trackIds } }
+        } ?: autoSequences
+        for (sequence in sequencesToMerge) {
             val parts = buildList {
                 sequence.tracks.forEachIndexed { index, track ->
                     add(
@@ -332,6 +349,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             if (repository.mergeTrackSequence(parts) == null) continue
             autoMergedTrackIds += sequence.tracks.map { it.id }
         }
+        pendingRepair?.let { processedDayRepairRevision = it.revision }
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
         val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
@@ -693,6 +711,27 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 null
             }
             onSaved(correctionId, mergedId)
+        }
+    }
+
+    /** Correct an unrecorded interval into a visit at a nearby or newly created place. */
+    fun assignGapToPlace(
+        gap: StayDeriver.Gap,
+        placeId: Long,
+        onSaved: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val interval = derived.first().derivation.intervals
+                .firstOrNull { it.afterTrackId == gap.afterTrackId }
+                ?: return@launch
+            val correctionId = repository.correctVisit(
+                afterTrackId = interval.afterTrackId,
+                startedAt = interval.start,
+                endedAt = interval.end ?: return@launch,
+                kind = "ASSIGN_VISIT_PLACE",
+                placeId = placeId,
+            )
+            onSaved(correctionId)
         }
     }
 

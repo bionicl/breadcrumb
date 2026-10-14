@@ -47,6 +47,7 @@
 
     <string name="timeline_away_day">День %1$d</string>
     <string name="timeline_share_day">Поделиться маршрутами за %1$s</string>
+    <string name="timeline_repair_day">Исправить маршруты за %1$s</string>
     <string name="timeline_scroll_to_day">Перейти к дню</string>
     <string name="timeline_merge">Объединить поездки</string>
     <string name="timeline_undo_merged">Поездки объединены</string>
@@ -61,6 +62,9 @@
     <string name="timeline_undo_bogus_visit">Посещение отмечено как неверное</string>
     <string name="timeline_undo_deleted_visit">Посещение удалено</string>
     <string name="timeline_undo_visit_place">Место посещения изменено</string>
+    <string name="timeline_undo_gap_as_place">Пропущенная запись сохранена как место</string>
+    <string name="timeline_gap_save_as_trip">Сохранить как поездку</string>
+    <string name="timeline_gap_save_as_place">Сохранить как место</string>
 
     <string name="timeline_all_day">Весь день</string>
     <string name="timeline_stay_since">%1$s – сейчас</string>

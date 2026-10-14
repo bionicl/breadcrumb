@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
@@ -320,7 +321,17 @@ class TimelineRowTest {
             zone = zone,
             onOpenPlace = {},
             onAddTrip = {},
+            onSaveAsPlace = {},
         )
+    }
+
+    @Test
+    fun `a missing recording offers trip and place actions from its plus menu`() {
+        gapRow(gapItem(start = noon, end = noon + HOUR))
+
+        compose.onNodeWithContentDescription(context.getString(R.string.action_add_missing_trip)).performClick()
+        compose.onNodeWithText(context.getString(R.string.timeline_gap_save_as_trip)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.timeline_gap_save_as_place)).assertIsDisplayed()
     }
 
     @Test

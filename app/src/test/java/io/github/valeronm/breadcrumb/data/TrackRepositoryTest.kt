@@ -13,6 +13,7 @@ import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.locomotion.BoundaryKind
 import io.github.valeronm.breadcrumb.locomotion.UserCorrection
 import kotlinx.coroutines.flow.first
@@ -594,7 +595,7 @@ class TrackRepositoryTest {
 
     @Test fun `unmerging drops the copy and returns both originals to the timeline`() = runTest {
         val first = finishedWalk(0)
-        val second = finishedWalk(12)
+        val second = finishedWalk(7)
         val mergedId = repository.mergeTracks(first, second)!!
 
         repository.unmergeTracks(mergedId, first, second)
@@ -668,6 +669,43 @@ class TrackRepositoryTest {
         assertEquals(DiscardReason.MERGED.code, dao.track(second)!!.discardReason)
         assertTrue(repository.splitComposition(mergedId))
         assertEquals(DiscardReason.MERGED.code, dao.track(mergedId)!!.discardReason)
+        assertNull(dao.track(first)!!.discardedAt)
+        assertNull(dao.track(second)!!.discardedAt)
+    }
+
+    @Test fun `a short sequence can join recorded and hand entered paths and split back`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(7)
+        test.db.openHelper.writableDatabase.execSQL(
+            "UPDATE tracks SET source = ? WHERE id = ?",
+            arrayOf<Any>(TrackOrigin.MANUAL.code, second),
+        )
+        val firstRow = dao.track(first)!!
+        val secondRow = dao.track(second)!!
+
+        val mergedId = repository.mergeTrackSequence(
+            listOf(
+                TrackCompositionPartDraft(
+                    kind = "PATH", sourceTrackId = first, activityType = ActivityType.WALKING.name,
+                    startedAt = firstRow.startedAt, endedAt = firstRow.endedAt!!,
+                ),
+                TrackCompositionPartDraft(
+                    kind = "UNKNOWN", activityType = ActivityType.UNKNOWN.name,
+                    startedAt = firstRow.endedAt!!, endedAt = secondRow.startedAt,
+                    beforeTrackId = first, afterTrackId = second,
+                ),
+                TrackCompositionPartDraft(
+                    kind = "PATH", sourceTrackId = second, activityType = ActivityType.WALKING.name,
+                    startedAt = secondRow.startedAt, endedAt = secondRow.endedAt!!,
+                ),
+            ),
+        )!!
+
+        assertEquals(listOf(TrackOrigin.RECORDED.code, TrackOrigin.MANUAL.code),
+            repository.compositionTreePartsFor(mergedId).filter { it.kind == "PATH" }.map { part ->
+                dao.track(checkNotNull(part.sourceTrackId))!!.source
+            })
+        assertTrue(repository.splitComposition(mergedId))
         assertNull(dao.track(first)!!.discardedAt)
         assertNull(dao.track(second)!!.discardedAt)
     }

@@ -34,14 +34,13 @@ class TrackMergeTest {
         assertNull(TrackMerge.plan(before, running, intervalStart = 0, intervalEnd = 60_000))
     }
 
-    @Test fun `tracks written by different sources are not mergeable`() {
+    @Test fun `direct track merge rejects tracks written by different sources`() {
         val recorded = track(1, "WALKING", 0, TrackOrigin.RECORDED.code)
         val imported = track(2, "WALKING", 300_000, TrackOrigin.IMPORTED.code)
         assertNull(TrackMerge.plan(recorded, imported, intervalStart = 0, intervalEnd = 60_000))
     }
 
-    @Test fun `a manual trip merges with neither a recording nor an import`() {
-        // Two typed endpoints absorbed into measured fixes would leave a row no writer describes.
+    @Test fun `a direct manual trip merge rejects a recording or an import`() {
         val manual = track(1, "WALKING", 0, TrackOrigin.MANUAL.code)
         val recorded = track(2, "WALKING", 300_000, TrackOrigin.RECORDED.code)
         val imported = track(2, "WALKING", 300_000, TrackOrigin.IMPORTED.code)
@@ -98,24 +97,28 @@ class TrackMergeTest {
     }
 
     @Test fun `auto merge accepts both inclusive boundaries`() {
-        val sequence = autoSequence(gapMs = 4 * MINUTE, distanceM = 300.0)
+        val sequence = autoSequence(gapMs = 4 * MINUTE, distanceM = 800.0)
         assertEquals(1, sequence.size)
         assertEquals(listOf(1L, 2L), sequence.single().tracks.map { it.id })
     }
 
-    @Test fun `auto merge rejects a gap over four minutes or 300 meters`() {
+    @Test fun `auto merge rejects a gap over four minutes or 800 meters`() {
         assertTrue(autoSequence(gapMs = 4 * MINUTE + 1, distanceM = 100.0).isEmpty())
-        assertTrue(autoSequence(gapMs = 4 * MINUTE, distanceM = 300.01).isEmpty())
+        assertTrue(autoSequence(gapMs = 4 * MINUTE, distanceM = 800.01).isEmpty())
     }
 
-    @Test fun `auto merge rejects missing endpoints and mismatched sources`() {
+    @Test fun `auto merge rejects missing endpoints but accepts different sources`() {
         assertTrue(autoSequence(distanceM = 10.0, hasEndpoints = false).isEmpty())
-        assertTrue(autoSequence(distanceM = 10.0, secondSource = TrackOrigin.IMPORTED.code).isEmpty())
+        assertEquals(1, autoSequence(distanceM = 10.0, secondSource = TrackOrigin.MANUAL.code).size)
     }
 
     @Test fun `auto merge accepts stationary and unknown small gaps`() {
         assertEquals(1, autoSequence(gapKind = "STAY", distanceM = 10.0).size)
         assertEquals(1, autoSequence(gapKind = "GAP", distanceM = 10.0).size)
+    }
+
+    @Test fun `auto merge accepts tracks whose activity type was manually confirmed`() {
+        assertEquals(1, autoSequence(distanceM = 10.0, manuallyConfirmed = true).size)
     }
 
     private fun autoSequence(
@@ -124,9 +127,12 @@ class TrackMergeTest {
         hasEndpoints: Boolean = true,
         secondSource: String? = null,
         gapKind: String = "STAY",
+        manuallyConfirmed: Boolean = false,
     ): List<TrackMerge.AutoSequence> {
         val first = track(1, "WALKING", 0, TrackOrigin.RECORDED.code)
+            .copy(activityConfirmedByUser = manuallyConfirmed)
         val second = track(2, "WALKING", 100_000 + gapMs, secondSource ?: TrackOrigin.RECORDED.code)
+            .copy(activityConfirmedByUser = manuallyConfirmed)
         val interval: StayDeriver.Interval = if (gapKind == "STAY") {
             StayDeriver.Stay(100_000, 100_000 + gapMs, afterTrackId = first.id, clusterId = 0)
         } else {

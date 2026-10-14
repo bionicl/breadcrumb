@@ -53,6 +53,7 @@
     <!-- Where in a journey the reader has scrolled to; follows the journey's name on its band. -->
     <string name="timeline_away_day">Day %1$d</string>
     <string name="timeline_share_day">Share %1$s tracks</string>
+    <string name="timeline_repair_day">Repair %1$s routes</string>
     <string name="timeline_scroll_to_day">Scroll to a day</string>
     <string name="timeline_merge">Merge trips</string>
     <string name="timeline_undo_merged">Trips merged</string>
@@ -67,6 +68,9 @@
     <string name="timeline_undo_bogus_visit">Visit marked as incorrect</string>
     <string name="timeline_undo_deleted_visit">Visit deleted</string>
     <string name="timeline_undo_visit_place">Visit place changed</string>
+    <string name="timeline_undo_gap_as_place">Missing recording saved as a place</string>
+    <string name="timeline_gap_save_as_trip">Save as trip</string>
+    <string name="timeline_gap_save_as_place">Save as place</string>
 
     <!--
       Stay rows. The clock time is drawn rather than interpolated — it carries its own colour marks

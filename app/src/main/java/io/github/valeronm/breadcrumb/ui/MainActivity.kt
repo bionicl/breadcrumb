@@ -85,6 +85,8 @@ import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
 import java.time.LocalDate
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
@@ -272,6 +274,7 @@ private fun MainScreen(
     // place yet for a detail to be about.
     var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     var newPlacePick by remember { mutableStateOf<NewPlacePick?>(null) }
+    var pendingGapPlace by remember { mutableStateOf<StayDeriver.Gap?>(null) }
     val placesMapCamera = remember { CameraSlot() }
     // A journey opened from Insights or a Timeline band, keyed by its first night's sample
     // instant — the same key its list row uses, and the only identity a derived journey has.
@@ -323,7 +326,10 @@ private fun MainScreen(
     val newPlaceLayer = rememberOverlayLayer(
         content = newPlacePick,
         over = tabsLayer,
-        dismiss = { newPlacePick = null },
+        dismiss = {
+            newPlacePick = null
+            pendingGapPlace = null
+        },
     )
     // Place detail is reached from the Timeline, the Places list, or a journey's map — stacked on
     // the journey layer so one opened there draws above it and back returns to it. Opened from a
@@ -382,6 +388,7 @@ private fun MainScreen(
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
     val unnamedPlaceDeleted = stringResource(R.string.places_deleted_unnamed)
+    val gapSavedAsPlace = stringResource(R.string.timeline_undo_gap_as_place)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place)
         val message = place.label?.let { placeDeleted.format(it) } ?: unnamedPlaceDeleted
@@ -526,6 +533,31 @@ private fun MainScreen(
                             onOpenPlace = { placeDetailKey = it },
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },
                             onAddTrip = { tripDraft = it },
+                            onSaveGapAsPlace = { item ->
+                                val gap = item.gap
+                                val candidates = listOfNotNull(item.fromPlace?.place, item.toPlace?.place)
+                                    .distinctBy { it.id }
+                                val center = gapCenter(gap)
+                                val existing = candidates.minByOrNull { place ->
+                                    center?.let { AndroidDistance.meters(it.lat, it.lon, place.lat, place.lon) }
+                                        ?: 0.0
+                                }
+                                if (existing != null) {
+                                    viewModel.assignGapToPlace(gap, existing.id) { correctionId ->
+                                        undo.show(gapSavedAsPlace) {
+                                            viewModel.undoVisitCorrection(correctionId, null, null)
+                                        }
+                                    }
+                                } else {
+                                    pendingGapPlace = gap
+                                    newPlacePick = NewPlacePick(center?.let {
+                                        CameraPosition.Builder()
+                                            .target(LatLng(it.lat, it.lon))
+                                            .zoom(16.0)
+                                            .build()
+                                    })
+                                }
+                            },
                             onReplay = { track ->
                                 TrackReplayer.start(context, track.id)
                                 selectedTab = HomeTab.RECORD
@@ -621,10 +653,21 @@ private fun MainScreen(
                 }
                 placeEditLayer.dismiss()
             },
+            onClose = { pendingGapPlace = null },
             // The row's id is the only thing that identifies a just-created place until a derivation
             // has run — by position it can't be followed, a hand-placed pin being exactly what may
             // have moved.
-            onCreated = { id -> placeDetailKey = PlaceResolver.keyOf(id) },
+            onCreated = { id ->
+                placeDetailKey = PlaceResolver.keyOf(id)
+                pendingGapPlace?.let { gap ->
+                    viewModel.assignGapToPlace(gap, id) { correctionId ->
+                        undo.show(gapSavedAsPlace) {
+                            viewModel.undoVisitCorrection(correctionId, null, null)
+                        }
+                    }
+                    pendingGapPlace = null
+                }
+            },
             // Both layers go with it: the editor and the detail underneath are both about a row that
             // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
             onRemove = { place ->
@@ -700,6 +743,15 @@ private fun MainScreen(
             )
         }
     }
+}
+
+private fun gapCenter(gap: StayDeriver.Gap): Coordinate? = when {
+    gap.from != null && gap.to != null -> Coordinate(
+        lat = (gap.from.lat + gap.to.lat) / 2.0,
+        lon = (gap.from.lon + gap.to.lon) / 2.0,
+    )
+    gap.from != null -> gap.from
+    else -> gap.to
 }
 
 @Composable
@@ -903,6 +955,7 @@ private fun PlaceEditOverlay(
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
     snackbarHostState: SnackbarHostState,
+    onClose: () -> Unit,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
     onRemove: (Place) -> Unit,
@@ -934,7 +987,10 @@ private fun PlaceEditOverlay(
                 rivals = neighborhood.rivals,
                 viewModel = viewModel,
                 snackbarHostState = snackbarHostState,
-                onClose = layer.dismiss,
+                onClose = {
+                    onClose()
+                    layer.dismiss()
+                },
                 onSaved = onSaved,
                 onCreated = onCreated,
                 onRemove = onRemove,

@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
+import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -94,6 +95,45 @@ class DerivedReadModelTest {
         assertEquals("the pairs are what a fresh pass gives", fresh().intervals, read.intervals.dropLast(1))
         assertEquals(derived.intervalsOnce().size + 1, read.intervals.size)
         assertNull("the trailing stay is open", read.intervals.last().end)
+    }
+
+    @Test fun `a gap assigned to a place reads back as a stay and undo restores the gap`() = runTest {
+        val placeId = places.create(test.place("Home", 1.0, -2.0))
+        test.walk(TEST_START, 0, 5)
+        test.walk(TEST_START + 2 * 60 * 60_000L, 0, 5, lonOffset = 0.01)
+        store.rebuild()
+
+        val gap = read().intervals.filterIsInstance<StayDeriver.Gap>().single()
+        val correctionId = "gap-place-correction"
+        db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = correctionId,
+                operationId = correctionId,
+                targetSegmentId = "derived-visit:${gap.afterTrackId}",
+                kind = "ASSIGN_VISIT_PLACE",
+                createdAtWallTimeMs = now,
+                correctedPlaceId = placeId,
+                visitStartWallTimeMs = gap.start,
+                visitEndWallTimeMs = gap.end,
+            ),
+        )
+
+        val assignedDerivation = read()
+        val assigned = assignedDerivation.intervals.first { it.afterTrackId == gap.afterTrackId }
+        assertTrue(assigned is StayDeriver.Stay)
+        assertEquals(0, assignedDerivation.clusters[(assigned as StayDeriver.Stay).clusterId].seedIndex)
+
+        db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = "undo-$correctionId",
+                operationId = "undo-$correctionId",
+                targetSegmentId = "derived-visit:${gap.afterTrackId}",
+                kind = "UNDO",
+                createdAtWallTimeMs = now + 1,
+                referenceCorrectionId = correctionId,
+            ),
+        )
+        assertTrue(read().intervals.any { it is StayDeriver.Gap && it.afterTrackId == gap.afterTrackId })
     }
 
     @Test fun `a recording track closes the trailing stay where it began`() = runTest {

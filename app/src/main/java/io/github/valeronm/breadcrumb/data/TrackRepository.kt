@@ -30,6 +30,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.locomotion.BoundaryKind
@@ -1002,7 +1003,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             return@withTransaction null
         }
         val paths = pathParts.map { draft -> closedTrack(checkNotNull(draft.sourceTrackId)) ?: return@withTransaction null }
-        if (paths.any { it.discardedAt != null || it.activityType != paths.first().activityType || it.source != paths.first().source }) {
+        if (paths.any { it.discardedAt != null || it.activityType != paths.first().activityType }) {
             return@withTransaction null
         }
         val activity = ActivityType.ofName(paths.first().activityType) ?: return@withTransaction null
@@ -1023,7 +1024,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val endLon = before.endLon ?: return@withTransaction null
             val startLat = after.startLat ?: return@withTransaction null
             val startLon = after.startLon ?: return@withTransaction null
-            if (AndroidDistance.meters(endLat, endLon, startLat, startLon) > 300.0) return@withTransaction null
+            if (AndroidDistance.meters(endLat, endLon, startLat, startLon) > TrackMerge.AUTO_MAX_ENDPOINT_DISTANCE_M) return@withTransaction null
         }
         val first = paths.first()
         val last = paths.last()
