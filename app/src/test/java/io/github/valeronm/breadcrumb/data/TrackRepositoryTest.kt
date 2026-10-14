@@ -226,6 +226,10 @@ class TrackRepositoryTest {
 
         val merged = dao.track(mergedId)!!
         assertEquals(8, merged.pointCount)
+        assertFalse(
+            "the join draws a connector from the last earlier fix to the first later fix",
+            dao.allPointsFor(mergedId).first { it.timestamp >= TEST_START + 40_000 }.segmentStart,
+        )
         // Recomputed over the whole merged path, the leg across the join included — a sum of the
         // two originals' distances would leave that out.
         test.assertStatsMatchPoints(mergedId)
@@ -665,6 +669,19 @@ class TrackRepositoryTest {
 
         assertEquals(listOf("PATH", "UNKNOWN", "PATH"),
             repository.compositionTreePartsFor(mergedId).map { it.kind })
+        assertFalse(
+            "the unknown bridge connects the two known path endpoints visually",
+            dao.allPointsFor(mergedId).first { it.timestamp >= secondRow.startedAt }.segmentStart,
+        )
+        val oldJoinPoint = dao.allPointsFor(mergedId).first { it.timestamp >= secondRow.startedAt }
+        test.db.openHelper.writableDatabase.execSQL(
+            "UPDATE track_points SET segmentStart = 1 WHERE id = ?",
+            arrayOf(oldJoinPoint.id),
+        )
+        assertFalse(
+            "older saved compositions also draw a connector at their path joins",
+            repository.pointsFor(mergedId).first { it.timestamp >= secondRow.startedAt }.segmentStart,
+        )
         assertEquals(DiscardReason.MERGED.code, dao.track(first)!!.discardReason)
         assertEquals(DiscardReason.MERGED.code, dao.track(second)!!.discardReason)
         assertTrue(repository.splitComposition(mergedId))

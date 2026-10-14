@@ -1498,8 +1498,8 @@ private fun GapRow(
     onSaveAsPlace: (TimelineItem.GapItem) -> Unit,
 ) {
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
-    // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
-    // absences and aren't swipeable.
+    // does — the merged route connects the known endpoints with a straight line. Longer gaps are
+    // real absences and aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
         GapCard(item, shape, zone, onOpenPlace, onAddTrip, onSaveAsPlace)
     }

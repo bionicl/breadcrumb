@@ -790,7 +790,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     /**
      * Close the short stay between [earlierId] and [laterId]: a NEW track spans both (points copied
-     * in order, a segment break marking the join) and the originals move to discarded — reviewable
+     * in order, with the known endpoints connected across the seam, and the originals move to discarded — reviewable
      * and restorable from Settings → Recently deleted until the retention purge, not destroyed. The
      * derived stay disappears because the discarded originals leave the timeline. Returns the merged
      * track's id (null if either original is gone), which [unmergeTracks] needs to undo it.
@@ -882,7 +882,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             }
             dao.copyPointsInto(mergedId, earlierId)
             dao.copyPointsInto(mergedId, laterId)
-            dao.firstPointAtOrAfter(mergedId, later.startedAt)?.let { dao.markSegmentStart(it) }
             // The originals' flags come along with their points, and the run through the rule below
             // settles them: the outer edges are re-derived, and the earlier track's overrun — now
             // buried mid-track, where no edge rule reaches it — is handed back to the path, which
@@ -1071,9 +1070,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 )
             },
         )
-        for ((index, path) in paths.withIndex()) {
+        for (path in paths) {
             dao.copyPointsInto(mergedId, path.id)
-            if (index > 0) dao.firstPointAtOrAfter(mergedId, path.startedAt)?.let { dao.markSegmentStart(it) }
             dao.setDiscarded(path.id, System.currentTimeMillis(), DiscardReason.MERGED.code)
         }
         val merged = dao.track(mergedId)!!
@@ -1531,11 +1529,29 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     /**
      * A track's path: the good fixes, with any segment break stranded on an ignored one carried
-     * onto the fix that resumes ([SegmentBreaks]). Loads every row to find those breaks, which the
-     * good-only query can't see — a per-track read, not the recorder's hot path.
+     * onto the fix that resumes ([SegmentBreaks]). For compositions, remove the break inserted by
+     * older builds at each joined path boundary: the known endpoint fixes should be connected by a
+     * straight line, without synthesizing GPS samples. Other breaks within an original path remain.
+     * Loads every row to find breaks, which the good-only query can't see — a per-track read, not
+     * the recorder's hot path.
      */
-    suspend fun pointsFor(trackId: Long): List<TrackPoint> =
-        SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
+    suspend fun pointsFor(trackId: Long): List<TrackPoint> {
+        val points = SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
+        if (points.isEmpty() || dao.compositionFor(trackId) == null) return points
+        val joinedPathStarts = compositionTreePartsFor(trackId)
+            .asSequence()
+            .filterIndexed { index, part -> index > 0 && part.kind == "PATH" }
+            .map { it.startedAt }
+            .toList()
+        if (joinedPathStarts.isEmpty()) return points
+        val joinedPointIndexes = joinedPathStarts.mapNotNull { start ->
+            points.indexOfFirst { it.timestamp >= start }.takeIf { it >= 0 }
+        }.toSet()
+        if (joinedPointIndexes.isEmpty()) return points
+        return points.mapIndexed { index, point ->
+            if (index in joinedPointIndexes && point.segmentStart) point.copy(segmentStart = false) else point
+        }
+    }
 
     /**
      * Every fix of several tracks, keyed by track — the backup export's read. Keyed rather than

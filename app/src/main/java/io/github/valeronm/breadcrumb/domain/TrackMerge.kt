@@ -7,9 +7,9 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver.TrackEnd
  * Decides whether the interval between two tracks can be closed by merging them — the fix for a
  * continuous outing that got split (e.g. a walk broken by a run misdetection whose track was
  * discarded, leaving a 1-min stay between two walk tracks). Stays (endpoints agree) and gaps (they
- * don't — the recorder missed the leg) both qualify; either way the merge marks a segment break at
- * the seam, so the missed leg draws as nothing and counts as no distance. Pure; the UI offers the
- * merge on a swipe and the repository performs it.
+ * don't — the recorder missed the leg) both qualify. The merged route draws a straight connector
+ * between the known endpoint fixes without inventing GPS samples. Pure; the UI offers the merge on
+ * a swipe and the repository performs it.
  */
 object TrackMerge {
 

@@ -193,13 +193,6 @@ interface TrackDao {
     @Query("UPDATE track_points SET trackId = :newId WHERE trackId = :srcId AND timestamp >= :fromTs")
     suspend fun movePointsFrom(newId: Long, srcId: Long, fromTs: Long)
 
-    /** The merged track's first point at/after [timestamp] — marked as the segment break at the join. */
-    @Query("SELECT id FROM track_points WHERE trackId = :trackId AND timestamp >= :timestamp ORDER BY timestamp ASC, id ASC LIMIT 1")
-    suspend fun firstPointAtOrAfter(trackId: Long, timestamp: Long): Long?
-
-    @Query("UPDATE track_points SET segmentStart = 1 WHERE id = :pointId")
-    suspend fun markSegmentStart(pointId: Long)
-
     @Query("UPDATE tracks SET discardedAt = :discardedAt, discardReason = :reason WHERE id = :trackId")
     suspend fun setDiscarded(trackId: Long, discardedAt: Long, reason: String)
 
