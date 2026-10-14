@@ -45,6 +45,18 @@
     <string name="timeline_away_day">Dia %1$d</string>
     <string name="timeline_share_day">Partilhar os trajetos de %1$s</string>
     <string name="timeline_repair_day">Reparar os trajetos de %1$s</string>
+    <string name="timeline_repair_no_candidates">Não há trajetos próximos do mesmo tipo para unir neste dia.</string>
+    <string name="timeline_repair_failed">Foram encontrados %1$d grupos de trajetos, mas não foi possível guardar a união: %2$s.</string>
+    <string name="timeline_repair_reason_stale">um dos trajetos já foi alterado</string>
+    <string name="timeline_repair_reason_activity">os tipos de trajeto já não coincidem</string>
+    <string name="timeline_repair_reason_interval">o intervalo de tempo já não coincide</string>
+    <string name="timeline_repair_reason_endpoint">falta a localização final de um trajeto</string>
+    <string name="timeline_repair_reason_distance">os trajetos estão demasiado afastados</string>
+    <string name="timeline_repair_reason_unknown">os dados dos trajetos falharam a validação</string>
+    <plurals name="timeline_repair_merged">
+        <item quantity="one">%1$d grupo de trajetos unido.</item>
+        <item quantity="other">%1$d grupos de trajetos unidos.</item>
+    </plurals>
     <string name="timeline_scroll_to_day">Ir para um dia</string>
     <string name="timeline_merge">Juntar viagens</string>
     <string name="timeline_undo_merged">Viagens juntadas</string>

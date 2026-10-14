@@ -54,6 +54,18 @@
     <string name="timeline_away_day">Day %1$d</string>
     <string name="timeline_share_day">Share %1$s tracks</string>
     <string name="timeline_repair_day">Repair %1$s routes</string>
+    <string name="timeline_repair_no_candidates">No nearby same-type routes can be merged on this day.</string>
+    <string name="timeline_repair_failed">Found %1$d route group(s), but could not save the merge: %2$s.</string>
+    <string name="timeline_repair_reason_stale">one of the trips has already changed</string>
+    <string name="timeline_repair_reason_activity">the trip types no longer match</string>
+    <string name="timeline_repair_reason_interval">the time gap no longer matches</string>
+    <string name="timeline_repair_reason_endpoint">a trip is missing its endpoint location</string>
+    <string name="timeline_repair_reason_distance">the trips are farther apart than allowed</string>
+    <string name="timeline_repair_reason_unknown">the trip data failed validation</string>
+    <plurals name="timeline_repair_merged">
+        <item quantity="one">Merged %1$d route group.</item>
+        <item quantity="other">Merged %1$d route groups.</item>
+    </plurals>
     <string name="timeline_scroll_to_day">Scroll to a day</string>
     <string name="timeline_merge">Merge trips</string>
     <string name="timeline_undo_merged">Trips merged</string>

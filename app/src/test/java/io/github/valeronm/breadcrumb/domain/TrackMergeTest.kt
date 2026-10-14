@@ -102,6 +102,12 @@ class TrackMergeTest {
         assertEquals(listOf(1L, 2L), sequence.single().tracks.map { it.id })
     }
 
+    @Test fun `auto merge judges and stores the gap from exact track boundaries`() {
+        // Visit derivation can adjust stay bounds; the immutable trip endpoints define the seam.
+        assertEquals(1, autoSequence(gapMs = 4 * MINUTE, distanceM = 10.0, intervalOffsetMs = 1).size)
+        assertTrue(autoSequence(gapMs = 4 * MINUTE + 1, distanceM = 10.0, intervalOffsetMs = -1).isEmpty())
+    }
+
     @Test fun `auto merge rejects a gap over four minutes or 800 meters`() {
         assertTrue(autoSequence(gapMs = 4 * MINUTE + 1, distanceM = 100.0).isEmpty())
         assertTrue(autoSequence(gapMs = 4 * MINUTE, distanceM = 800.01).isEmpty())
@@ -128,15 +134,16 @@ class TrackMergeTest {
         secondSource: String? = null,
         gapKind: String = "STAY",
         manuallyConfirmed: Boolean = false,
+        intervalOffsetMs: Long = 0,
     ): List<TrackMerge.AutoSequence> {
         val first = track(1, "WALKING", 0, TrackOrigin.RECORDED.code)
-            .copy(activityConfirmedByUser = manuallyConfirmed)
+            .copy(endedAt = 100_000, activityConfirmedByUser = manuallyConfirmed)
         val second = track(2, "WALKING", 100_000 + gapMs, secondSource ?: TrackOrigin.RECORDED.code)
             .copy(activityConfirmedByUser = manuallyConfirmed)
         val interval: StayDeriver.Interval = if (gapKind == "STAY") {
-            StayDeriver.Stay(100_000, 100_000 + gapMs, afterTrackId = first.id, clusterId = 0)
+            StayDeriver.Stay(100_000 + intervalOffsetMs, 100_000 + gapMs + intervalOffsetMs, afterTrackId = first.id, clusterId = 0)
         } else {
-            StayDeriver.Gap(100_000, 100_000 + gapMs, StayDeriver.GapReason.MOVED_UNRECORDED,
+            StayDeriver.Gap(100_000 + intervalOffsetMs, 100_000 + gapMs + intervalOffsetMs, StayDeriver.GapReason.MOVED_UNRECORDED,
                 afterTrackId = first.id)
         }
         val p1 = Coordinate(52.0, 21.0)

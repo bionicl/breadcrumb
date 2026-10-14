@@ -90,17 +90,29 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val visitCorrections: Flow<List<EngineUserCorrectionEntity>> = repository.observeVisitCorrections()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
-    private data class DayRepairRequest(val trackIds: Set<Long>, val revision: Long)
+    data class DayRepairResult(
+        val candidateCount: Int,
+        val mergedCount: Int,
+        val rejectionReason: String? = null,
+    )
+    private data class DayRepairRequest(
+        val trackIds: Set<Long>,
+        val revision: Long,
+        val onComplete: ((DayRepairResult) -> Unit)?,
+    )
     private val dayRepairRequest = MutableStateFlow<DayRepairRequest?>(null)
     private var dayRepairRevision = 0L
     /** Read and written only by the resolved timeline flow's collector. */
     private var processedDayRepairRevision = 0L
 
     /** Re-run the automatic small-gap composition rules for paths shown on one timeline day. */
-    fun repairDay(trackIds: List<Long>) {
+    fun repairDay(trackIds: List<Long>, onComplete: ((DayRepairResult) -> Unit)? = null) {
         val ids = trackIds.toSet()
-        if (ids.isEmpty()) return
-        dayRepairRequest.value = DayRepairRequest(ids, ++dayRepairRevision)
+        if (ids.isEmpty()) {
+            onComplete?.invoke(DayRepairResult(0, 0))
+            return
+        }
+        dayRepairRequest.value = DayRepairRequest(ids, ++dayRepairRevision, onComplete)
     }
 
     val tracks: StateFlow<List<TrackSummary>> = trackRows
@@ -315,20 +327,24 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val sequencesToMerge = pendingRepair?.let { request ->
             autoSequences.filter { sequence -> sequence.tracks.any { it.id in request.trackIds } }
         } ?: autoSequences
+        var mergedSequenceCount = 0
+        var firstRejectionReason: String? = null
         for (sequence in sequencesToMerge) {
             val parts = buildList {
                 sequence.tracks.forEachIndexed { index, track ->
+                    val pathEnd = track.endedAt ?: return@forEachIndexed
                     add(
                         TrackCompositionPartDraft(
                             kind = "PATH",
                             sourceTrackId = track.id,
                             activityType = track.activityType,
                             startedAt = track.startedAt,
-                            endedAt = track.endedAt ?: return@forEachIndexed,
+                            endedAt = pathEnd,
                         ),
                     )
                     val interval = sequence.intervals.getOrNull(index) ?: return@forEachIndexed
-                    val end = interval.end ?: return@forEachIndexed
+                    val nextTrack = sequence.tracks.getOrNull(index + 1) ?: return@forEachIndexed
+                    val gapStart = pathEnd
                     val correctionId = activeVisitCorrections["derived-visit:${interval.afterTrackId}"]
                         ?.takeIf { it.kind == "DELETE_VISIT" }
                         ?.id
@@ -336,8 +352,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                         TrackCompositionPartDraft(
                             kind = if (interval is StayDeriver.Stay) "STATIONARY" else "UNKNOWN",
                             activityType = if (interval is StayDeriver.Stay) ActivityType.STILL.name else ActivityType.UNKNOWN.name,
-                            startedAt = interval.start,
-                            endedAt = end,
+                            // Persist the exact track seam. Derived stay bounds can be adjusted by
+                            // visit clustering and do not necessarily equal the immutable track
+                            // endpoint timestamps checked again inside the repository transaction.
+                            startedAt = gapStart,
+                            endedAt = nextTrack.startedAt,
                             beforeTrackId = track.id,
                             afterTrackId = sequence.tracks[index + 1].id,
                             visitCorrectionId = correctionId,
@@ -346,10 +365,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             if (parts.size != sequence.tracks.size * 2 - 1) continue
-            if (repository.mergeTrackSequence(parts) == null) continue
+            if (repository.mergeTrackSequence(parts) { reason ->
+                    if (firstRejectionReason == null) firstRejectionReason = reason
+                } == null
+            ) continue
             autoMergedTrackIds += sequence.tracks.map { it.id }
+            mergedSequenceCount++
         }
-        pendingRepair?.let { processedDayRepairRevision = it.revision }
+        pendingRepair?.let { request ->
+            processedDayRepairRevision = request.revision
+            request.onComplete?.let { callback ->
+                viewModelScope.launch {
+                    callback(DayRepairResult(sequencesToMerge.size, mergedSequenceCount, firstRejectionReason))
+                }
+            }
+        }
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
         val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }

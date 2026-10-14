@@ -104,13 +104,14 @@ object TrackMerge {
             val before = chronological[index]
             val after = chronological[index + 1]
             val interval = intervalByAnchor[before.id]
-            val intervalEnd = interval?.end
+            val beforeEndedAt = before.endedAt
+            val actualGapDuration = beforeEndedAt?.let { after.startedAt - it }
             val beforeEnd = endpoints[before.id]?.end
             val afterStart = endpoints[after.id]?.start
             val eligible = interval != null && before.id !in assignedVisitAnchors &&
                 sameRecordedActivity(before, after) &&
-                intervalEnd != null && intervalEnd >= interval.start &&
-                intervalEnd - interval.start <= AUTO_MAX_INTERVAL_MS &&
+                actualGapDuration != null && actualGapDuration >= 0 &&
+                actualGapDuration <= AUTO_MAX_INTERVAL_MS &&
                 beforeEnd != null && afterStart != null &&
                 distance.meters(beforeEnd.lat, beforeEnd.lon, afterStart.lat, afterStart.lon) <= AUTO_MAX_ENDPOINT_DISTANCE_M
 

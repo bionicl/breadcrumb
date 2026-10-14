@@ -993,38 +993,48 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * Inputs that are themselves composed tracks remain intact as soft-deleted children; nothing is
      * hard-deleted by this operation.
      */
-    suspend fun mergeTrackSequence(parts: List<TrackCompositionPartDraft>): Long? = db.withTransaction {
+    suspend fun mergeTrackSequence(
+        parts: List<TrackCompositionPartDraft>,
+        onRejected: ((String) -> Unit)? = null,
+    ): Long? = db.withTransaction {
+        fun reject(reason: String): Long? {
+            onRejected?.invoke(reason)
+            return null
+        }
         if (parts.size < 3 || parts.size % 2 == 0 || parts.first().kind != "PATH" || parts.last().kind != "PATH") {
-            return@withTransaction null
+            return@withTransaction reject("invalid_parts")
         }
         val pathParts = parts.filterIndexed { index, _ -> index % 2 == 0 }
         val gapParts = parts.filterIndexed { index, _ -> index % 2 == 1 }
         if (pathParts.any { it.sourceTrackId == null } || gapParts.any { it.kind !in setOf("STATIONARY", "UNKNOWN") }) {
-            return@withTransaction null
+            return@withTransaction reject("missing_path")
         }
-        val paths = pathParts.map { draft -> closedTrack(checkNotNull(draft.sourceTrackId)) ?: return@withTransaction null }
-        if (paths.any { it.discardedAt != null || it.activityType != paths.first().activityType }) {
-            return@withTransaction null
+        val paths = pathParts.map { draft ->
+            closedTrack(checkNotNull(draft.sourceTrackId)) ?: return@withTransaction reject("path_unavailable")
         }
-        val activity = ActivityType.ofName(paths.first().activityType) ?: return@withTransaction null
+        if (paths.any { it.discardedAt != null }) return@withTransaction reject("path_already_discarded")
+        if (paths.any { it.activityType != paths.first().activityType }) return@withTransaction reject("activity_type_mismatch")
+        val activity = ActivityType.ofName(paths.first().activityType) ?: return@withTransaction reject("unsupported_activity")
         if (!activity.recording || activity.trackGroup == io.github.valeronm.breadcrumb.domain.TrackGroup.UNKNOWN) {
-            return@withTransaction null
+            return@withTransaction reject("unsupported_activity")
         }
         for (index in gapParts.indices) {
             val before = paths[index]
             val after = paths[index + 1]
             val gap = gapParts[index]
-            val beforeEndedAt = before.endedAt ?: return@withTransaction null
+            val beforeEndedAt = before.endedAt ?: return@withTransaction reject("path_unavailable")
             val afterStartedAt = after.startedAt
             if (gap.beforeTrackId != before.id || gap.afterTrackId != after.id ||
                 gap.startedAt != beforeEndedAt || gap.endedAt != afterStartedAt ||
                 afterStartedAt < beforeEndedAt || afterStartedAt - beforeEndedAt > 4 * 60_000L
-            ) return@withTransaction null
-            val endLat = before.endLat ?: return@withTransaction null
-            val endLon = before.endLon ?: return@withTransaction null
-            val startLat = after.startLat ?: return@withTransaction null
-            val startLon = after.startLon ?: return@withTransaction null
-            if (AndroidDistance.meters(endLat, endLon, startLat, startLon) > TrackMerge.AUTO_MAX_ENDPOINT_DISTANCE_M) return@withTransaction null
+            ) return@withTransaction reject("interval_mismatch")
+            val endLat = before.endLat ?: return@withTransaction reject("missing_endpoint")
+            val endLon = before.endLon ?: return@withTransaction reject("missing_endpoint")
+            val startLat = after.startLat ?: return@withTransaction reject("missing_endpoint")
+            val startLon = after.startLon ?: return@withTransaction reject("missing_endpoint")
+            if (AndroidDistance.meters(endLat, endLon, startLat, startLon) > TrackMerge.AUTO_MAX_ENDPOINT_DISTANCE_M) {
+                return@withTransaction reject("distance_limit")
+            }
         }
         val first = paths.first()
         val last = paths.last()
