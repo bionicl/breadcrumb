@@ -51,6 +51,16 @@
     <string name="timeline_merge">Объединить поездки</string>
     <string name="timeline_undo_merged">Поездки объединены</string>
     <string name="timeline_undo_deleted">Поездка удалена</string>
+    <string name="timeline_visit_actions">Действия с посещением</string>
+    <string name="timeline_mark_visit_bogus">Отметить неверное место</string>
+    <string name="timeline_delete_visit">Удалить посещение</string>
+    <string name="timeline_change_visit_place">Изменить место</string>
+    <string name="timeline_choose_visit_place">Выберите сохранённое место</string>
+    <string name="timeline_search_places">Поиск мест</string>
+    <string name="timeline_no_places_found">Сохранённые места не найдены</string>
+    <string name="timeline_undo_bogus_visit">Посещение отмечено как неверное</string>
+    <string name="timeline_undo_deleted_visit">Посещение удалено</string>
+    <string name="timeline_undo_visit_place">Место посещения изменено</string>
 
     <string name="timeline_all_day">Весь день</string>
     <string name="timeline_stay_since">%1$s – сейчас</string>

@@ -72,11 +72,36 @@ class TimelineCorrectionProcessorTest {
         assertEquals("delete", result.deletedByCorrectionId)
     }
 
+    @Test fun `bogus visit hides only its stable visit and undo restores it`() {
+        val bogus = UserCorrection.MarkVisitBogus("bogus", 30, "derived-visit:10")
+        val hidden = TimelineCorrectionProcessor.apply(segment("derived-visit:10"), listOf(bogus))
+        val other = TimelineCorrectionProcessor.apply(segment("derived-visit:11"), listOf(bogus))
+        val restored = TimelineCorrectionProcessor.apply(
+            segment("derived-visit:10"),
+            listOf(bogus, UserCorrection.Undo("undo", 40, "derived-visit:10", "bogus")),
+        )
+
+        assertNull(hidden.segment)
+        assertEquals(segment("derived-visit:11"), other.segment)
+        assertEquals(segment("derived-visit:10"), restored.segment)
+    }
+
+    @Test fun `assigned visit place stays explicit and wins replay`() {
+        val assigned = UserCorrection.AssignVisitPlace("place", 30, "derived-visit:10", 42)
+        val result = TimelineCorrectionProcessor.apply(
+            segment("derived-visit:10", TransportMode.CAR), listOf(assigned),
+        )
+
+        assertEquals(SegmentKind.VISIT, result.segment?.kind)
+        assertEquals(42L, result.segment?.confirmedPlaceId)
+        assertNull(result.segment?.transportMode)
+    }
+
     private fun correctionTransport(id: String, mode: TransportMode) =
         UserCorrection.ConfirmTransport(id, 20, "segment", mode)
 
-    private fun segment(mode: TransportMode? = null) = TimelineSegment(
-        id = "segment",
+    private fun segment(id: String = "segment", mode: TransportMode? = null) = TimelineSegment(
+        id = id,
         kind = SegmentKind.MOVEMENT,
         startWallTimeMs = 10,
         endWallTimeMs = 100,

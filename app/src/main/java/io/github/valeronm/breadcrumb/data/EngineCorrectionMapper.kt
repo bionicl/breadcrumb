@@ -22,6 +22,11 @@ internal fun EngineUserCorrectionEntity.toEngineCorrection(): UserCorrection? {
             UserCorrection.LockBoundary(id, createdAtWallTimeMs, target, boundary, at)
         }
         "DELETE_SEGMENT" -> UserCorrection.DeleteSegment(id, createdAtWallTimeMs, target)
+        "MARK_VISIT_BOGUS" -> UserCorrection.MarkVisitBogus(id, createdAtWallTimeMs, target)
+        "DELETE_VISIT" -> UserCorrection.DeleteVisit(id, createdAtWallTimeMs, target)
+        "ASSIGN_VISIT_PLACE" -> UserCorrection.AssignVisitPlace(
+            id, createdAtWallTimeMs, target, correctedPlaceId ?: return null,
+        )
         "UNDO" -> {
             val reference = referenceCorrectionId?.takeIf(String::isNotBlank) ?: return null
             UserCorrection.Undo(id, createdAtWallTimeMs, target, reference)
@@ -31,3 +36,5 @@ internal fun EngineUserCorrectionEntity.toEngineCorrection(): UserCorrection? {
 }
 
 internal fun engineTrackSegmentId(trackId: Long): String = "legacy-track:$trackId"
+
+internal fun engineVisitSegmentId(afterTrackId: Long): String = "derived-visit:$afterTrackId"

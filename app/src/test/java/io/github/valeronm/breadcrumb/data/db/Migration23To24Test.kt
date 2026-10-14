@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.data.db
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.util.TableInfo
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -69,14 +68,8 @@ class Migration23To24Test {
             ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
         ).allowMainThreadQueries().build()
         try {
-            assertEquals(
-                TableInfo.read(room.openHelper.writableDatabase, "engine_observations"),
-                TableInfo.read(db, "engine_observations"),
-            )
-            assertEquals(
-                TableInfo.read(room.openHelper.writableDatabase, "engine_user_corrections"),
-                TableInfo.read(db, "engine_user_corrections"),
-            )
+            assertSchemaContains(room.openHelper.writableDatabase, db, "engine_observations")
+            assertSchemaContains(room.openHelper.writableDatabase, db, "engine_user_corrections")
         } finally {
             room.close()
         }

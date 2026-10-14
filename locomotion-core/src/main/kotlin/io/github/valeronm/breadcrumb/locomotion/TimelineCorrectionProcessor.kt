@@ -41,10 +41,16 @@ object TimelineCorrectionProcessor {
                         lockedByUser = true,
                     )
                 }
-                is UserCorrection.DeleteSegment -> {
+                is UserCorrection.DeleteSegment, is UserCorrection.MarkVisitBogus, is UserCorrection.DeleteVisit -> {
                     deletedBy = correction.id
                     null
                 }
+                is UserCorrection.AssignVisitPlace -> value.copy(
+                    kind = SegmentKind.VISIT,
+                    transportMode = null,
+                    confirmedTransportMode = null,
+                    confirmedPlaceId = correction.placeId,
+                )
                 is UserCorrection.Undo -> value
             }
             appliedIds += correction.id

@@ -99,6 +99,7 @@ data class TimelineSegment(
     val endWallTimeMs: Long?,
     val transportMode: TransportMode? = null,
     val confirmedTransportMode: TransportMode? = null,
+    val confirmedPlaceId: Long? = null,
     val startBoundary: BoundaryOrigin = BoundaryOrigin.INFERRED,
     val endBoundary: BoundaryOrigin = BoundaryOrigin.INFERRED,
     val lockedByUser: Boolean = false,
@@ -139,6 +140,25 @@ sealed interface UserCorrection {
         override val id: String,
         override val createdAtWallTimeMs: Long,
         override val targetSegmentId: String,
+    ) : UserCorrection
+
+    data class MarkVisitBogus(
+        override val id: String,
+        override val createdAtWallTimeMs: Long,
+        override val targetSegmentId: String,
+    ) : UserCorrection
+
+    data class DeleteVisit(
+        override val id: String,
+        override val createdAtWallTimeMs: Long,
+        override val targetSegmentId: String,
+    ) : UserCorrection
+
+    data class AssignVisitPlace(
+        override val id: String,
+        override val createdAtWallTimeMs: Long,
+        override val targetSegmentId: String,
+        val placeId: Long,
     ) : UserCorrection
 
     data class Undo(

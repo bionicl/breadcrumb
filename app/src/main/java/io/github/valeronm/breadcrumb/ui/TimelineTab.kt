@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -34,14 +36,19 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Luggage
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -78,8 +85,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.SweepStatus
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -170,6 +179,7 @@ internal fun TimelineTab(
     val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val googleImportProgress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val recording by viewModel.recordingRow.collectAsStateWithLifecycle()
+    val savedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
     // In priority order: a restore or import outranks everything, since that screen reports its
     // progress for the whole run; then "not derived yet"; then a history that really is empty.
     // Gated above the switch rather than per view: both views would show the same blank.
@@ -284,6 +294,7 @@ internal fun TimelineTab(
                 TimelineListPage(
                     items = items,
                     recording = recording,
+                    savedPlaces = savedPlaces,
                     viewModel = viewModel,
                     undo = undo,
                     // One slot, two senders: a request from another screen outranks the map's
@@ -323,6 +334,7 @@ internal fun TimelineTab(
 private fun TimelineListPage(
     items: List<TimelineItem>,
     recording: TimelineItem.RecordingItem?,
+    savedPlaces: List<Place>,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
     jump: TimelineJump?,
@@ -451,6 +463,9 @@ private fun TimelineListPage(
     // the composition.
     val mergedMessage = stringResource(R.string.timeline_undo_merged)
     val deletedMessage = stringResource(R.string.timeline_undo_deleted)
+    val bogusVisitMessage = stringResource(R.string.timeline_undo_bogus_visit)
+    val deletedVisitMessage = stringResource(R.string.timeline_undo_deleted_visit)
+    val assignedPlaceMessage = stringResource(R.string.timeline_undo_visit_place)
     val onMerge = { plan: TrackMerge.Plan ->
         viewModel.mergeTracks(plan) { mergedId ->
             undo.show(mergedMessage) { viewModel.unmergeTracks(mergedId, plan) }
@@ -526,6 +541,19 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 highlighted = item.rowKey() == highlightKey,
                                 onMerge = onMerge,
+                                savedPlaces = savedPlaces,
+                                onCorrection = { kind, placeId ->
+                                    viewModel.correctVisit(item.stay, kind, placeId, item.merge) { correctionId, mergedId ->
+                                        val message = when (kind) {
+                                            "MARK_VISIT_BOGUS" -> bogusVisitMessage
+                                            "DELETE_VISIT" -> deletedVisitMessage
+                                            else -> assignedPlaceMessage
+                                        }
+                                        undo.show(message) {
+                                            viewModel.undoVisitCorrection(correctionId, mergedId, item.merge)
+                                        }
+                                    }
+                                },
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
@@ -1172,14 +1200,98 @@ private fun StayRow(
     zone: ZoneId,
     highlighted: Boolean,
     onMerge: (TrackMerge.Plan) -> Unit,
+    savedPlaces: List<Place>,
+    onCorrection: (String, Long?) -> Unit,
     onClick: () -> Unit,
 ) {
     val place = item.place
     val named = place?.isNamed == true
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
+    var menuExpanded by remember { mutableStateOf(false) }
+    var placePickerOpen by remember { mutableStateOf(false) }
+    var placeSearch by rememberSaveable { mutableStateOf("") }
     MergeSwipeable(item.merge, shape, onMerge) {
-        StayCard(item, shape, named, highlighted, zone, onClick)
+        StayCard(item, shape, named, highlighted, zone, onClick) {
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.timeline_visit_actions))
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.timeline_mark_visit_bogus)) },
+                        onClick = {
+                            menuExpanded = false
+                            onCorrection("MARK_VISIT_BOGUS", null)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.timeline_delete_visit)) },
+                        onClick = {
+                            menuExpanded = false
+                            onCorrection("DELETE_VISIT", null)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.timeline_change_visit_place)) },
+                        onClick = {
+                            menuExpanded = false
+                            placePickerOpen = true
+                        },
+                    )
+                }
+            }
+        }
+    }
+    if (placePickerOpen) {
+        val origin = place?.centroid
+        val nearby = remember(savedPlaces, place?.key, placeSearch) {
+            val available = savedPlaces.filter { saved ->
+                placeSearch.isBlank() ||
+                    saved.label.orEmpty().contains(placeSearch, ignoreCase = true) ||
+                    "${saved.id}".contains(placeSearch)
+            }
+            if (origin == null) {
+                available.sortedBy { it.label.orEmpty().lowercase() }
+            } else {
+                available.sortedBy { AndroidDistance.meters(origin.lat, origin.lon, it.lat, it.lon) }
+            }
+        }
+        AlertDialog(
+            onDismissRequest = {
+                placePickerOpen = false
+                placeSearch = ""
+            },
+            title = { Text(stringResource(R.string.timeline_choose_visit_place)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = placeSearch,
+                        onValueChange = { placeSearch = it },
+                        label = { Text(stringResource(R.string.timeline_search_places)) },
+                        singleLine = true,
+                    )
+                    Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                        nearby.forEach { candidate ->
+                            TextButton(onClick = {
+                                placePickerOpen = false
+                                placeSearch = ""
+                                onCorrection("ASSIGN_VISIT_PLACE", candidate.id)
+                            }) {
+                                Text(candidate.label?.takeIf(String::isNotBlank) ?: "${stringResource(R.string.place_stay)} #${candidate.id}")
+                            }
+                        }
+                        if (nearby.isEmpty()) Text(stringResource(R.string.timeline_no_places_found))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    placePickerOpen = false
+                    placeSearch = ""
+                }) { Text(stringResource(R.string.common_cancel)) }
+            },
+        )
     }
 }
 
@@ -1217,6 +1329,7 @@ internal fun StayCard(
     highlighted: Boolean,
     zone: ZoneId,
     onClick: () -> Unit,
+    trailingContent: @Composable () -> Unit = {},
 ) {
     val stay = item.stay
     val place = item.place
@@ -1285,6 +1398,7 @@ internal fun StayCard(
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
         mark = place?.place?.mark,
+        trailingContent = trailingContent,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
         // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
         // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't

@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.data.db
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.util.TableInfo
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -64,7 +63,7 @@ class Migration21To22Test {
         try {
             val generated = room.openHelper.writableDatabase
             for (table in listOf("engine_observations", "engine_user_corrections")) {
-                assertEquals(TableInfo.read(generated, table), TableInfo.read(db, table))
+                assertSchemaContains(generated, db, table)
             }
         } finally {
             room.close()

@@ -34,6 +34,7 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -46,6 +47,7 @@ const val DISCARDED_RETENTION_DAYS = 14
 private const val MAX_LEADING_STRAYS_DROPPED = 5
 private const val MAX_TIMELINE_SUGGESTIONS = 500
 private const val MIN_TIMELINE_SUGGESTION_CONFIDENCE = 0.60f
+private val VISIT_CORRECTION_KINDS = setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE")
 
 /**
  * A track's points split the three ways the track screen draws them — see
@@ -424,6 +426,80 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /** All assertions in replay order, for the timeline bridge as it is introduced. */
     suspend fun allEngineCorrections(): List<UserCorrection> =
         db.locomotionDao().allUserCorrections().mapNotNull { it.toEngineCorrection() }
+
+    /** Durable assertions targeting one derived visit, shared by Classic and V2 timelines. */
+    fun observeVisitCorrections(): Flow<List<EngineUserCorrectionEntity>> =
+        db.locomotionDao().observeUserCorrections().map { rows ->
+            rows.filter { it.targetSegmentId.startsWith("derived-visit:") }
+        }
+
+    /** Apply a per-visit correction and refresh the eligible live-observation labels atomically. */
+    suspend fun correctVisit(
+        afterTrackId: Long,
+        startedAt: Long,
+        endedAt: Long,
+        kind: String,
+        placeId: Long? = null,
+    ): String = db.withTransaction {
+        require(kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE"))
+        require(kind != "ASSIGN_VISIT_PLACE" || placeId != null)
+        val id = UUID.randomUUID().toString()
+        val target = engineVisitSegmentId(afterTrackId)
+        db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = id,
+                operationId = UUID.randomUUID().toString(),
+                targetSegmentId = target,
+                kind = kind,
+                createdAtWallTimeMs = System.currentTimeMillis(),
+                correctedPlaceId = placeId,
+                visitStartWallTimeMs = startedAt,
+                visitEndWallTimeMs = endedAt,
+            ),
+        )
+        refreshVisitTrainingLabels(target)
+        id
+    }
+
+    /** Undo one visit correction without deleting the audit trail or raw observations. */
+    suspend fun undoVisitCorrection(correctionId: String) = db.withTransaction {
+        val original = db.locomotionDao().allUserCorrections().firstOrNull { it.id == correctionId }
+            ?: return@withTransaction
+        if (original.kind == "UNDO") return@withTransaction
+        db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = UUID.randomUUID().toString(),
+                operationId = UUID.randomUUID().toString(),
+                targetSegmentId = original.targetSegmentId,
+                kind = "UNDO",
+                createdAtWallTimeMs = System.currentTimeMillis(),
+                referenceCorrectionId = original.id,
+            ),
+        )
+        refreshVisitTrainingLabels(original.targetSegmentId)
+    }
+
+    private suspend fun refreshVisitTrainingLabels(target: String) {
+        val rows = db.locomotionDao().userCorrectionsFor(target)
+        val undone = rows.filter { it.kind == "UNDO" }.mapNotNull { it.referenceCorrectionId }.toSet()
+        val latest = rows.filter { it.kind in VISIT_CORRECTION_KINDS && it.id !in undone }
+            .maxWithOrNull(compareBy<EngineUserCorrectionEntity> { it.createdAtWallTimeMs }.thenBy { it.id })
+        val start = rows.mapNotNull { it.visitStartWallTimeMs }.minOrNull() ?: return
+        val end = rows.mapNotNull { it.visitEndWallTimeMs }.maxOrNull() ?: return
+        val dao = db.locomotionDao()
+        val observations = dao.liveObservationsBetween(start, end)
+        if (observations.isEmpty()) return
+        val ids = observations.map { it.id }
+        dao.clearPlaceTrainingLabels(ids)
+        if (latest == null) return
+        val locationClass = when (latest.kind) {
+            "MARK_VISIT_BOGUS" -> "BOGUS"
+            "DELETE_VISIT" -> "MOVEMENT"
+            "ASSIGN_VISIT_PLACE" -> "PLACE"
+            else -> return
+        }
+        dao.confirmPlaceTrainingLabel(ids, latest.correctedPlaceId, locationClass)
+    }
 
     private fun activityCorrection(trackId: Long, activityType: ActivityType): EngineUserCorrectionEntity? {
         val mode = activityType.toTransportMode()

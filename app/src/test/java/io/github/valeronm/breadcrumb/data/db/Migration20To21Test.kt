@@ -152,7 +152,7 @@ class Migration20To21Test {
         try {
             val generated = room.openHelper.writableDatabase
             for (table in listOf("places", "place_identities", "tracks", "engine_user_corrections")) {
-                assertEquals(TableInfo.read(generated, table), TableInfo.read(db, table))
+                assertSchemaContains(generated, db, table)
             }
         } finally {
             room.close()

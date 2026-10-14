@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
         EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -306,6 +306,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Durable per-visit corrections and explicit local place-learning labels. */
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE engine_user_corrections ADD COLUMN correctedPlaceId INTEGER")
+                db.execSQL("ALTER TABLE engine_user_corrections ADD COLUMN visitStartWallTimeMs INTEGER")
+                db.execSQL("ALTER TABLE engine_user_corrections ADD COLUMN visitEndWallTimeMs INTEGER")
+                db.execSQL("ALTER TABLE engine_observations ADD COLUMN confirmedPlaceId INTEGER")
+                db.execSQL("ALTER TABLE engine_observations ADD COLUMN confirmedLocationClass TEXT")
+                db.execSQL("ALTER TABLE engine_observations ADD COLUMN placeTrainingEligible INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -318,7 +330,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val MIGRATIONS = arrayOf(
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
             MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
-            MIGRATION_26_27, MIGRATION_27_28,
+            MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29,
         )
 
         fun get(context: Context): AppDatabase =

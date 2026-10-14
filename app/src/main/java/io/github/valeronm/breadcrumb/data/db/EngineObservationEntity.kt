@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -46,4 +47,8 @@ data class EngineObservationEntity(
     val trainingEligible: Boolean,
     val speedAccuracyMetersPerSecond: Double?,
     val confirmedTripId: String? = null,
+    /** Explicit visit/place correction labels; only LIVE observations are eligible for learning. */
+    val confirmedPlaceId: Long? = null,
+    val confirmedLocationClass: String? = null,
+    @ColumnInfo(defaultValue = "0") val placeTrainingEligible: Boolean = false,
 )

@@ -21,4 +21,8 @@ data class EngineUserCorrectionEntity(
     val boundaryKind: String? = null,
     val atWallTimeMs: Long? = null,
     val referenceCorrectionId: String? = null,
+    /** Chosen place for a per-visit correction; null for corrections that do not assign a place. */
+    val correctedPlaceId: Long? = null,
+    val visitStartWallTimeMs: Long? = null,
+    val visitEndWallTimeMs: Long? = null,
 )

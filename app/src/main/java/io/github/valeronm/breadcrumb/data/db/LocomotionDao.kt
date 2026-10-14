@@ -72,6 +72,18 @@ interface LocomotionDao {
     )
     suspend fun clearTrainingLabel(tripId: String)
 
+    @Query(
+        "UPDATE engine_observations SET confirmedPlaceId = :placeId, confirmedLocationClass = :locationClass, " +
+            "placeTrainingEligible = 1 WHERE id IN (:observationIds) AND provenance = 'LIVE'",
+    )
+    suspend fun confirmPlaceTrainingLabel(observationIds: List<String>, placeId: Long?, locationClass: String)
+
+    @Query(
+        "UPDATE engine_observations SET confirmedPlaceId = NULL, confirmedLocationClass = NULL, " +
+            "placeTrainingEligible = 0 WHERE id IN (:observationIds)",
+    )
+    suspend fun clearPlaceTrainingLabels(observationIds: List<String>)
+
     @Query("SELECT COUNT(*) FROM engine_observations")
     suspend fun observationCount(): Long
 

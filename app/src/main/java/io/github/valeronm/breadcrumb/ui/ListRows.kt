@@ -87,6 +87,8 @@ internal fun ListRowCard(
     badgeContentColor: Color = MaterialTheme.colorScheme.onTertiary,
     /** Drawn at the top-right corner, beside the title. */
     mark: OriginMark? = null,
+    /** Optional row-level actions, placed after the mark without intercepting the card tap. */
+    trailingContent: (@Composable () -> Unit)? = null,
     colors: CardColors? = null,
     onClick: (() -> Unit)? = null,
 ) {
@@ -117,6 +119,10 @@ internal fun ListRowCard(
             if (mark != null) {
                 Spacer(Modifier.width(8.dp))
                 OriginGlyph(mark, Modifier.align(Alignment.Top))
+            }
+            if (trailingContent != null) {
+                Spacer(Modifier.width(4.dp))
+                trailingContent()
             }
         }
     }

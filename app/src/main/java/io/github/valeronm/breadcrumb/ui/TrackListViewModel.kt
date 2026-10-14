@@ -13,6 +13,7 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -81,6 +82,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     // Unseeded, since a seed reaching a combine reads there as an empty history.
     private val trackRows: Flow<List<TrackSummary>> = repository.observeSummaries()
         .distinctUntilChanged()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    private val visitCorrections: Flow<List<EngineUserCorrectionEntity>> = repository.observeVisitCorrections()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     val tracks: StateFlow<List<TrackSummary>> = trackRows
@@ -258,7 +262,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * Shared, so a change to [pendingPlace] costs a map over these rows rather than a walk of the
      * history.
      */
-    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived) { summaries, d ->
+    private val resolvedTimeline: Flow<List<TimelineItem>> = combine(trackRows, derived, visitCorrections) { summaries, d, correctionRows ->
         // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
         // Slicing keeps cluster ids, so the sliced items look these up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
@@ -269,6 +273,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         // Decided over the intervals: the rows below are per-day slices, bounded by the display.
         val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+        val undoneCorrectionIds = correctionRows.filter { it.kind == "UNDO" }
+            .mapNotNull { it.referenceCorrectionId }.toSet()
+        val activeVisitCorrections = correctionRows.asSequence()
+            .filter { it.kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE") }
+            .filterNot { it.id in undoneCorrectionIds }
+            .groupBy { it.targetSegmentId }
+            .mapValues { (_, rows) -> rows.maxWith(compareBy<EngineUserCorrectionEntity> { it.createdAtWallTimeMs }.thenBy { it.id }) }
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
         val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
@@ -296,10 +307,21 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 // Filtered after `merge` is attached, since [TimelineItem.StayItem.isBareSeam]
                 // reads it.
-                is TimelineItem.StayItem -> item.copy(
-                    place = clusterPlaces.getOrNull(item.stay.clusterId),
-                    merge = mergePlans[item.stay.afterTrackId],
-                ).takeUnless { it.isBareSeam }
+                is TimelineItem.StayItem -> {
+                    val correction = activeVisitCorrections["derived-visit:${item.stay.afterTrackId}"]
+                    if (correction?.kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT")) {
+                        null
+                    } else {
+                        val inferredPlace = clusterPlaces.getOrNull(item.stay.clusterId)
+                        val correctedPlace = correction?.correctedPlaceId?.let { id ->
+                            d.places.firstOrNull { it.id == id }?.let { chosen -> inferredPlace?.withPlace(chosen) }
+                        }
+                        item.copy(
+                            place = correctedPlace ?: inferredPlace,
+                            merge = mergePlans[item.stay.afterTrackId],
+                        ).takeUnless { it.isBareSeam }
+                    }
+                }
             }
         }
     }.flowOn(Dispatchers.Default)
@@ -579,6 +601,33 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             onResult(result)
+        }
+    }
+
+    fun correctVisit(
+        stay: StayDeriver.Stay,
+        kind: String,
+        placeId: Long? = null,
+        merge: TrackMerge.Plan? = null,
+        onSaved: (String, Long?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val correctionId = repository.correctVisit(stay.afterTrackId, stay.start, stay.end ?: System.currentTimeMillis(), kind, placeId)
+            val mergedId = if (kind == "DELETE_VISIT" && merge != null) {
+                repository.mergeTracks(merge.earlierId, merge.laterId)
+            } else {
+                null
+            }
+            onSaved(correctionId, mergedId)
+        }
+    }
+
+    fun undoVisitCorrection(correctionId: String, mergedId: Long?, merge: TrackMerge.Plan?) {
+        viewModelScope.launch {
+            repository.undoVisitCorrection(correctionId)
+            if (mergedId != null && merge != null) {
+                repository.unmergeTracks(mergedId, merge.earlierId, merge.laterId)
+            }
         }
     }
 

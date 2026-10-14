@@ -57,6 +57,16 @@
     <string name="timeline_merge">Merge trips</string>
     <string name="timeline_undo_merged">Trips merged</string>
     <string name="timeline_undo_deleted">Trip deleted</string>
+    <string name="timeline_visit_actions">Visit actions</string>
+    <string name="timeline_mark_visit_bogus">Mark incorrect location</string>
+    <string name="timeline_delete_visit">Delete visit</string>
+    <string name="timeline_change_visit_place">Change place</string>
+    <string name="timeline_choose_visit_place">Choose a saved place</string>
+    <string name="timeline_search_places">Search places</string>
+    <string name="timeline_no_places_found">No saved places found</string>
+    <string name="timeline_undo_bogus_visit">Visit marked as incorrect</string>
+    <string name="timeline_undo_deleted_visit">Visit deleted</string>
+    <string name="timeline_undo_visit_place">Visit place changed</string>
 
     <!--
       Stay rows. The clock time is drawn rather than interpolated — it carries its own colour marks
