@@ -53,4 +53,8 @@
     <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
     <string name="common_origin_google_timeline">Linha cronológica da Google</string>
     <string name="common_origin_entered_by_hand">Introduzida à mão</string>
+    <string name="track_segments_action">Ver segmentos da rota</string>
+    <string name="track_segments_title">Segmentos que compõem este movimento</string>
+    <string name="track_segments_stationary_minutes">Parado · %1$d min</string>
+    <string name="track_segments_restore_hint">Escolha a paragem e associe um local guardado para restaurar os itens originais da cronologia.</string>
 </resources>

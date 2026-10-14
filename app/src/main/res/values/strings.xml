@@ -69,4 +69,8 @@
     <string name="common_origin_gpx" translatable="false">GPX</string>
     <string name="common_origin_google_timeline">Google Timeline</string>
     <string name="common_origin_entered_by_hand">Entered by hand</string>
+    <string name="track_segments_action">View route segments</string>
+    <string name="track_segments_title">Segments that make up this move</string>
+    <string name="track_segments_stationary_minutes">Stationary · %1$d min</string>
+    <string name="track_segments_restore_hint">Choose the stop to assign a saved place and restore the original timeline entries.</string>
 </resources>

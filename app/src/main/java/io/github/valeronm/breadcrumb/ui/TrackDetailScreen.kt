@@ -13,11 +13,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
@@ -27,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,6 +70,7 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionEntity
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -185,6 +191,12 @@ internal fun TrackDetailScreen(
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
     var showSplitDialog by remember(trackId) { mutableStateOf(false) }
+    var showCompositionDialog by remember(trackId) { mutableStateOf(false) }
+    var showCompositionPlacePicker by remember(trackId) { mutableStateOf(false) }
+    var compositionPlaceSearch by remember(trackId) { mutableStateOf("") }
+    val composition by produceState<TrackCompositionEntity?>(initialValue = null, trackId) {
+        value = viewModel.getTrackComposition(trackId)
+    }
     // Whether this track can be cut at all — a caller that handles the split, and a track that has
     // finished, since a still-recording one's last edge is still moving.
     val splittable = onSplit != null && summary?.endedAt != null
@@ -203,6 +215,14 @@ internal fun TrackDetailScreen(
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
                     if (summary != null) {
+                        if (composition != null) {
+                            IconButton(onClick = { showCompositionDialog = true }) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ViewList,
+                                    contentDescription = stringResource(R.string.track_segments_action),
+                                )
+                            }
+                        }
                         // One pencil, meaning "change what this track says it was". On a recorded or
                         // imported track that is its type and nothing else — the fixes are a
                         // measurement or a file's. A manual track is typed in whole, so the pencil
@@ -418,6 +438,93 @@ internal fun TrackDetailScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showTypeDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    if (showCompositionDialog && composition != null && summary != null) {
+        val details = checkNotNull(composition)
+        AlertDialog(
+            onDismissRequest = { showCompositionDialog = false },
+            title = { Text(stringResource(R.string.track_segments_title)) },
+            text = {
+                Column(
+                    Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(activityLabel(context, summary.activityType))
+                    TextButton(
+                        onClick = {
+                            showCompositionDialog = false
+                            showCompositionPlacePicker = true
+                        },
+                    ) {
+                        Text(
+                            stringResource(
+                                R.string.track_segments_stationary_minutes,
+                                ((details.visitEndMs - details.visitStartMs).coerceAtLeast(0L) / 60_000L).toInt(),
+                            ),
+                        )
+                    }
+                    Text(activityLabel(context, summary.activityType))
+                    Text(
+                        stringResource(R.string.track_segments_restore_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCompositionDialog = false }) {
+                    Text(stringResource(R.string.common_cancel))
+                }
+            },
+        )
+    }
+
+    if (showCompositionPlacePicker && composition != null) {
+        val matches = storedPlaces.filter { place ->
+            compositionPlaceSearch.isBlank() ||
+                place.label.orEmpty().contains(compositionPlaceSearch, ignoreCase = true) ||
+                place.id.toString().contains(compositionPlaceSearch)
+        }
+        AlertDialog(
+            onDismissRequest = {
+                showCompositionPlacePicker = false
+                compositionPlaceSearch = ""
+            },
+            title = { Text(stringResource(R.string.timeline_choose_visit_place)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = compositionPlaceSearch,
+                        onValueChange = { compositionPlaceSearch = it },
+                        label = { Text(stringResource(R.string.timeline_search_places)) },
+                        singleLine = true,
+                    )
+                    Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                        matches.forEach { place ->
+                            TextButton(
+                                onClick = {
+                                    showCompositionPlacePicker = false
+                                    compositionPlaceSearch = ""
+                                    viewModel.restoreTrackComposition(trackId, place.id, onBack)
+                                },
+                            ) {
+                                Text(place.label?.takeIf(String::isNotBlank) ?: "#${place.id}")
+                            }
+                        }
+                        if (matches.isEmpty()) Text(stringResource(R.string.timeline_no_places_found))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCompositionPlacePicker = false
+                    compositionPlaceSearch = ""
+                }) {
                     Text(stringResource(R.string.common_cancel))
                 }
             },

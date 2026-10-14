@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
@@ -29,6 +30,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.StationaryVisitPolicy
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TimelineRows
@@ -280,6 +282,32 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             .filterNot { it.id in undoneCorrectionIds }
             .groupBy { it.targetSegmentId }
             .mapValues { (_, rows) -> rows.maxWith(compareBy<EngineUserCorrectionEntity> { it.createdAtWallTimeMs }.thenBy { it.id }) }
+        // Short, same-mode pauses live inside a movement block. Persist the merge and its visit
+        // bounds before projecting rows so the detail view can later restore the original break.
+        val autoMergedTrackIds = mutableSetOf<Long>()
+        for (stay in d.stays) {
+            if (StationaryVisitPolicy.qualifies(stay.start, stay.end)) continue
+            if (activeVisitCorrections["derived-visit:${stay.afterTrackId}"] != null) continue
+            val adjacent = neighbors[stay.afterTrackId] ?: continue
+            val plan = TrackMerge.plan(
+                before = adjacent.before,
+                after = adjacent.after,
+                intervalStart = stay.start,
+                intervalEnd = stay.end,
+            ) ?: continue
+            val mergedId = repository.mergeTracks(
+                plan.earlierId,
+                plan.laterId,
+                TrackCompositionDraft(
+                    visitAfterTrackId = stay.afterTrackId,
+                    visitStartMs = stay.start,
+                    visitEndMs = stay.end ?: continue,
+                ),
+            ) ?: continue
+            autoMergedTrackIds += plan.earlierId
+            autoMergedTrackIds += plan.laterId
+            check(mergedId > 0L)
+        }
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
         val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
@@ -295,8 +323,10 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).mapNotNull { item ->
             when (item) {
-                is TimelineItem.TrackItem -> d.zonesOfTrack(item.summary.id).let {
-                    item.copy(zone = it.start, endZone = it.end)
+                is TimelineItem.TrackItem -> if (item.summary.id in autoMergedTrackIds) {
+                    null
+                } else {
+                    d.zonesOfTrack(item.summary.id).let { item.copy(zone = it.start, endZone = it.end) }
                 }
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
@@ -310,6 +340,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 is TimelineItem.StayItem -> {
                     val correction = activeVisitCorrections["derived-visit:${item.stay.afterTrackId}"]
                     if (correction?.kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT")) {
+                        null
+                    } else if (
+                        !StationaryVisitPolicy.qualifies(item.stay.start, item.stay.end, d.now) &&
+                        correction?.kind != "ASSIGN_VISIT_PLACE"
+                    ) {
                         null
                     } else {
                         val inferredPlace = clusterPlaces.getOrNull(item.stay.clusterId)
@@ -614,7 +649,16 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val correctionId = repository.correctVisit(stay.afterTrackId, stay.start, stay.end ?: System.currentTimeMillis(), kind, placeId)
             val mergedId = if (kind == "DELETE_VISIT" && merge != null) {
-                repository.mergeTracks(merge.earlierId, merge.laterId)
+                repository.mergeTracks(
+                    merge.earlierId,
+                    merge.laterId,
+                    TrackCompositionDraft(
+                        visitAfterTrackId = stay.afterTrackId,
+                        visitStartMs = stay.start,
+                        visitEndMs = stay.end ?: System.currentTimeMillis(),
+                        visitCorrectionId = correctionId,
+                    ),
+                )
             } else {
                 null
             }
@@ -695,6 +739,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The overrun comes from the stored flags rather than a fresh detection. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
+
+    suspend fun getTrackComposition(trackId: Long) = repository.compositionFor(trackId)
+
+    fun restoreTrackComposition(trackId: Long, placeId: Long, onRestored: () -> Unit) {
+        viewModelScope.launch {
+            if (repository.restoreComposition(trackId, placeId)) onRestored()
+        }
+    }
 
     /**
      * The clocks a track's ends ran on, from the same derivation its timeline row reads. A track
