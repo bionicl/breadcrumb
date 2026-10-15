@@ -19,11 +19,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -125,7 +127,8 @@ internal fun PlacesTab(
     // it was showing — the same split the sort row and the rare-stops chip already follow. It
     // matches whatever the row displays, which for an unnamed cluster is the city the atlas put
     // it in: a name on screen that a search for it doesn't return reads as a broken search.
-    var query by remember { mutableStateOf("") }
+    val queryState = remember { TextFieldState() }
+    val query by remember(queryState) { derivedStateOf { queryState.text.toString() } }
     // The list page shows `sorted` whole: it offers no filters, and demoting rows there would bury
     // places under a rule the screen gives no way to see or turn off. The rare-stops chip's off
     // default also hides the map's orange brief-stop dots, a one-off stop being a rare cluster by
@@ -226,8 +229,8 @@ internal fun PlacesTab(
             PlacesPage.LIST -> viewStateHolder.SaveableStateProvider(PlacesPage.LIST) {
                 PlacesListPage(
                     listed = listed,
+                    queryState = queryState,
                     query = query,
-                    onQueryChange = { query = it },
                     sort = sort,
                     onSortChange = {
                         sort = it
@@ -313,8 +316,8 @@ private fun PlacesMapPage(
 @Composable
 private fun PlacesListPage(
     listed: List<PlaceResolver.PlaceSummary>,
+    queryState: TextFieldState,
     query: String,
-    onQueryChange: (String) -> Unit,
     sort: PlacesSort,
     onSortChange: (PlacesSort) -> Unit,
     homeRequest: Int,
@@ -360,8 +363,7 @@ private fun PlacesListPage(
         // Chrome pinned above the list (not scrolling with it), the search pill first: narrowing
         // the list is the header's main act, and the sort applies to whatever the search leaves.
         SearchField(
-            query = query,
-            onQueryChange = onQueryChange,
+            state = queryState,
             placeholder = stringResource(R.string.places_search_placeholder),
             modifier = Modifier
                 .fillMaxWidth()

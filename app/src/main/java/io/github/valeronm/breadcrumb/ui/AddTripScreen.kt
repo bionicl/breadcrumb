@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Place
@@ -37,6 +39,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -350,7 +353,8 @@ internal fun AddTripScreen(
                     )
                 }
             }
-            var query by remember { mutableStateOf("") }
+            val queryState = remember { TextFieldState() }
+            val query by remember(queryState) { derivedStateOf { queryState.text.toString() } }
             val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
             // An unnamed row reads as the unnamed cluster it seeds, which this form neither draws
             // nor offers.
@@ -416,8 +420,7 @@ internal fun AddTripScreen(
                 open = query.isNotBlank(),
                 field = { anchor ->
                     SearchField(
-                        query = query,
-                        onQueryChange = { query = it },
+                        state = queryState,
                         placeholder = stringResource(R.string.addtrip_search_placeholder),
                         modifier = Modifier.fillMaxWidth().then(anchor),
                     )
@@ -431,7 +434,7 @@ internal fun AddTripScreen(
                         detail = placeCities[place.id]?.let { localityLabel(it) },
                     ) {
                         placePin(place.pin, label)
-                        query = ""
+                        queryState.clearText()
                     }
                 }
                 for (hit in cityHits) {
@@ -441,7 +444,7 @@ internal fun AddTripScreen(
                         detail = countryDisplayName(hit.country),
                     ) {
                         placePin(Coordinate(hit.lat, hit.lon))
-                        query = ""
+                        queryState.clearText()
                     }
                 }
                 // Below the local sections, minus what they already show — the
@@ -462,7 +465,7 @@ internal fun AddTripScreen(
                         // The one pick that knows its own name — carried so the
                         // commit can create the place this end will have stayed at.
                         placePin(Coordinate(hit.lat, hit.lon), hit.name)
-                        query = ""
+                        queryState.clearText()
                     }
                 }
                 if (online.isNotEmpty()) OsmCredit()

@@ -45,6 +45,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      - name: Install the compile SDK platform
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.1"
+
       - name: Check code style
         run: ./gradlew :app:ktlintCheck
 

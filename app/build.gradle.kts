@@ -145,7 +145,9 @@ tasks.register("provisionQemuTestJdk") {
 
 android {
     namespace = "io.github.valeronm.breadcrumb"
-    compileSdk = 37
+    compileSdk {
+        version = release(37) { minorApiLevel = 1 }
+    }
 
     defaultConfig {
         val basePackage = "io.github.valeronm.breadcrumb"
@@ -407,7 +409,7 @@ dependencies {
     // alphas are functionally stable — what moves is the API surface, so the cost of sitting here
     // is that a bump can rename or withdraw something, not that the app is less sound. Going back
     // to `compose-bom` means undressing the theme first.
-    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.08.01")
+    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.10.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -452,10 +454,6 @@ dependencies {
     // repeated because `ui-test-junit4` is declared without a version.
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
-    // ui-test-junit4 still resolves Espresso 3.5.0, whose input injection calls
-    // InputManager.getInstance() — gone in SDK 37, so the Compose harness fails wholesale against
-    // the emulated 37 that robolectric.properties now asks for. Declared only to raise that.
-    testImplementation("androidx.test.espresso:espresso-core:3.7.0")
     // The empty activity the compose rule launches into, and it has to be `debugImplementation`:
     // on `testImplementation` the entry does reach the unit-test merged manifest, and the rule
     // still fails to resolve the activity — measured, not reasoned. The cost is that it lands in
