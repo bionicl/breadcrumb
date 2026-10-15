@@ -184,7 +184,11 @@ class FixIngest(internal val distance: DistanceFn) {
                 confirmer.onFix(candidate.timestamp, candidate.latitude, candidate.longitude)
             }
             // The same verdict, folded into the carrier evidence the track is judged by at finish.
-            carrierEvidence.onSample(candidate.timestamp, quality.motion, gate.stillParked)
+            carrierEvidence.onSample(
+                candidate.timestamp,
+                quality.motion,
+                parkedUnder = if (gate.stillParked) TrackQuality.labelCeiling(gate.confirmed) else null,
+            )
             motion = quality.motion
             val bad = reason != null
             lastFixAccuracyM = candidate.accuracy
