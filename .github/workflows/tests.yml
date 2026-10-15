@@ -57,6 +57,13 @@ jobs:
       - name: Run Android Lint
         run: ./gradlew :app:lintDebug
 
+      # Compiling rewrites app/schemas from the entities, and intent-to-add puts an uncommitted
+      # new version's file into the diff, which otherwise skips it as untracked.
+      - name: Check the committed Room schemas match the entities
+        run: |
+          git add --intent-to-add -- app/schemas
+          git diff --exit-code -- app/schemas
+
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest
 
