@@ -105,6 +105,7 @@ internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Un
         GroupedRows(
             { NavRow(stringResource(R.string.settings_group_data), icon = Icons.Filled.ImportExport) { onOpenPage(SettingsPage.Data) } },
             { NavRow(stringResource(R.string.settings_engine_diagnostics), icon = Icons.Filled.Info) { onOpenPage(SettingsPage.EngineDiagnostics) } },
+            { NavRow(stringResource(R.string.path_smoothing_debug_title), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.PathSmoothingDebug) } },
             { NavRow(stringResource(R.string.settings_logs), icon = Icons.AutoMirrored.Filled.ReceiptLong) { onOpenPage(SettingsPage.Logs) } },
         )
         Spacer(Modifier.height(24.dp))
@@ -745,7 +746,7 @@ internal fun EngineDiagnosticsScreen(onBack: () -> Unit) {
     }
 }
 
-internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, EngineDiagnostics, About }
+internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, EngineDiagnostics, PathSmoothingDebug, About }
 
 @Composable
 internal fun DisplaySettingsScreen(

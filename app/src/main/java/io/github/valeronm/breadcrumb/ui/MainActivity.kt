@@ -1090,6 +1090,7 @@ private fun SettingsPagesOverlay(
             )
             SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
             SettingsPage.EngineDiagnostics -> EngineDiagnosticsScreen(onBack = layer.dismiss)
+            SettingsPage.PathSmoothingDebug -> PathSmoothingDebugScreen(onBack = layer.dismiss, viewModel = viewModel)
             SettingsPage.About -> AboutSettingsScreen(layer.dismiss)
         }
     }

@@ -287,8 +287,8 @@ class LocationKalmanFilter(
         private const val EARTH_RADIUS_METERS = 6_371_008.8
         private const val NANOS_PER_SECOND = 1_000_000_000.0
         private const val INITIAL_VELOCITY_VARIANCE = 25.0
-        private const val DEFAULT_ACCELERATION_NOISE_MPS2 = 2.5
-        private const val DEFAULT_OUTLIER_SIGMA_LIMIT = 12.0
+        const val DEFAULT_ACCELERATION_NOISE_MPS2 = 2.5
+        const val DEFAULT_OUTLIER_SIGMA_LIMIT = 12.0
         private const val MAX_PREDICTION_STEP_SECONDS = 120.0
         private const val COVARIANCE_SYMMETRY_EPSILON = 1e-8
     }

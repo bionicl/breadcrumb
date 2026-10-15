@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.JourneyPolylines
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.PlaceRepository
@@ -41,6 +42,7 @@ import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
+import io.github.valeronm.breadcrumb.locomotion.RoutePathSmoother
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -883,6 +885,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
+
+    internal suspend fun previewPathLines(
+        track: TrackSummary,
+        parameters: RoutePathSmoother.Parameters,
+    ): Pair<JourneyLine, JourneyLine> = journeyPolylines.previewLinesFor(track, parameters)
 
     suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         repository.pointsAfter(trackId, afterId)

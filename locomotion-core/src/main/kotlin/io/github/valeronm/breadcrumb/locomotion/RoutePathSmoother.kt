@@ -33,22 +33,50 @@ object RoutePathSmoother {
     const val MIN_SMOOTHING_ACCURACY_METERS = 20.0
     const val MAX_CORRECTION_METERS = 50.0
     const val MAX_CONTIGUOUS_GAP_MS = 120_000L
+    const val MAX_SPEED_ACCURACY_METERS_PER_SECOND = 5.0
+    const val MAX_BEARING_ACCURACY_DEGREES = 45.0
+
+    /** Tunable values are also used by the non-persistent path-smoothing debug preview. */
+    data class Parameters(
+        val minimumSmoothingAccuracyMeters: Double = MIN_SMOOTHING_ACCURACY_METERS,
+        val horizontalAccuracyMultiplier: Double = 1.0,
+        val maximumCorrectionMeters: Double = MAX_CORRECTION_METERS,
+        val accelerationNoiseMetersPerSecondSquared: Double = LocationKalmanFilter.DEFAULT_ACCELERATION_NOISE_MPS2,
+        val outlierSigmaLimit: Double = LocationKalmanFilter.DEFAULT_OUTLIER_SIGMA_LIMIT,
+        val maximumSpeedAccuracyMetersPerSecond: Double = MAX_SPEED_ACCURACY_METERS_PER_SECOND,
+        val maximumBearingAccuracyDegrees: Double = MAX_BEARING_ACCURACY_DEGREES,
+        val maximumContiguousGapMs: Long = MAX_CONTIGUOUS_GAP_MS,
+    ) {
+        init {
+            require(minimumSmoothingAccuracyMeters >= 0.0)
+            require(horizontalAccuracyMultiplier > 0.0)
+            require(maximumCorrectionMeters >= 0.0)
+            require(accelerationNoiseMetersPerSecondSquared > 0.0)
+            require(outlierSigmaLimit > 0.0)
+            require(maximumSpeedAccuracyMetersPerSecond >= 0.1)
+            require(maximumBearingAccuracyDegrees >= 0.0)
+            require(maximumContiguousGapMs >= 0L)
+        }
+    }
 
     /** Returns one optional corrected coordinate per input fix, preserving the original order. */
-    fun smooth(fixes: List<RouteSmoothingFix>): List<SmoothedRouteCoordinate?> {
+    fun smooth(
+        fixes: List<RouteSmoothingFix>,
+        parameters: Parameters = Parameters(),
+    ): List<SmoothedRouteCoordinate?> {
         if (fixes.isEmpty()) return emptyList()
         val output = MutableList<SmoothedRouteCoordinate?>(fixes.size) { null }
         var segmentStart = 0
         for (index in fixes.indices) {
             val fix = fixes[index]
             val breaksBefore = index > segmentStart &&
-                (fix.segmentStart || fix.timestampMs - fixes[index - 1].timestampMs > MAX_CONTIGUOUS_GAP_MS)
+                (fix.segmentStart || fix.timestampMs - fixes[index - 1].timestampMs > parameters.maximumContiguousGapMs)
             val invalidAccuracy = fix.horizontalAccuracyMeters?.let { !it.isFinite() || it <= 0.0 } ?: true
             if (breaksBefore || invalidAccuracy) {
-                smoothSegment(fixes, segmentStart, index, output)
+                smoothSegment(fixes, segmentStart, index, output, parameters)
                 segmentStart = index + if (invalidAccuracy) 1 else 0
             }
-            if (index == fixes.lastIndex) smoothSegment(fixes, segmentStart, fixes.size, output)
+            if (index == fixes.lastIndex) smoothSegment(fixes, segmentStart, fixes.size, output, parameters)
         }
         return output
     }
@@ -58,21 +86,22 @@ object RoutePathSmoother {
         start: Int,
         end: Int,
         output: MutableList<SmoothedRouteCoordinate?>,
+        parameters: Parameters,
     ) {
         if (end - start < 3) return
         val segment = fixes.subList(start, end)
-        val forward = filter(segment, reverse = false)
-        val backward = filter(segment, reverse = true)
+        val forward = filter(segment, reverse = false, parameters = parameters)
+        val backward = filter(segment, reverse = true, parameters = parameters)
         for (localIndex in segment.indices) {
             val fix = segment[localIndex]
             val accuracy = fix.horizontalAccuracyMeters ?: continue
-            if (accuracy < MIN_SMOOTHING_ACCURACY_METERS) continue
+            if (accuracy < parameters.minimumSmoothingAccuracyMeters) continue
             val a = forward[localIndex] ?: continue
             val b = backward[localIndex] ?: continue
             val estimate = fuse(a, b) ?: continue
             val distance = distanceMeters(fix.latitudeDegrees, fix.longitudeDegrees, estimate.latitude, estimate.longitude)
             if (!distance.isFinite() || distance < 0.5) continue
-            val maxShift = min(accuracy, MAX_CORRECTION_METERS)
+            val maxShift = min(accuracy, parameters.maximumCorrectionMeters)
             val ratio = min(1.0, maxShift / distance)
             output[start + localIndex] = interpolate(fix, estimate.latitude, estimate.longitude, ratio)
         }
@@ -80,8 +109,15 @@ object RoutePathSmoother {
 
     private data class Estimate(val latitude: Double, val longitude: Double, val uncertainty: Double)
 
-    private fun filter(fixes: List<RouteSmoothingFix>, reverse: Boolean): List<Estimate?> {
-        val filter = LocationKalmanFilter()
+    private fun filter(
+        fixes: List<RouteSmoothingFix>,
+        reverse: Boolean,
+        parameters: Parameters,
+    ): List<Estimate?> {
+        val filter = LocationKalmanFilter(
+            accelerationNoiseMetersPerSecondSquared = parameters.accelerationNoiseMetersPerSecondSquared,
+            outlierSigmaLimit = parameters.outlierSigmaLimit,
+        )
         val indexed = fixes.indices.toList().let { if (reverse) it.asReversed() else it }
         val estimates = arrayOfNulls<Estimate>(fixes.size)
         var elapsedNanos = 0L
@@ -98,14 +134,18 @@ object RoutePathSmoother {
             val bearing = fix.bearingDegrees?.let { if (reverse) (it + 180.0) % 360.0 else it }
             val velocityReliable = fix.speedMetersPerSecond?.isFinite() == true &&
                 fix.speedMetersPerSecond >= 0.0 &&
-                fix.speedAccuracyMetersPerSecond?.let { it.isFinite() && it in 0.1..5.0 } == true &&
+                fix.speedAccuracyMetersPerSecond?.let {
+                    it.isFinite() && it >= 0.1 && it <= parameters.maximumSpeedAccuracyMetersPerSecond
+                } == true &&
                 bearing?.isFinite() == true &&
-                fix.bearingAccuracyDegrees?.let { it.isFinite() && it in 0.0..45.0 } == true
+                fix.bearingAccuracyDegrees?.let {
+                    it.isFinite() && it >= 0.0 && it <= parameters.maximumBearingAccuracyDegrees
+                } == true
             val result = filter.update(
                 LocationMeasurement(
                     latitudeDegrees = fix.latitudeDegrees,
                     longitudeDegrees = fix.longitudeDegrees,
-                    horizontalAccuracyMeters = accuracy,
+                    horizontalAccuracyMeters = accuracy * parameters.horizontalAccuracyMultiplier,
                     speedMetersPerSecond = fix.speedMetersPerSecond.takeIf { velocityReliable },
                     bearingDegrees = bearing.takeIf { velocityReliable },
                     speedAccuracyMetersPerSecond = fix.speedAccuracyMetersPerSecond.takeIf { velocityReliable },

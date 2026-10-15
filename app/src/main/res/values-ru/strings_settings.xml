@@ -195,4 +195,24 @@
     <string name="logs_share">Поделиться журналом</string>
     <string name="logs_clear">Очистить журнал</string>
     <string name="logs_empty">Журнал пока пуст. Он заполнится, когда запись включена и есть движение.</string>
+
+    <string name="path_smoothing_debug_title">Отладка — сглаживание маршрута</string>
+    <string name="path_smoothing_previous_day">Предыдущий день</string>
+    <string name="path_smoothing_next_day">Следующий день</string>
+    <string name="path_smoothing_route_count">Маршруты на экране: %1$d / %2$d</string>
+    <string name="path_smoothing_calculating">Пересчёт…</string>
+    <string name="path_smoothing_failed">Не удалось рассчитать предпросмотр.</string>
+    <string name="path_smoothing_preview_only">Только предпросмотр. Параметры и рассчитанные маршруты не сохраняются.</string>
+    <string name="path_smoothing_original_legend">Исходный · серый</string>
+    <string name="path_smoothing_preview_legend">Сглаженный предпросмотр</string>
+    <string name="path_smoothing_parameters">Параметры сглаживания</string>
+    <string name="path_smoothing_reset">Сбросить</string>
+    <string name="path_smoothing_min_accuracy">Минимальная точность GPS для сглаживания</string>
+    <string name="path_smoothing_accuracy_weight">Влияние точности GPS</string>
+    <string name="path_smoothing_max_correction">Максимальная коррекция позиции</string>
+    <string name="path_smoothing_motion_noise">Шум ускорения модели движения</string>
+    <string name="path_smoothing_outlier_sigma">Порог отбрасывания выбросов</string>
+    <string name="path_smoothing_speed_accuracy">Максимальная погрешность скорости</string>
+    <string name="path_smoothing_bearing_accuracy">Максимальная погрешность направления</string>
+    <string name="path_smoothing_max_gap">Максимальный интервал между измерениями</string>
 </resources>

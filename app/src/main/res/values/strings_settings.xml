@@ -208,4 +208,24 @@
     <string name="logs_share">Share logs</string>
     <string name="logs_clear">Clear logs</string>
     <string name="logs_empty">No logs yet. They appear here once recording is armed and picks up movement.</string>
+
+    <string name="path_smoothing_debug_title">Debug – path smooth</string>
+    <string name="path_smoothing_previous_day">Previous day</string>
+    <string name="path_smoothing_next_day">Next day</string>
+    <string name="path_smoothing_route_count">Routes shown: %1$d / %2$d</string>
+    <string name="path_smoothing_calculating">Recalculating…</string>
+    <string name="path_smoothing_failed">Could not calculate this preview.</string>
+    <string name="path_smoothing_preview_only">Preview only. These settings and calculated paths are not saved.</string>
+    <string name="path_smoothing_original_legend">Original · gray</string>
+    <string name="path_smoothing_preview_legend">Smoothed preview</string>
+    <string name="path_smoothing_parameters">Smoothing parameters</string>
+    <string name="path_smoothing_reset">Reset</string>
+    <string name="path_smoothing_min_accuracy">Minimum GPS accuracy to smooth</string>
+    <string name="path_smoothing_accuracy_weight">GPS accuracy influence</string>
+    <string name="path_smoothing_max_correction">Maximum position correction</string>
+    <string name="path_smoothing_motion_noise">Motion model acceleration noise</string>
+    <string name="path_smoothing_outlier_sigma">Outlier rejection threshold</string>
+    <string name="path_smoothing_speed_accuracy">Maximum speed uncertainty</string>
+    <string name="path_smoothing_bearing_accuracy">Maximum bearing uncertainty</string>
+    <string name="path_smoothing_max_gap">Maximum gap between samples</string>
 </resources>

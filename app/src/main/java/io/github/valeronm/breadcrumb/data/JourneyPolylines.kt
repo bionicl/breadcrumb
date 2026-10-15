@@ -6,6 +6,8 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PolylineSimplifier
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.locomotion.RoutePathSmoother
+import io.github.valeronm.breadcrumb.locomotion.RouteSmoothingFix
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -70,11 +72,51 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
         return line
     }
 
+    /** Builds an unpersisted comparison line from the raw path and supplied preview parameters. */
+    suspend fun previewLinesFor(
+        track: TrackSummary,
+        parameters: RoutePathSmoother.Parameters,
+    ): Pair<JourneyLine, JourneyLine> {
+        val rawPoints = repository.rawPointsFor(track.id).map {
+            it.copy(smoothedLatitude = null, smoothedLongitude = null)
+        }
+        return withContext(Dispatchers.Default) {
+            val coordinates = RoutePathSmoother.smooth(
+                rawPoints.map { point ->
+                    RouteSmoothingFix(
+                        latitudeDegrees = point.latitude,
+                        longitudeDegrees = point.longitude,
+                        timestampMs = point.timestamp,
+                        horizontalAccuracyMeters = point.accuracy?.toDouble(),
+                        speedMetersPerSecond = point.speed?.toDouble(),
+                        bearingDegrees = point.bearing?.toDouble(),
+                        speedAccuracyMetersPerSecond = point.speedAccuracy?.toDouble(),
+                        bearingAccuracyDegrees = point.bearingAccuracy?.toDouble(),
+                        segmentStart = point.segmentStart,
+                    )
+                },
+                parameters,
+            )
+            val smoothedPoints = rawPoints.mapIndexed { index, point ->
+                coordinates[index]?.let { point.copy(smoothedLatitude = it.latitudeDegrees, smoothedLongitude = it.longitudeDegrees) }
+                    ?: point
+            }
+            rawLine(track, rawPoints) to rawLine(track, smoothedPoints)
+        }
+    }
+
+    private fun rawLine(track: TrackSummary, points: List<TrackPoint>) = JourneyLine(
+        trackId = track.id,
+        activityType = track.activityType,
+        greatCircle = GreatCircle.drawsPath(track.pointCount, ActivityType.ofName(track.activityType)),
+        segments = SegmentBreaks.split(points).map(::segmentOf),
+    )
+
     private fun segmentOf(points: List<TrackPoint>): DoubleArray {
         val coords = DoubleArray(points.size * 2)
         for (i in points.indices) {
-            coords[i * 2] = points[i].longitude
-            coords[i * 2 + 1] = points[i].latitude
+            coords[i * 2] = points[i].pathLongitude
+            coords[i * 2 + 1] = points[i].pathLatitude
         }
         return PolylineSimplifier.simplify(coords, TOLERANCE_DEG)
     }

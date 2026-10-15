@@ -63,4 +63,14 @@ class RoutePathSmootherTest {
         }
         assertEquals(List(input.size) { null }, RoutePathSmoother.smooth(input))
     }
+
+    @Test fun `preview parameters can change the smoothing accuracy threshold and sample gap`() {
+        val input = fixes(count = 5, noisyIndex = 2, accuracy = 40.0)
+        assertNotNull(RoutePathSmoother.smooth(input)[2])
+        val strictAccuracy = RoutePathSmoother.Parameters(minimumSmoothingAccuracyMeters = 50.0)
+        assertTrue(RoutePathSmoother.smooth(input, strictAccuracy).all { it == null })
+
+        val noContinuousSamples = RoutePathSmoother.Parameters(maximumContiguousGapMs = 0L)
+        assertTrue(RoutePathSmoother.smooth(input, noContinuousSamples).all { it == null })
+    }
 }

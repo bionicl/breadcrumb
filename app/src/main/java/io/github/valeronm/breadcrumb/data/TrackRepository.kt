@@ -1617,8 +1617,12 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * Loads every row to find breaks, which the good-only query can't see — a per-track read, not
      * the recorder's hot path.
      */
-    suspend fun pointsFor(trackId: Long): List<TrackPoint> {
-        val points = SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId)).map(TrackPoint::withPathCoordinates)
+    suspend fun pointsFor(trackId: Long): List<TrackPoint> =
+        rawPointsFor(trackId).map(TrackPoint::withPathCoordinates)
+
+    /** Good path points with composition joins adjusted; raw coordinates remain unprojected. */
+    suspend fun rawPointsFor(trackId: Long): List<TrackPoint> {
+        val points = SegmentBreaks.goodWithCarriedBreaks(dao.allPointsFor(trackId))
         if (points.isEmpty() || dao.compositionFor(trackId) == null) return points
         val joinedPathStarts = compositionTreePartsFor(trackId)
             .asSequence()

@@ -187,4 +187,24 @@
     <string name="logs_share">Partilhar os registos</string>
     <string name="logs_clear">Limpar os registos</string>
     <string name="logs_empty">Ainda sem registos. Aparecem aqui assim que a gravação estiver armada e detetar movimento.</string>
+
+    <string name="path_smoothing_debug_title">Depuração – suavização do trajeto</string>
+    <string name="path_smoothing_previous_day">Dia anterior</string>
+    <string name="path_smoothing_next_day">Dia seguinte</string>
+    <string name="path_smoothing_route_count">Trajetos mostrados: %1$d / %2$d</string>
+    <string name="path_smoothing_calculating">A recalcular…</string>
+    <string name="path_smoothing_failed">Não foi possível calcular esta pré-visualização.</string>
+    <string name="path_smoothing_preview_only">Apenas pré-visualização. Estes parâmetros e trajetos calculados não são guardados.</string>
+    <string name="path_smoothing_original_legend">Original · cinzento</string>
+    <string name="path_smoothing_preview_legend">Pré-visualização suavizada</string>
+    <string name="path_smoothing_parameters">Parâmetros de suavização</string>
+    <string name="path_smoothing_reset">Repor</string>
+    <string name="path_smoothing_min_accuracy">Precisão GPS mínima para suavizar</string>
+    <string name="path_smoothing_accuracy_weight">Influência da precisão GPS</string>
+    <string name="path_smoothing_max_correction">Correção máxima da posição</string>
+    <string name="path_smoothing_motion_noise">Ruído de aceleração do modelo de movimento</string>
+    <string name="path_smoothing_outlier_sigma">Limite de rejeição de valores atípicos</string>
+    <string name="path_smoothing_speed_accuracy">Incerteza máxima da velocidade</string>
+    <string name="path_smoothing_bearing_accuracy">Incerteza máxima da direção</string>
+    <string name="path_smoothing_max_gap">Intervalo máximo entre amostras</string>
 </resources>

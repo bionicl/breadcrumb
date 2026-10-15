@@ -39,6 +39,8 @@ import org.maplibre.geojson.Point
 @Composable
 internal fun MapLibreJourneyMap(
     lines: List<JourneyLine>,
+    /** Optional raw comparison paths, drawn below [lines] in neutral gray. */
+    originalLines: List<JourneyLine> = emptyList(),
     places: List<OverviewPlace>,
     frameKey: Any,
     linesComplete: Boolean,
@@ -53,6 +55,9 @@ internal fun MapLibreJourneyMap(
             .associateWith { activityColorOr(ActivityType.ofName(it), fallback).toArgb() }
     }
     val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
+    val originalCollection = remember(originalLines) {
+        journeyCollection(originalLines, emptyMap(), fixedColor = ORIGINAL_PATH_COLOR)
+    }
     val applied = remember { AppliedJourneyInputs() }
     applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
@@ -66,22 +71,38 @@ internal fun MapLibreJourneyMap(
         },
         onStyleLoaded = { ctx, map, style, dark ->
             applied.collection = collection
+            applied.originalCollection = originalCollection
             applied.places = places
             applied.frameKey = frameKey
             applied.framedComplete = linesComplete
+            style.addSource(GeoJsonSource(ORIGINAL_JOURNEY_SOURCE, originalCollection))
+            style.addLayer(
+                LineLayer(ORIGINAL_JOURNEY_LAYER, ORIGINAL_JOURNEY_SOURCE).withProperties(
+                    PropertyFactory.lineWidth(2.5f),
+                    PropertyFactory.lineOpacity(0.65f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                    PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
+                ),
+            )
             style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
             style.addLayer(
                 LineLayer(JOURNEY_LAYER, JOURNEY_SOURCE).withProperties(
                     PropertyFactory.lineWidth(3f),
+                    PropertyFactory.lineOpacity(if (originalLines.isEmpty()) 1f else 0.82f),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                     PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
                 ),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
-            frame(map, lines, places)
+            frame(map, lines, places, originalLines)
         },
         onUpdate = { map, style ->
+            if (applied.originalCollection !== originalCollection) {
+                applied.originalCollection = originalCollection
+                style.getSourceAs<GeoJsonSource>(ORIGINAL_JOURNEY_SOURCE)?.setGeoJson(originalCollection)
+            }
             if (applied.collection !== collection) {
                 applied.collection = collection
                 style.getSourceAs<GeoJsonSource>(JOURNEY_SOURCE)?.setGeoJson(collection)
@@ -93,7 +114,7 @@ internal fun MapLibreJourneyMap(
             if (applied.frameKey != frameKey || (linesComplete && !applied.framedComplete)) {
                 applied.frameKey = frameKey
                 applied.framedComplete = linesComplete
-                frame(map, lines, places)
+                frame(map, lines, places, originalLines)
             }
         },
     )
@@ -101,6 +122,7 @@ internal fun MapLibreJourneyMap(
 
 private class AppliedJourneyInputs {
     var collection: FeatureCollection? = null
+    var originalCollection: FeatureCollection? = null
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
 
@@ -111,8 +133,13 @@ private class AppliedJourneyInputs {
     var framedComplete = false
 }
 
-private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>) {
-    frameTo(map, framePositions(lines, places), singlePointZoom = 13.0)
+private fun frame(
+    map: MapLibreMap,
+    lines: List<JourneyLine>,
+    places: List<OverviewPlace>,
+    originalLines: List<JourneyLine> = emptyList(),
+) {
+    frameTo(map, framePositions(lines + originalLines, places), singlePointZoom = 13.0)
 }
 
 /**
@@ -149,11 +176,15 @@ private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
  * [GreatCircle.drawsPath] names is densified along its great circle ([greatCirclePositions]), as
  * the track detail draws it.
  */
-private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
+private fun journeyCollection(
+    lines: List<JourneyLine>,
+    colorByType: Map<String, Int>,
+    fixedColor: Int? = null,
+): FeatureCollection {
     val features = ArrayList<Feature>()
     val propsByColor = HashMap<Int, JsonObject>()
     for (line in lines) {
-        val color = colorByType[line.activityType] ?: continue
+        val color = fixedColor ?: colorByType[line.activityType] ?: continue
         val props = propsByColor.getOrPut(color) {
             JsonObject().apply { addProperty(JOURNEY_COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
         }
@@ -177,4 +208,7 @@ private fun segmentPositions(segment: DoubleArray, greatCircle: Boolean): List<P
 
 private const val JOURNEY_SOURCE = "journey-lines-src"
 private const val JOURNEY_LAYER = "journey-lines-layer"
+private const val ORIGINAL_JOURNEY_SOURCE = "original-journey-lines-src"
+private const val ORIGINAL_JOURNEY_LAYER = "original-journey-lines-layer"
 private const val JOURNEY_COLOR_KEY = "color"
+private val ORIGINAL_PATH_COLOR = 0xFF858585.toInt()
