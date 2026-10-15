@@ -83,13 +83,21 @@ class ActivityGateTest {
         assertNull(g.parked)
     }
 
-    @Test fun `abstention releases the parked stop too`() {
-        // The recorder relies on this shape wherever it is about to turn GPS off: with no fixes
-        // arriving nothing could ever release the slot, so the absence of evidence must.
+    @Test fun `abstention after a contradiction leaves the stop uncorroborated`() {
         val g = started(WALKING)
         g.onReading(STILL, MOVING)
-        assertEquals(STILL, g.onMotion(Motion.Unknown))
-        assertEquals(STILL, g.confirmed)
+        assertNull(g.onMotion(Motion.Unknown))
+        assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.UNCORROBORATED), g.held)
+        assertEquals(WALKING, g.confirmed)
+        assertEquals(STILL, g.releaseHeld())
+    }
+
+    @Test fun `moving ground contradicts an uncorroborated stop again`() {
+        val g = started(WALKING)
+        g.onReading(STILL, Motion.Unknown, requireCorroboration = true)
+        assertNull(g.onMotion(MOVING))
+        assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.CONTRADICTED), g.held)
+        assertNull(g.releaseHeld())
     }
 
     @Test fun `the parked stop is held for as long as the ground keeps moving`() {

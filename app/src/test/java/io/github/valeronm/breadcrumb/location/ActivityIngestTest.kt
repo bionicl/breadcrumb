@@ -293,6 +293,43 @@ class ActivityIngestTest : ActivityIngestFixture() {
         )
     }
 
+    @Test fun `a moment's abstention under a contradicted stop does not end the walk`() {
+        startWalking()
+        feedVehicleSpeedGround()
+        reading(ActivityType.STILL, T0 + 30_000)
+
+        val out = core.onMotion(Motion.Unknown, T0 + 40_000, settings) +
+            core.onMotion(Motion.Moving(VEHICLE), T0 + 45_000, settings) +
+            core.onMotion(Motion.Moving(VEHICLE), T0 + 40_000 + HOLD_CAP_MS, settings)
+
+        assertTrue(out.none { it is Effect.CloseTrack })
+        assertTrue(core.recording)
+        assertEquals(ActivityType.STILL, core.parked)
+    }
+
+    @Test fun `a hold contradicted past its cap is capped from the last contradiction`() {
+        startWalking()
+        feedVehicleSpeedGround()
+        reading(ActivityType.STILL, T0 + 30_000)
+        val lastMovingAt = T0 + 30_000 + 2 * HOLD_CAP_MS
+        core.onMotion(Motion.Moving(VEHICLE), lastMovingAt, settings)
+
+        assertTrue(core.onMotion(Motion.Unknown, lastMovingAt + 1000, settings).isEmpty())
+        assertTrue(core.onMotion(Motion.Unknown, lastMovingAt + HOLD_CAP_MS - 1, settings).isEmpty())
+        assertTrue(core.onMotion(Motion.Unknown, lastMovingAt + HOLD_CAP_MS, settings).any { it is Effect.CloseTrack })
+    }
+
+    @Test fun `a revisit long after the ground fell silent lands the hold at once`() {
+        startWalking()
+        feedVehicleSpeedGround()
+        reading(ActivityType.STILL, T0 + 30_000)
+
+        val out = core.onMotion(Motion.Unknown, T0 + 30_000 + 10 * MINUTE, settings)
+
+        assertTrue(out.any { it is Effect.CloseTrack })
+        assertNull(core.parked)
+    }
+
     /** Vehicle-speed ground: a fix a second at [VEHICLE], positioned off [T0] so calls chain. */
     private fun driveFrom(fromMs: Long, until: Long) = groundAt(VEHICLE, fromMs, until)
 
@@ -727,11 +764,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertFalse(core.recording)
     }
 
-    /**
-     * The contradicted hold keeps its own rule: it is released by ground that has stopped *saying*
-     * anything, which is what the no-fix guard leans on as it takes GPS down. Capping it instead
-     * would end a crossing still under way — see [ActivityGate.releaseHeld].
-     */
     @Test fun `a contradicted hold is not subject to the cap`() {
         reading(ActivityType.DRIVING, T0)
         feedVehicleSpeedGround()

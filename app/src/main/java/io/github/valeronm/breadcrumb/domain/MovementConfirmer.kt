@@ -206,9 +206,10 @@ class MovementConfirmer(
         private const val BASE_MAX_AGE_MS = 60_000L
 
         /**
-         * Displacement between the halves that counts as the ground moving. Well above what an
-         * accepted fix's error can fabricate — over [BASE_SPAN_MS] roughly a brisk cyclist's pace,
-         * so an ordinary walk doesn't trip it and anything carrying a phone clears it several times over.
+         * Displacement between the halves that counts as the ground moving, well above what an
+         * accepted fix's error can fabricate. A full window's halves sit about half of
+         * [Params.maxFixAgeMs] apart, which at one fix a second puts the bar near 1.3 m/s, an
+         * ordinary walk's pace.
          */
         private const val MOVING_MIN_DISPLACEMENT_M = 40.0
 
