@@ -8,11 +8,13 @@ package io.github.valeronm.breadcrumb.domain
  * commits only at finish, since one moment's evidence is one window's worth — the amount the
  * confirmer's feed contract documents as forgeable by a lone teleport — and verdicts flap by
  * design. Two channels, two ways to be aboard, either alone making the case:
- *  - **Body-still** ([bodyStillMs]): time a STILL sat parked under [Motion.Moving] — the defining
- *    carried signature: detection actively asserted the body stopped while the ground provably
- *    kept moving, and nothing else produces that (a runner's moving body reads as running; a
- *    teleport-forged verdict parks a STILL only briefly, the false [Motion.Moving] decaying within
- *    a window before the STILL promotes). Its threshold is short — the signal is near-conclusive.
+ *  - **Body-still** ([bodyStillMs]): time a STILL sat parked under ground moving faster than the
+ *    label's own ceiling — the defining carried signature: detection actively asserted the body
+ *    stopped while the ground provably kept moving. The floor is needed because a STILL
+ *    misreported mid-walk or mid-run parks under the label's own pace just the same; above it
+ *    nothing else produces the signature (a teleport-forged verdict parks a STILL only briefly,
+ *    the false [Motion.Moving] decaying within a window before the STILL promotes). Its threshold
+ *    is short — the signal is near-conclusive.
  *  - **Body-moving** ([bodyMovingMs]): time observed ground speed exceeded the **most permissive
  *    ceiling in the label's own group** — walking about a deck, or a crossing boarded on foot with
  *    no STILL ever sent. The group's ceiling, not the label's, deliberately: a run inside a
@@ -31,7 +33,7 @@ package io.github.valeronm.breadcrumb.domain
  */
 class CarrierEvidence {
 
-    /** Cumulative ms a STILL sat parked under a [Motion.Moving] verdict. */
+    /** Cumulative ms a STILL sat parked under ground moving faster than the label's own ceiling. */
     var bodyStillMs: Long = 0
         private set
 
@@ -40,6 +42,7 @@ class CarrierEvidence {
         private set
 
     private var groupCeiling = Speed.ZERO
+    private var stillFloor = Speed.ZERO
     private var hasSample = false
     private var lastAtMs = 0L
     private var lastStill = false
@@ -61,13 +64,13 @@ class CarrierEvidence {
 
     /**
      * Fold in one consulted verdict: [motion] as produced for the fix at [atMs], and whether a
-     * STILL was parked at that moment. The speed channel's bar is the one [restart] set.
+     * STILL was parked at that moment. Both channels' bars are the ones [restart] set.
      * Out-of-order samples are refused, like the confirmer refuses out-of-order fixes.
      */
     fun onSample(atMs: Long, motion: Motion, stillParked: Boolean) {
         if (hasSample && atMs < lastAtMs) return
         val moving = motion as? Motion.Moving
-        val still = moving != null && stillParked
+        val still = moving != null && stillParked && moving.speed > stillFloor
         val fast = moving != null && moving.speed > groupCeiling
         if (hasSample) {
             val credit = minOf(atMs - lastAtMs, MAX_CREDIT_MS)
@@ -81,11 +84,13 @@ class CarrierEvidence {
     }
 
     /**
-     * A new track: no case against its label, and the speed channel's bar set to the label
-     * group's ceiling ([groupCeiling]) — one call carries both, like the confirmer's own
-     * [MovementConfirmer.reshape], so the bar cannot be left standing at a previous track's.
+     * A new track: no case against its label, the body-still channel's floor set to the label's
+     * own ceiling ([stillFloor]) and the speed channel's bar to its group's ([groupCeiling]) — one
+     * call carries them together, like the confirmer's own [MovementConfirmer.reshape], so no bar
+     * can be left standing at a previous track's.
      */
-    fun restart(groupCeiling: Speed) {
+    fun restart(stillFloor: Speed, groupCeiling: Speed) {
+        this.stillFloor = stillFloor
         this.groupCeiling = groupCeiling
         bodyStillMs = 0
         bodyMovingMs = 0

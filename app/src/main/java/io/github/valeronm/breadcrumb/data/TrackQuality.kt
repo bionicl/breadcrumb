@@ -84,7 +84,8 @@ object TrackQuality {
      */
     fun groupCeiling(activity: ActivityType): Speed = GROUP_CEILINGS.getValue(activity.trackGroup)
 
-    private fun labelCeiling(activity: ActivityType): Speed = when (activity) {
+    /** [activity]'s jump ceiling before [jumpCeiling] widens it to the measured ground. */
+    fun labelCeiling(activity: ActivityType): Speed = when (activity) {
         ActivityType.WALKING, ActivityType.STILL -> Speed.kmh(12.0)
         ActivityType.RUNNING -> Speed.kmh(30.0)
         ActivityType.CYCLING -> Speed.kmh(70.0)

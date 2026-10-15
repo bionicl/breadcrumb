@@ -26,7 +26,11 @@ class CarrierEvidenceTest {
     /** An honest run — above WALKING's own ceiling, far under the group's. */
     private val RUNNING = Motion.Moving(Speed.kmh(14.4))
 
-    private fun evidence() = CarrierEvidence().apply { restart(FOOT_CEILING) }
+    private val WALKING = Motion.Moving(Speed.kmh(6.0))
+
+    private val WALK_FLOOR = TrackQuality.labelCeiling(ActivityType.WALKING)
+
+    private fun evidence() = CarrierEvidence().apply { restart(WALK_FLOOR, FOOT_CEILING) }
 
     /** Feed [motion] every 5 s from t=0 for [totalSec] seconds. */
     private fun CarrierEvidence.ride(motion: Motion, totalSec: Long, parked: Boolean) {
@@ -53,6 +57,22 @@ class CarrierEvidenceTest {
     @Test fun `moving ground with nothing parked builds no body-still case`() {
         val e = evidence()
         e.ride(CARRIED, totalSec = 300, parked = false)
+        assertEquals(0, e.bodyStillMs)
+    }
+
+    @Test fun `a stop misreported mid-walk builds no body-still case`() {
+        val e = evidence()
+        e.ride(WALKING, totalSec = 300, parked = true)
+        assertFalse(e.proven)
+        assertEquals(0, e.bodyStillMs)
+    }
+
+    @Test fun `a stop misreported mid-run builds no body-still case`() {
+        val e = CarrierEvidence().apply {
+            restart(TrackQuality.labelCeiling(ActivityType.RUNNING), FOOT_CEILING)
+        }
+        e.ride(RUNNING, totalSec = 300, parked = true)
+        assertFalse(e.proven)
         assertEquals(0, e.bodyStillMs)
     }
 
@@ -162,7 +182,7 @@ class CarrierEvidenceTest {
         val e = evidence()
         e.ride(FAST_CARRIER, totalSec = 300, parked = true)
         assertTrue(e.proven)
-        e.restart(FOOT_CEILING)
+        e.restart(WALK_FLOOR, FOOT_CEILING)
         assertFalse(e.proven)
         assertEquals(0, e.bodyStillMs)
         assertEquals(0, e.bodyMovingMs)
