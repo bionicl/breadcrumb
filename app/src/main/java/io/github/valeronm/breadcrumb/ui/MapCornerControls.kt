@@ -210,13 +210,14 @@ internal class MyLocationState(
 internal fun rememberMyLocation(say: (String) -> Unit): MyLocationState {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val noLocation = stringResource(R.string.places_no_location)
     val location = remember {
         MyLocationState(
             granted = { DeviceLocation.granted(context) },
             blocked = { context.anyPermanentlyDenied(LOCATION_PERMISSIONS, AppSettings.askedPermissions(context)) },
             fetch = { DeviceLocation.current(context) },
             launch = { block -> scope.launch { block() } },
-            onUnavailable = { say(context.getString(R.string.places_no_location)) },
+            onUnavailable = { say(noLocation) },
         )
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {

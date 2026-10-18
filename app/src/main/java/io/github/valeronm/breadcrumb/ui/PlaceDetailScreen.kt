@@ -232,12 +232,13 @@ internal fun PlaceDetailScreen(
                 )
             }
             val barActions: @Composable RowScope.() -> Unit = {
+                val noMapsApp = stringResource(R.string.maps_no_app)
                 // Handing the pin to a maps app is offered for unnamed clusters too — the
                 // point is there to look up whether or not it has a name.
                 IconButton(
                     onClick = {
                         context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) {
-                            viewModel.say(context.getString(R.string.maps_no_app))
+                            viewModel.say(noMapsApp)
                         }
                     },
                 ) {

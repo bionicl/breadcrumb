@@ -98,8 +98,9 @@ internal fun NavRow(
 @Composable
 internal fun LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
     val context = LocalContext.current
+    val noBrowser = stringResource(R.string.browser_no_app)
     TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
-        context.openInBrowser(url) { say(context.getString(R.string.browser_no_app)) }
+        context.openInBrowser(url) { say(noBrowser) }
     }
 }
 

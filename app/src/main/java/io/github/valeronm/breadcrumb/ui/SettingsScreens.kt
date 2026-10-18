@@ -764,13 +764,14 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
 @Composable
 private fun VersionText(style: TextStyle, say: (String) -> Unit) {
     val context = LocalContext.current
+    val copied = stringResource(R.string.about_version_copied)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             stringResource(R.string.about_version, BuildIdentity.shown),
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .clickable {
-                    context.copyToClipboard(BuildIdentity.shown) { say(context.getString(R.string.about_version_copied)) }
+                    context.copyToClipboard(BuildIdentity.shown) { say(copied) }
                 }
                 .padding(horizontal = 8.dp, vertical = 2.dp),
             textAlign = TextAlign.Center,
