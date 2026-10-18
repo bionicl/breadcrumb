@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
@@ -193,6 +194,7 @@ private enum class HomeTab(
     RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.title_record),
     TIMELINE(R.string.nav_timeline, Icons.Filled.Route),
     PLACES(R.string.nav_places, Icons.Filled.Place),
+    REVIEW(R.string.nav_review, Icons.Filled.CheckCircle),
     INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),
 }
 
@@ -215,6 +217,7 @@ private fun MainScreen(
     val deletedVisitMessage = stringResource(R.string.timeline_undo_deleted_visit)
     LaunchedEffect(viewModel, language) { viewModel.useLanguage(language) }
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val reviewQueue by viewModel.reviewQueue.collectAsStateWithLifecycle()
 
     // Waits for the lock rather than relying on the gate: PrivacyGate draws over this composition
     // instead of replacing it, so an import shared in while the app is locked would otherwise run
@@ -500,7 +503,13 @@ private fun MainScreen(
                                     }
                                 },
                                 icon = { Icon(tab.icon, contentDescription = null) },
-                                label = { Text(stringResource(tab.labelRes)) },
+                                label = {
+                                    Text(
+                                        if (tab == HomeTab.REVIEW) {
+                                            stringResource(R.string.nav_review_count, reviewQueue.count { it.state == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING })
+                                        } else stringResource(tab.labelRes),
+                                    )
+                                },
                             )
                         }
                     }
@@ -573,6 +582,7 @@ private fun MainScreen(
                             mapCamera = placesMapCamera,
                             onOpenData = { settingsPage = SettingsPage.Data },
                         )
+                        HomeTab.REVIEW -> ReviewTab(viewModel)
                         HomeTab.INSIGHTS -> InsightsTab(
                             viewModel = viewModel,
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },

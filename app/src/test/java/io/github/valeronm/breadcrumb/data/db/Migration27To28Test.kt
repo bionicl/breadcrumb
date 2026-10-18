@@ -1,9 +1,5 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.util.TableInfo
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -36,7 +32,6 @@ class Migration27To28Test {
 
     @After fun tearDown() = fixture.close()
 
-    @Suppress("DEPRECATION")
     @Test
     fun `adds engine snapshot payload without changing checkpoint metadata`() {
         AppDatabase.MIGRATION_27_28.migrate(db)
@@ -46,16 +41,10 @@ class Migration27To28Test {
             assertEquals("observation", cursor.getString(1))
             assertNull(cursor.getBlob(2))
         }
-        val room = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
-        ).allowMainThreadQueries().build()
-        try {
-            assertEquals(
-                TableInfo.read(room.openHelper.writableDatabase, "engine_checkpoints"),
-                TableInfo.read(db, "engine_checkpoints"),
-            )
-        } finally {
-            room.close()
+        db.query("SELECT sessionId, filterCovariance FROM engine_checkpoints").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("session", cursor.getString(0))
+            assertNull(cursor.getBlob(1))
         }
     }
 }

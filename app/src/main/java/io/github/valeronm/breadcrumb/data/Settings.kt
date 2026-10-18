@@ -8,11 +8,9 @@ import androidx.core.content.edit
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
 
-    enum class RecorderEngineGeneration { CLASSIC, LOCOMOTION_V2 }
-
     private const val FILE = "settings"
     private const val KEY_AUTO_RECORD = "auto_record"
-    private const val KEY_RECORDER_ENGINE_GENERATION = "recorder_engine_generation"
+    private const val KEY_ROUTE_ANALYSIS_ENABLED = "route_analysis_enabled"
     private const val KEY_PERSONAL_TRANSPORT_MODEL = "personal_transport_model_v1"
 
     private const val KEY_SAMPLING_MIN_INTERVAL_SEC = "sampling_min_interval_sec"
@@ -144,14 +142,12 @@ object Settings {
     fun isAutoRecord(context: Context): Boolean =
         prefs(context).getBoolean(KEY_AUTO_RECORD, false)
 
-    /** The selected engine is latched by the recording service when a session arms. */
-    fun recorderEngineGeneration(context: Context): RecorderEngineGeneration =
-        prefs(context).getString(KEY_RECORDER_ENGINE_GENERATION, RecorderEngineGeneration.CLASSIC.name)
-            ?.let { runCatching { RecorderEngineGeneration.valueOf(it) }.getOrNull() }
-            ?: RecorderEngineGeneration.CLASSIC
+    /** Post-processing is independent of the recorder and enabled for existing installs by default. */
+    fun routeAnalysisEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ROUTE_ANALYSIS_ENABLED, true)
 
-    fun setRecorderEngineGeneration(context: Context, generation: RecorderEngineGeneration) {
-        prefs(context).edit(commit = true) { putString(KEY_RECORDER_ENGINE_GENERATION, generation.name) }
+    fun setRouteAnalysisEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit(commit = true) { putBoolean(KEY_ROUTE_ANALYSIS_ENABLED, enabled) }
     }
 
     /** A versioned classifier payload stored locally; corrupt data is treated as absent. */

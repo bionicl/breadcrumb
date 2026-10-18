@@ -1,9 +1,5 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.util.TableInfo
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -45,22 +41,13 @@ class Migration22To23Test {
         }
     }
 
-    @Suppress("DEPRECATION")
     @Test
-    fun `checkpoint table after exact state migration matches current Room entity`() {
+    fun `checkpoint metadata migrations remain readable before checkpoint retirement`() {
         AppDatabase.MIGRATION_22_23.migrate(db)
         AppDatabase.MIGRATION_26_27.migrate(db)
         AppDatabase.MIGRATION_27_28.migrate(db)
-        val room = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
-        ).allowMainThreadQueries().build()
-        try {
-            assertEquals(
-                TableInfo.read(room.openHelper.writableDatabase, "engine_checkpoints"),
-                TableInfo.read(db, "engine_checkpoints"),
-            )
-        } finally {
-            room.close()
+        db.query("SELECT sessionId, filterCovariance, engineStateBlob FROM engine_checkpoints").use { cursor ->
+            assertTrue(!cursor.moveToFirst())
         }
     }
 }

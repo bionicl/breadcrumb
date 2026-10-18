@@ -21,7 +21,8 @@ class Migration30To31Test {
     @After fun tearDown() = fixture.close()
 
     @Suppress("DEPRECATION")
-    @Test fun `backfills legacy compositions as ordered parts and creates Room-compatible table`() {
+    @Test
+    fun `backfills legacy compositions as ordered parts and creates Room-compatible table`() {
         db.execSQL("INSERT INTO tracks VALUES (1, 'WALKING', 100, 200)")
         db.execSQL("INSERT INTO tracks VALUES (2, 'WALKING', 400, 500)")
         db.execSQL("INSERT INTO tracks VALUES (3, 'WALKING', 100, 500)")

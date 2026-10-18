@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -88,27 +89,29 @@ interface LocomotionDao {
     suspend fun observationCount(): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveCheckpoint(checkpoint: EngineCheckpointEntity)
+    suspend fun enqueueAnalysisJob(job: RouteAnalysisJobEntity)
 
-    @Query("SELECT * FROM engine_checkpoints WHERE sessionId = :sessionId")
-    suspend fun checkpoint(sessionId: String): EngineCheckpointEntity?
+    @Query("SELECT * FROM route_analysis_jobs WHERE state IN ('QUEUED','RUNNING','FAILED') ORDER BY CASE state WHEN 'QUEUED' THEN 0 ELSE 1 END, updatedAtWallTimeMs DESC LIMIT :limit")
+    suspend fun analysisJobs(limit: Int): List<RouteAnalysisJobEntity>
 
-    @Query("SELECT * FROM engine_checkpoints ORDER BY updatedAtWallTimeMs DESC LIMIT 1")
-    suspend fun latestCheckpoint(): EngineCheckpointEntity?
+    @Query("SELECT * FROM route_analysis_jobs WHERE trackId = :trackId AND processorVersion = :processorVersion AND inputRevision = :inputRevision")
+    suspend fun analysisJob(trackId: Long, processorVersion: Int, inputRevision: Long): RouteAnalysisJobEntity?
 
-    @Query("DELETE FROM engine_checkpoints WHERE sessionId = :sessionId")
-    suspend fun deleteCheckpoint(sessionId: String)
+    @Update
+    suspend fun updateAnalysisJob(job: RouteAnalysisJobEntity)
 
-    @Query("DELETE FROM engine_checkpoints")
-    suspend fun clearCheckpoints()
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertReview(item: ReviewQueueEntity): Long
 
-    /** Persist accepted inputs and their resulting state as one restart-safe unit. */
-    @Transaction
-    suspend fun storeBatchAndCheckpoint(
-        observations: List<EngineObservationEntity>,
-        checkpoint: EngineCheckpointEntity,
-    ) {
-        insertObservations(observations)
-        saveCheckpoint(checkpoint)
-    }
+    @Query("SELECT * FROM review_queue WHERE state = :state ORDER BY updatedAtWallTimeMs DESC")
+    fun observeReviewItems(state: String): Flow<List<ReviewQueueEntity>>
+
+    @Query("SELECT * FROM review_queue ORDER BY updatedAtWallTimeMs DESC")
+    fun observeAllReviewItems(): Flow<List<ReviewQueueEntity>>
+
+    @Query("SELECT * FROM review_queue WHERE id = :id")
+    suspend fun reviewItem(id: String): ReviewQueueEntity?
+
+    @Update
+    suspend fun updateReviewItem(item: ReviewQueueEntity)
 }

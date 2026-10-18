@@ -195,31 +195,22 @@ internal fun RecordingSettingsScreen(onBack: () -> Unit) {
 @Composable
 private fun EngineGenerationGroup() {
     val context = LocalContext.current
-    val generation = rememberPref(
-        AppSettings.RecorderEngineGeneration.CLASSIC,
-        { AppSettings.recorderEngineGeneration(context) },
-        { AppSettings.setRecorderEngineGeneration(context, it) },
-    )
+    val analysis = rememberPref(true, { AppSettings.routeAnalysisEnabled(context) }) {
+        AppSettings.setRouteAnalysisEnabled(context, it)
+        io.github.valeronm.breadcrumb.location.LocationRecordingService.routeAnalysisChanged(context, it)
+    }
     SettingsGroup(
-        stringResource(R.string.settings_engine_generation),
-        stringResource(R.string.settings_engine_generation_description),
-        listOf(generation),
+        stringResource(R.string.settings_route_analysis),
+        stringResource(R.string.settings_route_analysis_description),
+        listOf(analysis),
     ) {
         GroupedRows(
             {
                 SwitchSettingRow(
-                    title = stringResource(R.string.settings_engine_generation_v2),
-                    subtitle = stringResource(R.string.settings_engine_generation_v2_subtitle),
-                    checked = generation.value == AppSettings.RecorderEngineGeneration.LOCOMOTION_V2,
-                    onCheckedChange = {
-                        generation.set(
-                            if (it) {
-                                AppSettings.RecorderEngineGeneration.LOCOMOTION_V2
-                            } else {
-                                AppSettings.RecorderEngineGeneration.CLASSIC
-                            },
-                        )
-                    },
+                    title = stringResource(R.string.settings_route_analysis),
+                    subtitle = stringResource(R.string.settings_route_analysis_description),
+                    checked = analysis.value,
+                    onCheckedChange = analysis::set,
                 )
             },
         )

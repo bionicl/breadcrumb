@@ -14,10 +14,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
-        EngineObservationEntity::class, EngineCheckpointEntity::class, EngineUserCorrectionEntity::class,
+        EngineObservationEntity::class, EngineUserCorrectionEntity::class,
+        RouteAnalysisJobEntity::class, ReviewQueueEntity::class,
         TrackCompositionEntity::class, TrackCompositionPartEntity::class,
     ],
-    version = 32,
+    version = 33,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -54,7 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
         private val HISTORY_TABLES = listOf(
             "tracks", "track_points", "places", "place_identities",
             "derived_clusters", "cluster_members", "derived_intervals",
-            "engine_observations", "engine_checkpoints", "engine_user_corrections", "track_compositions",
+            "engine_observations", "engine_user_corrections", "route_analysis_jobs", "review_queue", "track_compositions",
             "track_composition_parts",
         )
 
@@ -415,6 +416,50 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Retire live engine checkpoints and add resumable analysis jobs and human review items. */
+        val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN pathProcessorVersion INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN pathRevision INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN pathProcessedRevision INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("DROP TABLE IF EXISTS engine_checkpoints")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS route_analysis_jobs (" +
+                        "trackId INTEGER NOT NULL, processorVersion INTEGER NOT NULL, inputRevision INTEGER NOT NULL, " +
+                        "state TEXT NOT NULL, attempts INTEGER NOT NULL, updatedAtWallTimeMs INTEGER NOT NULL, " +
+                        "lastError TEXT, PRIMARY KEY(trackId, processorVersion, inputRevision))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_route_analysis_jobs_state_updatedAtWallTimeMs ON route_analysis_jobs(state, updatedAtWallTimeMs)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS review_queue (" +
+                        "id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, " +
+                        "primaryTrackId INTEGER, secondaryTrackId INTEGER, startWallTimeMs INTEGER NOT NULL, " +
+                        "endWallTimeMs INTEGER, suggestedValue TEXT, currentValue TEXT, reasonCode TEXT NOT NULL, " +
+                        "evidenceKey TEXT NOT NULL, inputRevision INTEGER NOT NULL, createdAtWallTimeMs INTEGER NOT NULL, " +
+                        "updatedAtWallTimeMs INTEGER NOT NULL, decision TEXT, correctedValue TEXT)",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_review_queue_evidenceKey ON review_queue(evidenceKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_review_queue_state_updatedAtWallTimeMs ON review_queue(state, updatedAtWallTimeMs)")
+                db.execSQL(
+                    "CREATE TRIGGER track_revision_update AFTER UPDATE OF activityType, startedAt, endedAt, discardedAt, " +
+                        "startLat, startLon, endLat, endLon, startPlaceId, endPlaceId ON tracks " +
+                        "BEGIN UPDATE tracks SET pathRevision = pathRevision + 1 WHERE id = NEW.id; END",
+                )
+                db.execSQL("CREATE TRIGGER point_revision_insert AFTER INSERT ON track_points BEGIN UPDATE tracks SET pathRevision = pathRevision + 1 WHERE id = NEW.trackId; END")
+                db.execSQL("CREATE TRIGGER point_revision_delete AFTER DELETE ON track_points BEGIN UPDATE tracks SET pathRevision = pathRevision + 1 WHERE id = OLD.trackId; END")
+                db.execSQL(
+                    "CREATE TRIGGER point_revision_update AFTER UPDATE OF trackId, timestamp, latitude, longitude, altitude, " +
+                        "accuracy, speed, bearing, ignored, ignoreReason, segmentStart ON track_points " +
+                        "WHEN OLD.trackId IS NOT NEW.trackId OR OLD.timestamp IS NOT NEW.timestamp OR " +
+                        "OLD.latitude IS NOT NEW.latitude OR OLD.longitude IS NOT NEW.longitude OR " +
+                        "OLD.accuracy IS NOT NEW.accuracy OR OLD.speed IS NOT NEW.speed OR " +
+                        "OLD.bearing IS NOT NEW.bearing OR OLD.ignored IS NOT NEW.ignored OR " +
+                        "OLD.ignoreReason IS NOT NEW.ignoreReason OR OLD.segmentStart IS NOT NEW.segmentStart " +
+                        "BEGIN UPDATE tracks SET pathRevision = pathRevision + 1 WHERE id = NEW.trackId; END",
+                )
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -428,6 +473,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
             MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
             MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
+            MIGRATION_32_33,
         )
 
         fun get(context: Context): AppDatabase =

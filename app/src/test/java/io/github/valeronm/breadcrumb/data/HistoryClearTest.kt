@@ -7,12 +7,9 @@ import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.toEntity
-import io.github.valeronm.breadcrumb.locomotion.EngineCheckpoint
 import io.github.valeronm.breadcrumb.locomotion.LocationMeasurement
-import io.github.valeronm.breadcrumb.locomotion.MotionState
 import io.github.valeronm.breadcrumb.locomotion.Observation
 import io.github.valeronm.breadcrumb.locomotion.ObservationSource
-import io.github.valeronm.breadcrumb.locomotion.RecordingState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -83,21 +80,25 @@ class HistoryClearTest {
                 location = LocationMeasurement(1.0, -2.0, 5.0),
             ).toEntity(),
         )
-        test.db.locomotionDao().saveCheckpoint(
-            EngineCheckpoint(
-                sessionId = "history-clear-session",
-                bootEpochId = "history-clear-boot",
-                lastObservationId = "history-clear-observation",
-                lastElapsedRealtimeNanos = 1L,
-                lastWallTimeMs = TEST_START,
-                motionState = MotionState.UNCERTAIN,
-                recordingState = RecordingState.IDLE,
-                filter = null,
-                activeSegmentId = null,
-                configurationVersion = 1,
-                modelVersion = null,
+        test.db.locomotionDao().enqueueAnalysisJob(
+            io.github.valeronm.breadcrumb.data.db.RouteAnalysisJobEntity(
+                trackId = first,
+                processorVersion = 1,
+                inputRevision = 0,
                 updatedAtWallTimeMs = TEST_START,
-            ).toEntity(),
+            ),
+        )
+        test.db.locomotionDao().insertReview(
+            io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity(
+                id = "history-clear-review",
+                kind = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.TRANSPORT,
+                startWallTimeMs = TEST_START,
+                reasonCode = "fixture",
+                evidenceKey = "fixture",
+                inputRevision = 0,
+                createdAtWallTimeMs = TEST_START,
+                updatedAtWallTimeMs = TEST_START,
+            ),
         )
         test.db.locomotionDao().insertUserCorrection(
             EngineUserCorrectionEntity(

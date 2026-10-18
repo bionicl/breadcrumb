@@ -56,6 +56,10 @@ const val DISCARDED_RETENTION_DAYS = 14
 private const val MAX_LEADING_STRAYS_DROPPED = 5
 private const val MAX_TIMELINE_SUGGESTIONS = 500
 private const val MIN_TIMELINE_SUGGESTION_CONFIDENCE = 0.60f
+internal const val ROUTE_ANALYSIS_VERSION = 1
+private const val ONE_MINUTE_MS = 60_000L
+private const val FIVE_MINUTES_MS = 5 * ONE_MINUTE_MS
+private const val MAX_REVIEW_SEAM_DISTANCE_METERS = 300.0
 private val VISIT_CORRECTION_KINDS = setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE")
 
 /**
@@ -447,6 +451,47 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             rows.filter { it.targetSegmentId.startsWith("derived-visit:") }
         }
 
+    fun observeReviewQueue(): Flow<List<io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity>> =
+        db.locomotionDao().observeAllReviewItems()
+
+    suspend fun decideReview(id: String, decision: String, correctedValue: String? = null) {
+        db.withTransaction {
+            val dao = db.locomotionDao()
+            val current = dao.reviewItem(id) ?: return@withTransaction
+            if (current.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING) return@withTransaction
+            dao.updateReviewItem(
+                current.copy(
+                    state = when (decision) {
+                        "SKIP" -> io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SNOOZED
+                        "ACCEPT" -> io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.ACCEPTED
+                        "REJECT" -> io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.REJECTED
+                        else -> io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.CORRECTED
+                    },
+                    decision = decision,
+                    correctedValue = correctedValue,
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    suspend fun reviewItem(id: String) = db.locomotionDao().reviewItem(id)
+
+    /** Refuse a decision if any source row changed since the evidence was presented. */
+    suspend fun isReviewCurrent(item: io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity): Boolean {
+        val first = item.primaryTrackId?.let { dao.track(it) }
+        val second = item.secondaryTrackId?.let { dao.track(it) }
+        val firstMissing = item.primaryTrackId != null && first == null
+        val secondMissing = item.secondaryTrackId != null && second == null
+        if (firstMissing || secondMissing) return false
+        val revision = when {
+            first != null && second != null -> first.pathRevision * 31 + second.pathRevision
+            first != null -> first.pathRevision
+            else -> item.inputRevision
+        }
+        return revision == item.inputRevision
+    }
+
     /** Apply a per-visit correction and refresh the eligible live-observation labels atomically. */
     suspend fun correctVisit(
         afterTrackId: Long,
@@ -625,23 +670,82 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun finishTrack(trackId: Long, endedAt: Long, renameTo: ActivityType? = null) {
         val track = dao.track(trackId) ?: return
         closeOrDelete(track, endedAt, renameTo)
-        if (Settings.recorderEngineGeneration(appContext) == Settings.RecorderEngineGeneration.LOCOMOTION_V2) {
-            dao.track(trackId)?.takeIf { it.endedAt != null && it.discardedAt == null }?.let {
-                applyStoredModelSuggestion(it)
-            }
-        }
-        smoothPathIfNeeded(trackId)
+        if (Settings.routeAnalysisEnabled(appContext)) RouteAnalysisWork.enqueue(appContext)
     }
 
     /** Process only finished paths explicitly requested by the caller or newly finished now. */
     suspend fun processUnprocessedPaths(trackIds: List<Long>): Int = withContext(Dispatchers.IO) {
-        var processed = 0
-        for (batch in trackIds.distinct().chunked(IDS_PER_STATEMENT)) {
-            for (track in dao.unprocessedTracks(batch)) {
-                if (smoothPathIfNeeded(track.id)) processed++
-            }
+        if (!Settings.routeAnalysisEnabled(appContext)) return@withContext 0
+        for (trackId in trackIds.distinct()) {
+            val track = dao.track(trackId) ?: continue
+            if (track.endedAt == null || track.discardedAt != null) continue
+            db.locomotionDao().enqueueAnalysisJob(
+                io.github.valeronm.breadcrumb.data.db.RouteAnalysisJobEntity(
+                    trackId = trackId,
+                    processorVersion = ROUTE_ANALYSIS_VERSION,
+                    inputRevision = track.pathRevision,
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
         }
-        processed
+        RouteAnalysisWork.enqueue(appContext)
+        trackIds.distinct().size
+    }
+
+    suspend fun processRouteAnalysis(trackId: Long, processorVersion: Int, inputRevision: Long): Boolean {
+        val processed = smoothPathIfNeeded(trackId, processorVersion, inputRevision)
+        if (processed) dao.track(trackId)?.takeIf { it.endedAt != null && it.discardedAt == null }?.let { track ->
+            applyStoredModelSuggestion(track)
+            addNeighborhoodReview(track)
+        }
+        return processed
+    }
+
+    private suspend fun addNeighborhoodReview(track: Track) {
+        val start = track.startedAt
+        val end = track.endedAt ?: return
+        val previous = dao.previousTrack(start)
+        val next = dao.nextTrack(end)
+        val candidates = listOfNotNull(previous?.let { it to track }, next?.let { track to it })
+        for ((first, second) in candidates) {
+            val firstEnd = first.endedAt ?: continue
+            if (second.endedAt == null) continue
+            val gap = second.startedAt - firstEnd
+            if (gap !in 0..FIVE_MINUTES_MS) continue
+            val firstLat = first.endLat ?: continue
+            val firstLon = first.endLon ?: continue
+            val secondLat = second.startLat ?: continue
+            val secondLon = second.startLon ?: continue
+            val distance = AndroidDistance.meters(firstLat, firstLon, secondLat, secondLon)
+            if (distance > MAX_REVIEW_SEAM_DISTANCE_METERS || first.activityType != second.activityType) continue
+            val kind = if (gap <= ONE_MINUTE_MS) {
+                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.MERGE_TRACKS
+            } else {
+                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP
+            }
+            val revision = first.pathRevision * 31 + second.pathRevision
+            db.locomotionDao().insertReview(
+                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity(
+                    id = UUID.randomUUID().toString(),
+                    kind = kind,
+                    primaryTrackId = first.id,
+                    secondaryTrackId = second.id,
+                    startWallTimeMs = firstEnd,
+                    endWallTimeMs = second.startedAt,
+                    currentValue = first.activityType,
+                    reasonCode = if (kind == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP) {
+                        "short_stop_between_similar_tracks"
+                    } else {
+                        "nearby_same_type_tracks"
+                    },
+                    evidenceKey = "${kind.lowercase()}:${first.id}:${second.id}:$revision",
+                    inputRevision = revision,
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
+            break
+        }
     }
 
     /**
@@ -649,10 +753,17 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * The read/compute/write split keeps the CPU pass off Room's writer transaction; the final
      * transaction rechecks the marker so concurrent day refreshes and track completion are safe.
      */
-    suspend fun smoothPathIfNeeded(trackId: Long): Boolean {
+    suspend fun smoothPathIfNeeded(
+        trackId: Long,
+        processorVersion: Int = ROUTE_ANALYSIS_VERSION,
+        expectedRevision: Long? = null,
+    ): Boolean {
         val snapshot = db.withTransaction {
             val track = dao.track(trackId) ?: return@withTransaction null
-            if (track.endedAt == null || track.discardedAt != null || track.pathProcessed) return@withTransaction null
+            val alreadyProcessed = track.pathProcessorVersion >= processorVersion &&
+                track.pathProcessedRevision == track.pathRevision && expectedRevision == null
+            if (track.endedAt == null || track.discardedAt != null || alreadyProcessed) return@withTransaction null
+            if (expectedRevision != null && track.pathRevision != expectedRevision) return@withTransaction null
             track to dao.allPointsFor(trackId)
         } ?: return false
 
@@ -701,9 +812,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
         return db.withTransaction {
             val current = dao.track(trackId) ?: return@withTransaction false
-            if (current.endedAt == null || current.discardedAt != null || current.pathProcessed) return@withTransaction false
+            val revisionChanged = current.pathRevision != snapshot.first.pathRevision ||
+                (expectedRevision != null && current.pathRevision != expectedRevision)
+            if (current.endedAt == null || current.discardedAt != null || revisionChanged) return@withTransaction false
             if (updates.isNotEmpty()) dao.updateSmoothedPoints(updates)
-            dao.setPathProcessed(trackId, true)
+            dao.setPathProcessed(trackId, true, processorVersion, current.pathRevision)
             true
         }
     }
@@ -768,6 +881,22 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.setEngineSuggestion(track.id, null, null, null)
         } else {
             dao.setEngineSuggestion(track.id, activity.name, confidence, version)
+            db.locomotionDao().insertReview(
+                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity(
+                    id = UUID.randomUUID().toString(),
+                    kind = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.TRANSPORT,
+                    primaryTrackId = track.id,
+                    startWallTimeMs = track.startedAt,
+                    endWallTimeMs = endedAt,
+                    suggestedValue = activity.name,
+                    currentValue = track.activityType,
+                    reasonCode = "personal_classifier_suggestion",
+                    evidenceKey = "transport:${track.id}:${version.orEmpty()}:${track.pathRevision}",
+                    inputRevision = track.pathRevision,
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
         }
     }
 

@@ -16,6 +16,7 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -72,6 +73,51 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         BackupRepositories(repository, placeRepository, derivationStore)
 
     internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
+
+    val reviewQueue: StateFlow<List<ReviewQueueEntity>> = repository.observeReviewQueue()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    suspend fun reviewPoints(trackId: Long) = repository.pointsFor(trackId)
+
+    fun answerReview(item: ReviewQueueEntity, decision: String, correctedValue: String? = null) {
+        viewModelScope.launch {
+            val current = repository.reviewItem(item.id) ?: return@launch
+            if (current.inputRevision != item.inputRevision || current.state != ReviewQueueEntity.PENDING) return@launch
+            if (!repository.isReviewCurrent(current)) return@launch
+            if (decision == "ACCEPT" || decision == "CORRECT") {
+                when (current.kind) {
+                    ReviewQueueEntity.TRANSPORT -> {
+                        val trackId = current.primaryTrackId ?: return@launch
+                        val selected = correctedValue ?: current.suggestedValue ?: return@launch
+                        val activity = ActivityType.ofName(selected) ?: return@launch
+                        repository.setActivityType(trackId, activity)
+                    }
+                    ReviewQueueEntity.MERGE_TRACKS, ReviewQueueEntity.SHORT_STOP -> {
+                        val first = current.primaryTrackId ?: return@launch
+                        val second = current.secondaryTrackId ?: return@launch
+                        val merged = repository.mergeTracks(first, second) ?: return@launch
+                        repository.decideReview(current.id, decision, "$merged,$first,$second")
+                        return@launch
+                    }
+                    else -> return@launch
+                }
+            }
+            if (current.kind !in setOf(
+                    ReviewQueueEntity.TRANSPORT,
+                    ReviewQueueEntity.MERGE_TRACKS,
+                    ReviewQueueEntity.SHORT_STOP,
+                )
+            ) return@launch
+            repository.decideReview(current.id, decision, correctedValue)
+        }
+    }
+
+    fun undoReviewMerge(item: ReviewQueueEntity) {
+        viewModelScope.launch {
+            val parts = item.correctedValue?.split(',')?.mapNotNull(String::toLongOrNull) ?: return@launch
+            if (parts.size == 3) repository.unmergeTracks(parts[0], parts[1], parts[2])
+        }
+    }
 
     /** The language the screens are in, which places are named in. It outlives a language switch,
      *  as this model does, so the screens hand it over ([useLanguage]). */

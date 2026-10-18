@@ -1,9 +1,5 @@
 package io.github.valeronm.breadcrumb.data.db
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.util.TableInfo
-import androidx.test.core.app.ApplicationProvider
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -35,7 +31,6 @@ class Migration26To27Test {
 
     @After fun tearDown() = fixture.close()
 
-    @Suppress("DEPRECATION")
     @Test
     fun `adds exact filter state columns and preserves prior checkpoint`() {
         AppDatabase.MIGRATION_26_27.migrate(db)
@@ -47,16 +42,9 @@ class Migration26To27Test {
             assertEquals(1.0, cursor.getDouble(1), 0.0)
             assertNull(cursor.getBlob(2))
         }
-        val room = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java,
-        ).allowMainThreadQueries().build()
-        try {
-            assertEquals(
-                TableInfo.read(room.openHelper.writableDatabase, "engine_checkpoints"),
-                TableInfo.read(db, "engine_checkpoints"),
-            )
-        } finally {
-            room.close()
+        db.query("SELECT filterCovariance FROM engine_checkpoints").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertNull(cursor.getBlob(0))
         }
     }
 }

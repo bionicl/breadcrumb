@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import io.github.valeronm.breadcrumb.data.DerivationStore
 import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.data.RouteAnalysisWork
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
@@ -82,6 +83,7 @@ class App : Application() {
             if (edgeStayRuleMoved) Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
             if (statsRuleMoved) Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
             if (derivedLogicMoved) Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
+            if (Settings.routeAnalysisEnabled(this@App)) RouteAnalysisWork.enqueue(this@App)
         }
     }
 

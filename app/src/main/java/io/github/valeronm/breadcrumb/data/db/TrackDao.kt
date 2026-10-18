@@ -70,8 +70,23 @@ interface TrackDao {
     @Query("DELETE FROM track_compositions WHERE mergedTrackId = :trackId")
     suspend fun deleteComposition(trackId: Long)
 
-    @Query("UPDATE tracks SET pathProcessed = :processed WHERE id = :trackId AND endedAt IS NOT NULL AND discardedAt IS NULL")
-    suspend fun setPathProcessed(trackId: Long, processed: Boolean)
+    @Query("UPDATE tracks SET pathProcessed = :processed, pathProcessorVersion = :processorVersion, pathProcessedRevision = :revision WHERE id = :trackId AND endedAt IS NOT NULL AND discardedAt IS NULL")
+    suspend fun setPathProcessed(trackId: Long, processed: Boolean, processorVersion: Int, revision: Long)
+
+    @Query("SELECT id FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt DESC")
+    suspend fun keptFinishedTrackIdsNewestFirst(): List<Long>
+
+    @Query("SELECT id FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL AND (pathProcessorVersion < :processorVersion OR pathProcessedRevision != pathRevision) ORDER BY startedAt DESC")
+    suspend fun trackIdsNeedingAnalysis(processorVersion: Int): List<Long>
+
+    @Query("SELECT * FROM tracks WHERE discardedAt IS NULL AND endedAt IS NOT NULL AND endedAt <= :startedAt ORDER BY endedAt DESC LIMIT 1")
+    suspend fun previousTrack(startedAt: Long): Track?
+
+    @Query("SELECT * FROM tracks WHERE discardedAt IS NULL AND endedAt IS NOT NULL AND startedAt >= :endedAt ORDER BY startedAt ASC LIMIT 1")
+    suspend fun nextTrack(endedAt: Long): Track?
+
+    @Query("UPDATE tracks SET pathRevision = pathRevision + 1 WHERE id = :trackId")
+    suspend fun bumpPathRevision(trackId: Long)
 
     @Query("SELECT * FROM tracks WHERE id IN (:trackIds) AND endedAt IS NOT NULL AND discardedAt IS NULL AND pathProcessed = 0 ORDER BY startedAt ASC")
     suspend fun unprocessedTracks(trackIds: List<Long>): List<Track>

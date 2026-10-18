@@ -203,7 +203,10 @@ class TrackRepositoryTest {
 
         repository.finishTrack(id, TEST_START + 60_000L)
 
-        val track = dao.track(id)!!
+        var track = dao.track(id)!!
+        assertFalse(track.pathProcessed)
+        assertTrue(repository.processRouteAnalysis(id, ROUTE_ANALYSIS_VERSION, track.pathRevision))
+        track = dao.track(id)!!
         assertTrue(track.pathProcessed)
         val raw = dao.allPointsFor(id)
         assertEquals(0.0002, raw[3].longitude, 1e-9)
@@ -212,9 +215,10 @@ class TrackRepositoryTest {
         assertEquals(raw[3].smoothedLongitude!!, repository.pointsFor(id)[3].longitude, 1e-9)
         assertEquals(raw[3].smoothedLongitude!!, repository.trackPointsFor(id).good[3].longitude, 1e-9)
         test.assertStatsMatchPoints(id)
-        dao.setPathProcessed(id, false)
+        dao.setPathProcessed(id, false, 0, track.pathRevision)
         assertEquals(1, repository.processUnprocessedPaths(listOf(id)))
-        assertEquals(0, repository.processUnprocessedPaths(listOf(id)))
+        assertEquals(1, repository.processUnprocessedPaths(listOf(id)))
+        assertEquals(1, test.db.locomotionDao().analysisJobs(10).size)
     }
 
     @Test fun `a track with two points or fewer is purged outright, not discarded`() = runTest {
@@ -694,8 +698,10 @@ class TrackRepositoryTest {
             ),
         )!!
 
-        assertEquals(listOf("PATH", "UNKNOWN", "PATH"),
-            repository.compositionTreePartsFor(mergedId).map { it.kind })
+        assertEquals(
+            listOf("PATH", "UNKNOWN", "PATH"),
+            repository.compositionTreePartsFor(mergedId).map { it.kind },
+        )
         assertFalse(
             "the unknown bridge connects the two known path endpoints visually",
             dao.allPointsFor(mergedId).first { it.timestamp >= secondRow.startedAt }.segmentStart,
@@ -745,10 +751,12 @@ class TrackRepositoryTest {
             ),
         )!!
 
-        assertEquals(listOf(TrackOrigin.RECORDED.code, TrackOrigin.MANUAL.code),
+        assertEquals(
+            listOf(TrackOrigin.RECORDED.code, TrackOrigin.MANUAL.code),
             repository.compositionTreePartsFor(mergedId).filter { it.kind == "PATH" }.map { part ->
                 dao.track(checkNotNull(part.sourceTrackId))!!.source
-            })
+            },
+        )
         assertTrue(repository.splitComposition(mergedId))
         assertNull(dao.track(first)!!.discardedAt)
         assertNull(dao.track(second)!!.discardedAt)

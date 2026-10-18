@@ -143,15 +143,23 @@ class TrackMergeTest {
         val interval: StayDeriver.Interval = if (gapKind == "STAY") {
             StayDeriver.Stay(100_000 + intervalOffsetMs, 100_000 + gapMs + intervalOffsetMs, afterTrackId = first.id, clusterId = 0)
         } else {
-            StayDeriver.Gap(100_000 + intervalOffsetMs, 100_000 + gapMs + intervalOffsetMs, StayDeriver.GapReason.MOVED_UNRECORDED,
-                afterTrackId = first.id)
+            StayDeriver.Gap(
+                100_000 + intervalOffsetMs,
+                100_000 + gapMs + intervalOffsetMs,
+                StayDeriver.GapReason.MOVED_UNRECORDED,
+                afterTrackId = first.id,
+            )
         }
         val p1 = Coordinate(52.0, 21.0)
         val p2 = Coordinate(52.0, 21.0)
-        val endpoints = if (hasEndpoints) mapOf(
-            1L to StayDeriver.TrackEnd(1, 0, 100_000, p1, p1),
-            2L to StayDeriver.TrackEnd(2, 100_000 + gapMs, 200_000 + gapMs, p2, p2),
-        ) else emptyMap()
+        val endpoints = if (hasEndpoints) {
+            mapOf(
+                1L to StayDeriver.TrackEnd(1, 0, 100_000, p1, p1),
+                2L to StayDeriver.TrackEnd(2, 100_000 + gapMs, 200_000 + gapMs, p2, p2),
+            )
+        } else {
+            emptyMap()
+        }
         return TrackMerge.autoSequences(
             summariesNewestFirst = listOf(second, first), intervals = listOf(interval),
             endpoints = endpoints, assignedVisitAnchors = emptySet(),

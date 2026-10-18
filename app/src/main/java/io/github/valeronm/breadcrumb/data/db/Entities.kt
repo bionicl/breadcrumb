@@ -95,6 +95,9 @@ data class Track(
     val engineSuggestionModelVersion: String? = null,
     /** True after route geometry was evaluated by the post-recording path smoother. */
     @ColumnInfo(defaultValue = "0") val pathProcessed: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val pathProcessorVersion: Int = 0,
+    @ColumnInfo(defaultValue = "0") val pathRevision: Long = 0,
+    @ColumnInfo(defaultValue = "0") val pathProcessedRevision: Long = 0,
 )
 
 @Entity(
