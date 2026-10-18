@@ -14,12 +14,16 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -99,6 +103,16 @@ internal fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {
     val scope = rememberCoroutineScope()
     val undoLabel = stringResource(R.string.common_undo)
     return remember(scope, host, undoLabel) { UndoSnackbar(scope, host, undoLabel) }
+}
+
+/** The Compose host carries no dismiss gesture of its own. */
+@Composable
+internal fun SwipeDismissSnackbar(data: SnackbarData) {
+    SwipeToDismissBox(
+        state = rememberSwipeToDismissBoxState(),
+        backgroundContent = {},
+        onDismiss = { data.dismiss() },
+    ) { Snackbar(data) }
 }
 
 /**

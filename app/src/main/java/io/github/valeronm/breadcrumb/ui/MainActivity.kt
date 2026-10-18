@@ -677,6 +677,7 @@ private fun MainScreen(
                 .offset {
                     IntOffset(0, -lerp(tabsBarHeightPx, navigationBars.getBottom(this), tabsLayer.covered))
                 },
+            snackbar = { SwipeDismissSnackbar(it) },
         )
 
         when (val open = setup.prompt) {
