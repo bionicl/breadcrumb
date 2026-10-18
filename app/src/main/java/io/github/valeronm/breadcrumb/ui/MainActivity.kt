@@ -594,6 +594,11 @@ private fun MainScreen(
                 timelineJump = TimelineJump.Visit(stay)
                 landOnTimeline()
             },
+            onOpenGap = { listed ->
+                timelineJump = TimelineJump.Gap(listed)
+                landOnTimeline()
+            },
+            onOpenPlace = { placeDetailKey = it },
             onAdjustArea = { editingArea = true },
             onRemove = { place ->
                 placeLayer.dismiss()
@@ -809,6 +814,8 @@ private fun PlaceDetailOverlay(
     snapshot: PlaceResolver.PlaceSummary?,
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
+    onOpenGap: (PlaceResolver.PlaceGap) -> Unit,
+    onOpenPlace: (String) -> Unit,
     onAdjustArea: () -> Unit,
     onRemove: (Place) -> Unit,
     onOpenMerge: () -> Unit,
@@ -834,6 +841,8 @@ private fun PlaceDetailOverlay(
                 viewModel = viewModel,
                 onBack = layer.dismiss,
                 onOpenVisit = onOpenVisit,
+                onOpenGap = onOpenGap,
+                onOpenPlace = onOpenPlace,
                 onAdjustArea = onAdjustArea,
                 onRemove = onRemove,
                 canMerge = canMerge,

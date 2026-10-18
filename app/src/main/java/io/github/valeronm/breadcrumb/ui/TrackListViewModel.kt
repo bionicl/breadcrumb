@@ -402,7 +402,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
-        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
+        PlaceResolver.summarize(d.derivation, d.places, d.now, d.cities)
     }.flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 

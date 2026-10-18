@@ -31,6 +31,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | track | trajeto | Never *percurso*, *rota*, *caminho*. Only the recorded path: everywhere the sentence is about the journey itself, the word is *viagem*. |
+| gap | gravação em falta | |
+| gap-end | chegou · saiu | Third person, which carries no gender. |
 | point | ponto | Rejected ones are *ruidosos*; a guessed one is a *posição estimada*, the phrase the setting that drops them already used. |
 | activity | atividade | |
 | movement | movimento | Countable as *movimentos*, the same word. Also the Statistics section heading, where it earns its keep twice: *Movimento* names a section of many activities, and spares the screen a *Viagens* heading below an unselected *Viagens* tab. |

@@ -10,7 +10,6 @@ import org.junit.Test
 
 /** Cluster → place matching goes through seed identity; results key by afterTrackId. */
 class PlaceResolverTest {
-
     private val PIN_RADIUS = 350.0
 
     private var nextTrackId = 0L
@@ -179,7 +178,7 @@ class PlaceResolverTest {
     private val NOW = 100_000L
     private fun summarize(stays: List<Stay>, places: List<Place>): List<PlaceResolver.PlaceSummary> {
         val (stamped, clusters) = withClusters(stays, places)
-        return PlaceResolver.summarize(stamped, clusters, places, NOW)
+        return PlaceResolver.summarize(StayDeriver.Derivation(stamped, clusters), places, NOW)
     }
 
     private fun stayAt(location: Coordinate, start: Long, end: Long?): Stay {
@@ -218,7 +217,7 @@ class PlaceResolverTest {
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, clusters) = withClusters(stays, places)
         val cities = atlasOver(clusters, "Hometown", "Seaside")
-        val summaries = PlaceResolver.summarize(stamped, clusters, places, NOW, cities)
+        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stamped, clusters), places, NOW, cities)
 
         assertEquals("Home", summaries.single { it.isNamed }.name)
         // A named row carries its locality too — the Places list reads a clock off it, not a name.
@@ -245,12 +244,90 @@ class PlaceResolverTest {
         val clusters = clusterAt(listOf(at(0.0), at(1200.0)), places)
         val stayClusterId = clusters.indexOfFirst { 0 in it.memberIndices }
         val stays = listOf(stay(at(0.0)).copy(clusterId = stayClusterId))
-        val summaries = PlaceResolver.summarize(stays, clusters, places, NOW)
+        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stays, clusters), places, NOW)
         val passThrough = summaries.single { !it.isNamed && it.visitCount == 0 }
         assertEquals(at(1200.0), passThrough.pin)
         assertEquals(listOf(at(1200.0)), passThrough.endpoints)
         assertNull(passThrough.lastSeenMs)
         assertEquals(0L, passThrough.totalMs)
+    }
+
+    // --- gaps ----------------------------------------------------------------
+
+    private fun gapBetween(from: Int?, to: Int?, start: Long = 5_000L, end: Long = 9_000L) = StayDeriver.Gap(
+        start = start, end = end,
+        reason = if (from == null || to == null) StayDeriver.GapReason.UNKNOWN_ENDPOINT else StayDeriver.GapReason.MOVED_UNRECORDED,
+        afterTrackId = ++nextTrackId, fromClusterId = from, toClusterId = to,
+    )
+
+    private fun List<PlaceClusterer.Cluster>.seededBy(placeIndex: Int) = indexOfFirst { it.seedIndex == placeIndex }
+
+    @Test fun `a gap is listed at the place on each side as the track's event there, each naming the other`() {
+        val places = listOf(place(1, "Home", at(0.0)), place(2, "Shop", at(1_000.0)))
+        val stays = listOf(stayAt(at(0.0), 1_000, 3_000))
+        val (stamped, clusters) = withClusters(stays, places)
+        val gap = gapBetween(from = clusters.seededBy(0), to = clusters.seededBy(1))
+        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stamped + gap, clusters), places, NOW)
+
+        val homeSummary = summaries.single { it.place?.label == "Home" }
+        val shop = summaries.single { it.place?.label == "Shop" }
+        val home = homeSummary.gaps.single()
+        assertTrue(home.fromHere)
+        assertEquals(gap.start, home.atMs)
+        assertEquals(shop.key, home.farKey)
+
+        assertEquals(0, shop.visitCount)
+        val left = shop.gaps.single()
+        assertFalse(left.fromHere)
+        assertEquals(gap.end, left.atMs)
+        assertEquals(homeSummary.key, left.farKey)
+    }
+
+    @Test fun `a gap counts toward none of a place's figures`() {
+        val places = listOf(place(1, "Home", at(0.0)), place(2, "Shop", at(1_000.0)))
+        val stays = listOf(stayAt(at(0.0), 1_000, 3_000))
+        val (stamped, clusters) = withClusters(stays, places)
+        val gap = gapBetween(from = clusters.seededBy(0), to = clusters.seededBy(1), start = 4_000, end = 50_000)
+        val home = PlaceResolver.summarize(StayDeriver.Derivation(stamped + gap, clusters), places, NOW)
+            .single { it.place?.label == "Home" }
+        assertEquals(1, home.visitCount)
+        assertEquals(2_000L, home.totalMs)
+        assertEquals(3_000L, home.lastSeenMs)
+    }
+
+    @Test fun `a gap with no fix on one side is listed at the side it has, naming nothing`() {
+        val places = listOf(place(1, "Home", at(0.0)), place(2, "Shop", at(1_000.0)))
+        val (stamped, clusters) = withClusters(listOf(stayAt(at(0.0), 1_000, 3_000)), places)
+        val gap = gapBetween(from = clusters.seededBy(0), to = null)
+        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stamped + gap, clusters), places, NOW)
+        val home = summaries.single { it.place?.label == "Home" }.gaps.single()
+        assertTrue(home.fromHere)
+        assertNull(home.farKey)
+        assertTrue(summaries.filter { it.place?.label != "Home" }.all { it.gaps.isEmpty() })
+    }
+
+    @Test fun `an unnamed cluster lists its gaps like a named place does, keyed as it is`() {
+        val stays = listOf(stayAt(at(0.0), 1_000, 3_000), stayAt(at(1_000.0), 20_000, 30_000))
+        val (stamped, clusters) = withClusters(stays, emptyList())
+        val gap = gapBetween(from = stamped[0].clusterId, to = stamped[1].clusterId)
+        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stamped + gap, clusters), emptyList(), NOW)
+        assertEquals(listOf(true, false), summaries.map { it.gaps.single().fromHere })
+        assertEquals(summaries.map { it.key }.asReversed(), summaries.map { it.gaps.single().farKey })
+    }
+
+    @Test fun `a place's gaps are newest first by their end at the place`() {
+        val places = listOf(place(1, "Home", at(0.0)), place(2, "Shop", at(1_000.0)))
+        val (stamped, clusters) = withClusters(listOf(stayAt(at(0.0), 1_000, 3_000)), places)
+        val home = clusters.seededBy(0)
+        val shop = clusters.seededBy(1)
+        val gaps = listOf(
+            gapBetween(from = home, to = shop, start = 4_000, end = 6_000),
+            gapBetween(from = shop, to = home, start = 7_000, end = 8_000),
+            gapBetween(from = home, to = shop, start = 10_000, end = 12_000),
+        )
+        val listed = PlaceResolver.summarize(StayDeriver.Derivation(stamped + gaps, clusters), places, NOW)
+            .single { it.place?.label == "Home" }.gaps
+        assertEquals(listOf(10_000L, 8_000L, 4_000L), listed.map { it.atMs })
     }
 
     @Test fun `unnamed clusters are listed too`() {
