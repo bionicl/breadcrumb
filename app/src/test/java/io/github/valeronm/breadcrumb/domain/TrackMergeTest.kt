@@ -164,7 +164,7 @@ class TrackMergeTest {
             summariesNewestFirst = listOf(second, first), intervals = listOf(interval),
             endpoints = endpoints,
             rules = TrackMerge.AutoSequenceRules(
-                assignedVisitAnchors = emptySet(),
+                resolvedVisitAnchors = emptySet(),
                 distance = DistanceFn { _, _, _, _ -> distanceM },
             ),
         )

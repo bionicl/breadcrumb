@@ -103,7 +103,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                         repository.applyReviewTransport(current.id, current.inputRevision, activity, decision)
                         return@launch
                     }
-                    ReviewQueueEntity.MERGE_TRACKS, ReviewQueueEntity.SHORT_STOP -> {
+                    ReviewQueueEntity.MERGE_TRACKS,
+                    ReviewQueueEntity.SHORT_STOP,
+                    ReviewQueueEntity.MISSING_RECORDING -> {
                         if (repository.acceptReviewMerge(current.id, current.inputRevision)) {
                             repository.reviewItem(current.id)?.correctedValue
                                 ?.substringBefore(',')?.toLongOrNull()
@@ -118,6 +120,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                     ReviewQueueEntity.TRANSPORT,
                     ReviewQueueEntity.MERGE_TRACKS,
                     ReviewQueueEntity.SHORT_STOP,
+                    ReviewQueueEntity.PLACE_ASSIGNMENT,
+                    ReviewQueueEntity.MISSING_RECORDING,
                 )
             ) {
                 return@launch
@@ -128,6 +132,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restoreReview(item: ReviewQueueEntity) {
         viewModelScope.launch { repository.restoreReview(item.id) }
+    }
+
+    fun assignReviewPlace(item: ReviewQueueEntity, placeId: Long? = null, newPlaceName: String? = null) {
+        viewModelScope.launch { repository.assignReviewPlace(item.id, item.inputRevision, placeId, newPlaceName) }
+    }
+
+    fun undoReviewPlace(item: ReviewQueueEntity) {
+        viewModelScope.launch { repository.undoReviewPlace(item.id) }
     }
 
     fun undoReviewMerge(item: ReviewQueueEntity) {

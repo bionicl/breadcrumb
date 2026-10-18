@@ -5,9 +5,12 @@ import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
+import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
+import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity
 import io.github.valeronm.breadcrumb.data.db.RouteAnalysisQueueStatus
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
@@ -27,6 +30,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StitchRule
@@ -59,11 +63,44 @@ private const val MAX_LEADING_STRAYS_DROPPED = 5
 private const val MAX_TIMELINE_SUGGESTIONS = 500
 private const val MIN_TIMELINE_SUGGESTION_CONFIDENCE = 0.60f
 internal const val ROUTE_ANALYSIS_VERSION = 1
-internal const val ROUTE_ANALYSIS_PARAMETERS_VERSION = 1
+internal const val ROUTE_ANALYSIS_PARAMETERS_VERSION = 3
 private const val ONE_MINUTE_MS = 60_000L
 private const val FIVE_MINUTES_MS = 5 * ONE_MINUTE_MS
+private const val REVIEW_MIN_UNNAMED_STAY_MS = FIVE_MINUTES_MS
+private const val REVIEW_MIN_MISSING_GAP_MS = 4 * ONE_MINUTE_MS
+private const val REVIEW_MAX_MISSING_GAP_MS = 30 * ONE_MINUTE_MS
 private const val MAX_REVIEW_SEAM_DISTANCE_METERS = 300.0
+private const val MAX_MISSING_GAP_DISTANCE_METERS = 2_000.0
 private val VISIT_CORRECTION_KINDS = setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE")
+
+private fun activeVisitCorrections(corrections: List<EngineUserCorrectionEntity>): List<EngineUserCorrectionEntity> {
+    val undone = corrections.asSequence()
+        .filter { it.kind == "UNDO" }
+        .mapNotNull { it.referenceCorrectionId }
+        .toSet()
+    return corrections.filter { it.kind in VISIT_CORRECTION_KINDS && it.id !in undone }
+}
+
+private fun EngineUserCorrectionEntity.visitAnchorTrackId(): Long? =
+    targetSegmentId.removePrefix("derived-visit:").toLongOrNull()
+
+/** User-named place assignments are also resolved visits, even when the older edit path stored
+ *  the place on the derived cluster instead of writing an ASSIGN_VISIT_PLACE correction. */
+internal fun StoredDerivation.resolvedVisitAnchors(): Set<Long> {
+    val anchors = activeVisitCorrections(visitCorrections).mapNotNullTo(HashSet()) {
+        it.visitAnchorTrackId()
+    }
+    val namedPlaceIds = places.asSequence().filter { !it.label.isNullOrBlank() }.map { it.id }.toSet()
+    val namedClusterIds = clusters.asSequence()
+        .filter { cluster -> cluster.placeId?.let(namedPlaceIds::contains) == true }
+        .map { it.id }
+        .toSet()
+    intervals.asSequence()
+        .filter { it.type == io.github.valeronm.breadcrumb.data.db.DerivedInterval.TYPE_STAY }
+        .filter { interval -> interval.clusterId?.let(namedClusterIds::contains) == true }
+        .mapTo(anchors) { it.afterTrackId }
+    return anchors
+}
 
 /**
  * A track's points split the three ways the track screen draws them — see
@@ -539,6 +576,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         if (item.kind !in setOf(
                 io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.MERGE_TRACKS,
                 io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP,
+                ReviewQueueEntity.MISSING_RECORDING,
             )
         ) {
             return@withTransaction false
@@ -571,6 +609,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val mergedId = mergeTrackSequence(
             parts,
             expectedRevisions = mapOf(firstId to first.pathRevision, secondId to second.pathRevision),
+            allowLongGap = item.kind == ReviewQueueEntity.MISSING_RECORDING,
         ) ?: return@withTransaction false
         locomotion.updateReviewItem(
             item.copy(
@@ -581,6 +620,162 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             ),
         )
         true
+    }
+
+    /** Assign an evidence-backed stay or gap to an existing place, or create a new named place. */
+    suspend fun assignReviewPlace(
+        id: String,
+        expectedInputRevision: Long,
+        selectedPlaceId: Long? = null,
+        newPlaceName: String? = null,
+    ): Boolean {
+        var correctionTarget: String? = null
+        val applied = db.withTransaction {
+            val queue = db.locomotionDao()
+            val item = queue.reviewItem(id) ?: return@withTransaction false
+            if (item.state != ReviewQueueEntity.PENDING || item.inputRevision != expectedInputRevision) {
+                return@withTransaction false
+            }
+            val firstId = item.primaryTrackId ?: return@withTransaction false
+            val secondId = item.secondaryTrackId ?: return@withTransaction false
+            val first = dao.track(firstId) ?: return@withTransaction false
+            val second = dao.track(secondId) ?: return@withTransaction false
+            if (first.pathRevision * 31 + second.pathRevision != item.inputRevision) return@withTransaction false
+            if (item.kind !in setOf(ReviewQueueEntity.PLACE_ASSIGNMENT, ReviewQueueEntity.MISSING_RECORDING)) {
+                return@withTransaction false
+            }
+            val stored = StoredDerivation(
+                clusters = db.derivedDao().clustersOnce(),
+                members = db.derivedDao().membersOnce(),
+                intervals = db.derivedDao().intervalsOnce(),
+                places = db.placeDao().allPlaces(),
+                visitCorrections = queue.allUserCorrections(),
+            )
+            if (firstId in stored.resolvedVisitAnchors()) return@withTransaction false
+            val interval = stored.intervals.firstOrNull { it.afterTrackId == firstId }
+                ?: return@withTransaction false
+            if (interval.start != item.startWallTimeMs || interval.endedAt != item.endWallTimeMs) {
+                return@withTransaction false
+            }
+            val coordinate = when (item.kind) {
+                ReviewQueueEntity.PLACE_ASSIGNMENT -> {
+                    if (interval.type != DerivedInterval.TYPE_STAY) return@withTransaction false
+                    val cluster = stored.clusters.firstOrNull { it.id == interval.clusterId }
+                        ?: return@withTransaction false
+                    if (cluster.placeId != null || cluster.memberCount < 2) return@withTransaction false
+                    clusterCenter(cluster)
+                }
+                ReviewQueueEntity.MISSING_RECORDING -> {
+                    if (interval.type != DerivedInterval.TYPE_GAP ||
+                        interval.reason != DerivedInterval.REASON_MOVED_UNRECORDED
+                    ) {
+                        return@withTransaction false
+                    }
+                    stableGapCoordinate(interval.start, interval.endedAt) ?: return@withTransaction false
+                }
+                else -> return@withTransaction false
+            }
+            val nearest = nearestNamedPlace(coordinate, stored.places)
+            if (nearest?.id?.toString() != item.suggestedValue) return@withTransaction false
+            val selected = if (selectedPlaceId != null) {
+                if (selectedPlaceId != nearest?.id) return@withTransaction false
+                db.placeDao().place(selectedPlaceId)?.takeIf { !it.label.isNullOrBlank() }
+                    ?: return@withTransaction false
+            } else {
+                val label = newPlaceName?.trim()?.takeIf(String::isNotEmpty) ?: return@withTransaction false
+                val place = Place(
+                    label = label,
+                    lat = coordinate.lat,
+                    lon = coordinate.lon,
+                    createdAt = System.currentTimeMillis(),
+                    radiusM = PlaceClusterer.DEFAULT_RADIUS_M.toDouble(),
+                    source = PlaceOrigin.MANUAL.code,
+                )
+                val placeId = db.placeDao().insert(place)
+                place.copy(id = placeId)
+            }
+            val correctionId = UUID.randomUUID().toString()
+            val target = engineVisitSegmentId(firstId)
+            queue.insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = correctionId,
+                    operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = target,
+                    kind = "ASSIGN_VISIT_PLACE",
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    correctedPlaceId = selected.id,
+                    visitStartWallTimeMs = item.startWallTimeMs,
+                    visitEndWallTimeMs = item.endWallTimeMs,
+                ),
+            )
+            correctionTarget = target
+            val created = selectedPlaceId == null
+            queue.updateReviewItem(
+                item.copy(
+                    state = if (created) ReviewQueueEntity.CORRECTED else ReviewQueueEntity.ACCEPTED,
+                    decision = if (created) "CREATE_PLACE" else "ASSIGN_PLACE",
+                    correctedValue = "${selected.id}:$correctionId:${if (created) 1 else 0}",
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
+            if (created) derivation.reconcile(stale = true)
+            true
+        }
+        if (applied) correctionTarget?.let { refreshVisitTrainingLabels(it) }
+        return applied
+    }
+
+    /** Undo a Review place decision; a created pin is removed only when no other data now uses it. */
+    suspend fun undoReviewPlace(id: String): Boolean {
+        var correctionTarget: String? = null
+        val undone = db.withTransaction {
+            val queue = db.locomotionDao()
+            val item = queue.reviewItem(id) ?: return@withTransaction false
+            if (item.state !in setOf(ReviewQueueEntity.ACCEPTED, ReviewQueueEntity.CORRECTED)) {
+                return@withTransaction false
+            }
+            val parts = item.correctedValue?.split(':') ?: return@withTransaction false
+            if (parts.size != 3) return@withTransaction false
+            val placeId = parts[0].toLongOrNull() ?: return@withTransaction false
+            val correctionId = parts[1]
+            val created = parts[2] == "1"
+            val correction = queue.allUserCorrections().firstOrNull { it.id == correctionId }
+                ?: return@withTransaction false
+            queue.insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = UUID.randomUUID().toString(),
+                    operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = correction.targetSegmentId,
+                    kind = "UNDO",
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    referenceCorrectionId = correction.id,
+                ),
+            )
+            correctionTarget = correction.targetSegmentId
+            var removedPlace = false
+            if (created && db.placeDao().place(placeId) != null) {
+                val corrections = queue.allUserCorrections()
+                val undoneIds = corrections.filter { it.kind == "UNDO" }.mapNotNullTo(HashSet()) { it.referenceCorrectionId }
+                val usedByAnotherCorrection = corrections.any {
+                    it.id != correctionId && it.id !in undoneIds &&
+                        it.kind == "ASSIGN_VISIT_PLACE" && it.correctedPlaceId == placeId
+                }
+                val usedByTrack = dao.debugExportTracks().any {
+                    it.startPlaceId == placeId || it.endPlaceId == placeId
+                }
+                if (!usedByAnotherCorrection && !usedByTrack) {
+                    db.placeDao().delete(placeId)
+                    removedPlace = true
+                }
+            }
+            queue.updateReviewItem(
+                item.copy(state = ReviewQueueEntity.UNDONE, decision = "UNDO", updatedAtWallTimeMs = System.currentTimeMillis()),
+            )
+            if (removedPlace) derivation.reconcile(stale = true)
+            true
+        }
+        if (undone) correctionTarget?.let { refreshVisitTrainingLabels(it) }
+        return undone
     }
 
     suspend fun undoReviewMerge(id: String): Boolean = db.withTransaction {
@@ -614,12 +809,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val corrected = db.withTransaction {
             val locomotion = db.locomotionDao()
             val item = locomotion.reviewItem(id) ?: return@withTransaction null
-            if (item.kind != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.TRANSPORT ||
-                item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING ||
-                item.inputRevision != expectedInputRevision || !isReviewCurrent(item)
-            ) {
-                return@withTransaction null
-            }
+            if (item.kind != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.TRANSPORT) return@withTransaction null
+            if (item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING) return@withTransaction null
+            if (item.inputRevision != expectedInputRevision || !isReviewCurrent(item)) return@withTransaction null
             val trackId = item.primaryTrackId ?: return@withTransaction null
             val track = setActivityTypeInTransaction(trackId, activityType) ?: return@withTransaction null
             locomotion.updateReviewItem(
@@ -653,7 +845,46 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             first != null -> first.pathRevision
             else -> item.inputRevision
         }
-        return revision == item.inputRevision
+        if (revision != item.inputRevision) return false
+        if (item.kind in setOf(
+                ReviewQueueEntity.MERGE_TRACKS,
+                ReviewQueueEntity.SHORT_STOP,
+                ReviewQueueEntity.MISSING_RECORDING,
+                ReviewQueueEntity.PLACE_ASSIGNMENT,
+            )
+        ) {
+            val anchor = item.primaryTrackId ?: return false
+            val stored = derivation.observeStored().first()
+            if (anchor in stored.resolvedVisitAnchors()) return false
+            val interval = stored.intervals.firstOrNull { it.afterTrackId == anchor } ?: return false
+            if (interval.start != item.startWallTimeMs || interval.endedAt != item.endWallTimeMs) return false
+            when (item.kind) {
+                ReviewQueueEntity.MISSING_RECORDING -> {
+                    if (interval.type != DerivedInterval.TYPE_GAP ||
+                        interval.reason != DerivedInterval.REASON_MOVED_UNRECORDED ||
+                        interval.endedAt - interval.start !in REVIEW_MIN_MISSING_GAP_MS..REVIEW_MAX_MISSING_GAP_MS
+                    ) {
+                        return false
+                    }
+                    if (stableGapCoordinate(interval.start, interval.endedAt)
+                            ?.let { nearestNamedPlace(it, stored.places) }?.id?.toString() != item.suggestedValue
+                    ) {
+                        return false
+                    }
+                }
+                ReviewQueueEntity.PLACE_ASSIGNMENT -> {
+                    if (interval.type != DerivedInterval.TYPE_STAY) return false
+                    val cluster = interval.clusterId?.let { id -> stored.clusters.firstOrNull { it.id == id } }
+                        ?: return false
+                    if (cluster.placeId != null || cluster.memberCount < 2) return false
+                    if (nearestNamedPlace(clusterCenter(cluster), stored.places)?.id?.toString() != item.suggestedValue) {
+                        return false
+                    }
+                }
+                else -> if (interval.type !in setOf(DerivedInterval.TYPE_STAY, DerivedInterval.TYPE_GAP)) return false
+            }
+        }
+        return true
     }
 
     /** Apply a per-visit correction and refresh the eligible live-observation labels atomically. */
@@ -682,6 +913,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 ),
             )
             refreshVisitTrainingLabels(target)
+            withdrawReviewsForResolvedVisit(afterTrackId)
             correctionId
         }
         processUnprocessedPaths(listOf(afterTrackId))
@@ -689,21 +921,32 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /** Undo one visit correction without deleting the audit trail or raw observations. */
-    suspend fun undoVisitCorrection(correctionId: String) = db.withTransaction {
-        val original = db.locomotionDao().allUserCorrections().firstOrNull { it.id == correctionId }
-            ?: return@withTransaction
-        if (original.kind == "UNDO") return@withTransaction
-        db.locomotionDao().insertUserCorrection(
-            EngineUserCorrectionEntity(
-                id = UUID.randomUUID().toString(),
-                operationId = UUID.randomUUID().toString(),
-                targetSegmentId = original.targetSegmentId,
-                kind = "UNDO",
-                createdAtWallTimeMs = System.currentTimeMillis(),
-                referenceCorrectionId = original.id,
-            ),
-        )
-        refreshVisitTrainingLabels(original.targetSegmentId)
+    suspend fun undoVisitCorrection(correctionId: String) {
+        val anchorTrackId = db.withTransaction {
+            val original = db.locomotionDao().allUserCorrections().firstOrNull { it.id == correctionId }
+                ?: return@withTransaction null
+            if (original.kind == "UNDO") return@withTransaction null
+            db.locomotionDao().insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = UUID.randomUUID().toString(),
+                    operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = original.targetSegmentId,
+                    kind = "UNDO",
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    referenceCorrectionId = original.id,
+                ),
+            )
+            refreshVisitTrainingLabels(original.targetSegmentId)
+            original.visitAnchorTrackId()
+        }
+        // The path did not change, so path-version scheduling would be a no-op. Reconcile this
+        // seam directly after removing the user's resolution.
+        anchorTrackId?.let { id ->
+            dao.track(id)?.let { track ->
+                addNeighborhoodReview(track)
+                applyAutomaticMerges(setOf(id))
+            }
+        }
     }
 
     private suspend fun refreshVisitTrainingLabels(target: String) {
@@ -727,6 +970,26 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
         dao.confirmPlaceTrainingLabel(ids, latest.correctedPlaceId, locationClass)
     }
+
+    /** A user correction resolves this seam, so queued cards for its neighboring tracks go stale. */
+    private suspend fun withdrawReviewsForResolvedVisit(afterTrackId: Long) {
+        val first = dao.track(afterTrackId) ?: return
+        val firstEnd = first.endedAt ?: return
+        val second = dao.nextTrack(firstEnd) ?: return
+        val queue = db.locomotionDao()
+        queue.activeVisitReviewsForSeam(first.id, second.id).forEach { item ->
+            queue.updateReviewItem(
+                item.copy(
+                    state = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.STALE,
+                    decision = "STALE",
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    private suspend fun hasResolvedVisit(anchorTrackId: Long): Boolean =
+        anchorTrackId in derivation.observeStored().first().resolvedVisitAnchors()
 
     private fun activityCorrection(trackId: Long, activityType: ActivityType): EngineUserCorrectionEntity? {
         val mode = activityType.toTransportMode()
@@ -872,6 +1135,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.track(trackId)?.takeIf { it.endedAt != null && it.discardedAt == null }?.let { track ->
                 applyStoredModelSuggestion(track)
                 addNeighborhoodReview(track)
+                addPlaceAndMissingRecordingReviews(track)
                 applyAutomaticMerges(setOf(track.id))
             }
         }
@@ -887,15 +1151,12 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val intervals = DerivedReadModel.mappedRows(stored).intervals
         val endpoints = dao.endpointsOnce().associate { it.id to it.toTrackEnd() }
         val corrections = stored.visitCorrections
-        val undone = corrections.asSequence().filter { it.kind == "UNDO" }
-            .mapNotNull { it.referenceCorrectionId }.toSet()
-        val active = corrections.asSequence()
-            .filterNot { it.id in undone }
-            .toList()
-        val assigned = active.asSequence()
-            .filter { it.kind == "ASSIGN_VISIT_PLACE" }
-            .mapNotNull { it.targetSegmentId.removePrefix("derived-visit:").toLongOrNull() }
+        val undone = corrections.asSequence()
+            .filter { it.kind == "UNDO" }
+            .mapNotNull { it.referenceCorrectionId }
             .toSet()
+        val active = corrections.filterNot { it.id in undone }
+        val resolvedVisitAnchors = stored.resolvedVisitAnchors()
         val locksByOperation = active.filter { it.kind == "LOCK_BOUNDARY" }.groupBy { it.operationId }
         val manuallyLockedSeams = locksByOperation.values.mapNotNull { locks ->
             val before = locks.firstOrNull { it.boundaryKind == "END" }
@@ -916,7 +1177,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             intervals = intervals,
             endpoints = endpoints,
             rules = TrackMerge.AutoSequenceRules(
-                assignedVisitAnchors = assigned,
+                resolvedVisitAnchors = resolvedVisitAnchors,
                 distance = AndroidDistance,
                 protectedSeams = manuallyLockedSeams + rejectedSeams,
             ),
@@ -968,10 +1229,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val next = dao.nextTrack(end)
         val candidates = listOfNotNull(previous?.let { it to track }, next?.let { track to it })
         for ((first, second) in candidates) {
+            if (hasResolvedVisit(first.id)) {
+                withdrawReviewsForResolvedVisit(first.id)
+                continue
+            }
             val firstEnd = first.endedAt ?: continue
             if (second.endedAt == null) continue
             val gap = second.startedAt - firstEnd
             if (gap !in 0..FIVE_MINUTES_MS) continue
+            val interval = derivation.observeStored().first().intervals
+                .firstOrNull { it.afterTrackId == first.id } ?: continue
             val firstLat = first.endLat ?: continue
             val firstLon = first.endLon ?: continue
             val secondLat = second.startLat ?: continue
@@ -984,28 +1251,170 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP
             }
             val revision = first.pathRevision * 31 + second.pathRevision
-            db.locomotionDao().insertReview(
-                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity(
-                    id = UUID.randomUUID().toString(),
-                    kind = kind,
-                    primaryTrackId = first.id,
-                    secondaryTrackId = second.id,
-                    startWallTimeMs = firstEnd,
-                    endWallTimeMs = second.startedAt,
-                    currentValue = first.activityType,
-                    reasonCode = if (kind == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP) {
-                        "short_stop_between_similar_tracks"
-                    } else {
-                        "nearby_same_type_tracks"
-                    },
-                    evidenceKey = "${kind.lowercase()}:${first.id}:${second.id}:$revision",
-                    inputRevision = revision,
-                    createdAtWallTimeMs = System.currentTimeMillis(),
-                    updatedAtWallTimeMs = System.currentTimeMillis(),
-                ),
+            val evidenceKey = "${kind.lowercase()}:${first.id}:${second.id}:$revision"
+            val queue = db.locomotionDao()
+            val candidate = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity(
+                id = UUID.randomUUID().toString(),
+                kind = kind,
+                primaryTrackId = first.id,
+                secondaryTrackId = second.id,
+                startWallTimeMs = firstEnd,
+                endWallTimeMs = second.startedAt,
+                currentValue = first.activityType,
+                reasonCode = if (kind == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP) {
+                    "short_stop_between_similar_tracks"
+                } else {
+                    "nearby_same_type_tracks"
+                },
+                evidenceKey = evidenceKey,
+                inputRevision = revision,
+                createdAtWallTimeMs = System.currentTimeMillis(),
+                updatedAtWallTimeMs = System.currentTimeMillis(),
             )
+            val existing = queue.reviewItemByEvidenceKey(evidenceKey)
+            if (existing?.state == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.STALE) {
+                queue.updateReviewItem(
+                    existing.copy(
+                        state = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING,
+                        decision = null,
+                        correctedValue = null,
+                        updatedAtWallTimeMs = System.currentTimeMillis(),
+                    ),
+                )
+            } else if (existing == null) {
+                queue.insertReview(candidate)
+            }
             break
         }
+    }
+
+    /** Persist evidence-backed questions for unnamed visits and longer moved-but-unrecorded gaps. */
+    private suspend fun addPlaceAndMissingRecordingReviews(track: Track) {
+        val previous = dao.previousTrack(track.startedAt)
+        val anchors = listOfNotNull(previous?.id, track.id).toSet()
+        val stored = derivation.observeStored().first()
+        val clusters = stored.clusters.associateBy { it.id }
+        val namedPlaceIds = stored.places.filter { !it.label.isNullOrBlank() }.mapTo(HashSet()) { it.id }
+        val intervals = stored.intervals.filter { it.afterTrackId in anchors }
+        for (interval in intervals) {
+            val first = dao.track(interval.afterTrackId) ?: continue
+            first.endedAt ?: continue
+            val second = dao.nextTrack(interval.endedAt) ?: continue
+            if (second.endedAt == null) continue
+            val duration = interval.endedAt - interval.start
+            val revision = first.pathRevision * 31 + second.pathRevision
+            when (interval.type) {
+                DerivedInterval.TYPE_STAY -> {
+                    if (duration < REVIEW_MIN_UNNAMED_STAY_MS) continue
+                    val clusterId = interval.clusterId ?: continue
+                    val cluster = clusters[clusterId] ?: continue
+                    if (cluster.placeId?.let(namedPlaceIds::contains) == true || cluster.memberCount < 2) continue
+                    val anchor = clusterCenter(cluster)
+                    val nearest = nearestNamedPlace(anchor, stored.places)
+                    val item = ReviewQueueEntity(
+                        id = UUID.randomUUID().toString(),
+                        kind = ReviewQueueEntity.PLACE_ASSIGNMENT,
+                        primaryTrackId = first.id,
+                        secondaryTrackId = second.id,
+                        startWallTimeMs = interval.start,
+                        endWallTimeMs = interval.endedAt,
+                        suggestedValue = nearest?.id?.toString(),
+                        currentValue = "UNASSIGNED",
+                        reasonCode = if (nearest == null) "unnamed_visit_new_place" else "unnamed_visit_near_place",
+                        evidenceKey = "place-cluster:$clusterId",
+                        inputRevision = revision,
+                        createdAtWallTimeMs = System.currentTimeMillis(),
+                        updatedAtWallTimeMs = System.currentTimeMillis(),
+                    )
+                    insertOrRefreshReview(item)
+                }
+                DerivedInterval.TYPE_GAP -> {
+                    if (interval.reason != DerivedInterval.REASON_MOVED_UNRECORDED ||
+                        duration !in REVIEW_MIN_MISSING_GAP_MS..REVIEW_MAX_MISSING_GAP_MS
+                    ) {
+                        continue
+                    }
+                    if (first.activityType != second.activityType) continue
+                    val endLat = first.endLat ?: continue
+                    val endLon = first.endLon ?: continue
+                    val startLat = second.startLat ?: continue
+                    val startLon = second.startLon ?: continue
+                    val distance = AndroidDistance.meters(endLat, endLon, startLat, startLon)
+                    if (distance > MAX_MISSING_GAP_DISTANCE_METERS) continue
+                    val coordinate = stableGapCoordinate(interval.start, interval.endedAt)
+                    val nearest = coordinate?.let { nearestNamedPlace(it, stored.places) }
+                    val observations = db.locomotionDao().observationsBetween(interval.start, interval.endedAt)
+                    val hasMotionEvidence = observations.any {
+                        it.source == "ACTIVITY_RECOGNITION" &&
+                            (it.detectedActivityConfidence ?: 0) >= 70
+                    }
+                    if (coordinate == null && !hasMotionEvidence) continue
+                    val item = ReviewQueueEntity(
+                        id = UUID.randomUUID().toString(),
+                        kind = ReviewQueueEntity.MISSING_RECORDING,
+                        primaryTrackId = first.id,
+                        secondaryTrackId = second.id,
+                        startWallTimeMs = interval.start,
+                        endWallTimeMs = interval.endedAt,
+                        suggestedValue = nearest?.id?.toString(),
+                        currentValue = first.activityType,
+                        reasonCode = if (coordinate != null) {
+                            "moved_unrecorded_gap_with_place_evidence"
+                        } else {
+                            "moved_unrecorded_gap"
+                        },
+                        evidenceKey = "missing-recording:${first.id}:${second.id}:$revision",
+                        inputRevision = revision,
+                        createdAtWallTimeMs = System.currentTimeMillis(),
+                        updatedAtWallTimeMs = System.currentTimeMillis(),
+                    )
+                    insertOrRefreshReview(item)
+                }
+            }
+        }
+    }
+
+    private suspend fun insertOrRefreshReview(candidate: ReviewQueueEntity) {
+        val queue = db.locomotionDao()
+        val existing = queue.reviewItemByEvidenceKey(candidate.evidenceKey)
+        when {
+            existing == null -> queue.insertReview(candidate)
+            existing.state == ReviewQueueEntity.STALE -> queue.updateReviewItem(
+                candidate.copy(id = existing.id, createdAtWallTimeMs = existing.createdAtWallTimeMs),
+            )
+        }
+    }
+
+    private fun clusterCenter(cluster: io.github.valeronm.breadcrumb.data.db.DerivedCluster): Coordinate =
+        if (cluster.memberCount > 0) {
+            Coordinate(cluster.sumLat / cluster.memberCount, cluster.sumLon / cluster.memberCount)
+        } else {
+            Coordinate(cluster.anchorLat, cluster.anchorLon)
+        }
+
+    private fun nearestNamedPlace(at: Coordinate, places: List<Place>): Place? = places.asSequence()
+        .filter { !it.label.isNullOrBlank() }
+        .map { place -> place to AndroidDistance.meters(at.lat, at.lon, place.lat, place.lon) }
+        .filter { (place, distance) -> distance <= (place.radiusM + 100.0).coerceIn(150.0, 500.0) }
+        .minByOrNull { it.second }
+        ?.first
+
+    /** Only a compact group of actual GNSS samples can support offering a place for a missing gap. */
+    private suspend fun stableGapCoordinate(start: Long, end: Long): Coordinate? {
+        val fixes = db.locomotionDao().observationsBetween(start, end).asSequence()
+            .filter { it.source == "RAW_GNSS" && it.qualityFlags == 0 }
+            .filter { (it.horizontalAccuracyMeters ?: 0.0) <= 150.0 }
+            .mapNotNull { observation ->
+                val lat = observation.latitudeDegrees ?: return@mapNotNull null
+                val lon = observation.longitudeDegrees ?: return@mapNotNull null
+                if (!lat.isFinite() || !lon.isFinite()) return@mapNotNull null
+                Coordinate(lat, lon) to observation.wallTimeMs
+            }
+            .toList()
+        if (fixes.size < 2 || fixes.maxOf { it.second } - fixes.minOf { it.second } < 15_000L) return null
+        val center = Coordinate(fixes.map { it.first.lat }.average(), fixes.map { it.first.lon }.average())
+        if (fixes.any { AndroidDistance.meters(center.lat, center.lon, it.first.lat, it.first.lon) > 150.0 }) return null
+        return center
     }
 
     /**
@@ -1472,6 +1881,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun mergeTrackSequence(
         parts: List<TrackCompositionPartDraft>,
         expectedRevisions: Map<Long, Long> = emptyMap(),
+        allowLongGap: Boolean = false,
         onRejected: ((String) -> Unit)? = null,
     ): Long? = db.withTransaction {
         fun reject(reason: String): Long? {
@@ -1509,7 +1919,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 gap.startedAt != beforeEndedAt ||
                 gap.endedAt != afterStartedAt ||
                 afterStartedAt < beforeEndedAt ||
-                afterStartedAt - beforeEndedAt > 4 * 60_000L
+                afterStartedAt - beforeEndedAt > (if (allowLongGap) REVIEW_MAX_MISSING_GAP_MS else 4 * 60_000L)
             ) {
                 return@withTransaction reject("interval_mismatch")
             }

@@ -85,7 +85,7 @@ internal object DerivedReadModel {
             .mapValues { (_, rows) ->
                 rows.maxWith(compareBy<EngineUserCorrectionEntity> { it.createdAtWallTimeMs }.thenBy { it.id })
             }
-        val assignedGapPlaces = activeCorrections.mapNotNull { (target, correction) ->
+        val assignedVisitPlaces = activeCorrections.mapNotNull { (target, correction) ->
             if (correction.kind != "ASSIGN_VISIT_PLACE") return@mapNotNull null
             val afterTrackId = target.removePrefix("derived-visit:").toLongOrNull() ?: return@mapNotNull null
             val placeId = correction.correctedPlaceId ?: return@mapNotNull null
@@ -96,7 +96,7 @@ internal object DerivedReadModel {
         return MappedRows(
             clusters = clusters,
             intervals = stored.intervals.mapNotNull { interval ->
-                interval.toInterval(indexOfRow, assignedGapPlaces[interval.afterTrackId])
+                interval.toInterval(indexOfRow, assignedVisitPlaces[interval.afterTrackId])
             },
             tailAnchor = tailAnchor(stored.members, indexOfRow),
         )
@@ -138,11 +138,11 @@ internal object DerivedReadModel {
      */
     private fun DerivedInterval.toInterval(
         indexOfRow: Map<Long, Int>,
-        assignedGapPlaceClusterId: Long?,
+        assignedVisitPlaceClusterId: Long?,
     ): StayDeriver.Interval? =
         when (type) {
             DerivedInterval.TYPE_STAY -> {
-                val cluster = clusterId?.let(indexOfRow::get)
+                val cluster = (assignedVisitPlaceClusterId ?: clusterId)?.let(indexOfRow::get)
                 if (cluster == null) {
                     DebugLog.w(TAG, "stay after track $afterTrackId names no readable cluster; dropped")
                     null
@@ -155,7 +155,7 @@ internal object DerivedReadModel {
                     )
                 }
             }
-            DerivedInterval.TYPE_GAP -> assignedGapPlaceClusterId
+            DerivedInterval.TYPE_GAP -> assignedVisitPlaceClusterId
                 ?.let(indexOfRow::get)
                 ?.let { clusterId ->
                     StayDeriver.Stay(

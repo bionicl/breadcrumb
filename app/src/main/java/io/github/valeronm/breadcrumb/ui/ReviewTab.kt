@@ -12,10 +12,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -37,6 +41,7 @@ import java.util.Date
 internal fun ReviewTab(viewModel: TrackListViewModel) {
     val all by viewModel.reviewQueue.collectAsStateWithLifecycle()
     val analysis by viewModel.analysisQueueStatus.collectAsStateWithLifecycle()
+    val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
     val analysisEnabled = viewModel.analysisEnabled
     val analysisMessage = when {
         !analysisEnabled -> stringResource(R.string.review_analysis_disabled)
@@ -93,7 +98,7 @@ internal fun ReviewTab(viewModel: TrackListViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(visible, key = ReviewQueueEntity::id) { item ->
-                    ReviewCard(item, viewModel, showResolved)
+                    ReviewCard(item, viewModel, showResolved, storedPlaces)
                 }
             }
         }
@@ -101,7 +106,7 @@ internal fun ReviewTab(viewModel: TrackListViewModel) {
 }
 
 @Composable
-private fun ReviewCard(item: ReviewQueueEntity, viewModel: TrackListViewModel, resolved: Boolean) {
+private fun ReviewCard(item: ReviewQueueEntity, viewModel: TrackListViewModel, resolved: Boolean, places: List<Place>) {
     var primaryPoints by remember(item.id) { mutableStateOf<List<TrackPoint>>(emptyList()) }
     var secondaryPoints by remember(item.id) { mutableStateOf<List<TrackPoint>>(emptyList()) }
     LaunchedEffect(item.id) {
@@ -109,6 +114,9 @@ private fun ReviewCard(item: ReviewQueueEntity, viewModel: TrackListViewModel, r
         item.secondaryTrackId?.let { secondaryPoints = viewModel.reviewPoints(it) }
     }
     val duration = item.endWallTimeMs?.let { (it - item.startWallTimeMs).coerceAtLeast(0L) }
+    val nearestPlace = item.suggestedValue?.toLongOrNull()?.let { id -> places.firstOrNull { it.id == id } }
+    var showCreatePlace by remember(item.id) { mutableStateOf(false) }
+    var newPlaceName by remember(item.id) { mutableStateOf("") }
     Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(reviewTitle(item), style = MaterialTheme.typography.titleMedium)
@@ -133,26 +141,112 @@ private fun ReviewCard(item: ReviewQueueEntity, viewModel: TrackListViewModel, r
                 )
             }
             Text(
-                stringResource(
-                    R.string.review_suggestion,
-                    item.currentValue ?: stringResource(R.string.review_unknown),
-                    item.suggestedValue ?: reviewSuggestion(item),
-                ),
+                when (item.kind) {
+                    ReviewQueueEntity.PLACE_ASSIGNMENT -> stringResource(
+                        R.string.review_suggestion_unknown_place,
+                        nearestPlace?.label ?: stringResource(R.string.review_unknown_place),
+                    )
+                    ReviewQueueEntity.MISSING_RECORDING -> stringResource(R.string.review_suggestion_missing_recording)
+                    else -> stringResource(
+                        R.string.review_suggestion,
+                        item.currentValue ?: stringResource(R.string.review_unknown),
+                        item.suggestedValue ?: reviewSuggestion(item),
+                    )
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
             if (resolved) {
                 Text(item.state.lowercase(), style = MaterialTheme.typography.labelMedium)
                 if (item.state == ReviewQueueEntity.ACCEPTED &&
-                    (item.kind == ReviewQueueEntity.MERGE_TRACKS || item.kind == ReviewQueueEntity.SHORT_STOP)
+                    (item.kind == ReviewQueueEntity.MERGE_TRACKS || item.kind == ReviewQueueEntity.SHORT_STOP ||
+                        item.kind == ReviewQueueEntity.MISSING_RECORDING)
                 ) {
                     OutlinedButton(onClick = { viewModel.undoReviewMerge(item) }) {
                         Text(stringResource(R.string.review_undo_merge))
                     }
                 }
+                if (item.state in setOf(ReviewQueueEntity.ACCEPTED, ReviewQueueEntity.CORRECTED) &&
+                    item.kind in setOf(ReviewQueueEntity.PLACE_ASSIGNMENT, ReviewQueueEntity.MISSING_RECORDING) &&
+                    item.decision in setOf("ASSIGN_PLACE", "CREATE_PLACE")
+                ) {
+                    OutlinedButton(onClick = { viewModel.undoReviewPlace(item) }) {
+                        Text(stringResource(R.string.review_undo_place))
+                    }
+                }
+                if (item.state == ReviewQueueEntity.SNOOZED) {
+                    OutlinedButton(onClick = { viewModel.restoreReview(item) }) {
+                        Text(stringResource(R.string.review_restore))
+                    }
+                }
             } else {
-                ReviewActions(item, viewModel)
+                when (item.kind) {
+                    ReviewQueueEntity.PLACE_ASSIGNMENT -> {
+                        if (nearestPlace != null) {
+                            Button(onClick = { viewModel.assignReviewPlace(item, placeId = nearestPlace.id) }) {
+                                Text(stringResource(R.string.review_assign_named_place, nearestPlace.label.orEmpty()))
+                            }
+                        }
+                        OutlinedButton(onClick = { showCreatePlace = true }) {
+                            Text(stringResource(R.string.review_create_new_place))
+                        }
+                        OutlinedButton(onClick = { viewModel.answerReview(item, "REJECT") }) {
+                            Text(stringResource(R.string.review_leave_unassigned))
+                        }
+                        OutlinedButton(onClick = { viewModel.answerReview(item, "SKIP") }) {
+                            Text(stringResource(R.string.review_skip))
+                        }
+                    }
+                    ReviewQueueEntity.MISSING_RECORDING -> {
+                        if (item.reasonCode.endsWith("_with_place_evidence")) {
+                            if (nearestPlace != null) {
+                                Button(onClick = { viewModel.assignReviewPlace(item, placeId = nearestPlace.id) }) {
+                                    Text(stringResource(R.string.review_assign_named_place, nearestPlace.label.orEmpty()))
+                                }
+                            }
+                            OutlinedButton(onClick = { showCreatePlace = true }) {
+                                Text(stringResource(R.string.review_create_new_place))
+                            }
+                        }
+                        Button(onClick = { viewModel.answerReview(item, "ACCEPT") }) {
+                            Text(stringResource(R.string.review_save_as_trip))
+                        }
+                        OutlinedButton(onClick = { viewModel.answerReview(item, "REJECT") }) {
+                            Text(stringResource(R.string.review_keep_separate))
+                        }
+                        OutlinedButton(onClick = { viewModel.answerReview(item, "SKIP") }) {
+                            Text(stringResource(R.string.review_skip))
+                        }
+                    }
+                    else -> ReviewActions(item, viewModel)
+                }
             }
         }
+    }
+    if (showCreatePlace) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlace = false },
+            title = { Text(stringResource(R.string.review_create_new_place)) },
+            text = {
+                OutlinedTextField(
+                    value = newPlaceName,
+                    onValueChange = { newPlaceName = it.replace('\n', ' ') },
+                    label = { Text(stringResource(R.string.review_place_name)) },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newPlaceName.isNotBlank(),
+                    onClick = {
+                        viewModel.assignReviewPlace(item, newPlaceName = newPlaceName)
+                        showCreatePlace = false
+                    },
+                ) { Text(stringResource(R.string.review_create_new_place)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlace = false }) { Text(stringResource(R.string.review_cancel)) }
+            },
+        )
     }
 }
 
@@ -195,6 +289,7 @@ private fun ReviewActions(item: ReviewQueueEntity, viewModel: TrackListViewModel
 private fun reviewTitle(item: ReviewQueueEntity) = stringResource(
     when (item.kind) {
         ReviewQueueEntity.TRANSPORT -> R.string.review_kind_transport
+        ReviewQueueEntity.MISSING_RECORDING -> R.string.review_kind_missing_recording
         ReviewQueueEntity.MERGE_TRACKS -> R.string.review_kind_merge
         ReviewQueueEntity.SHORT_STOP -> R.string.review_kind_short_stop
         ReviewQueueEntity.VISIT_DRIFT -> R.string.review_kind_visit
@@ -210,6 +305,8 @@ private fun reviewReason(code: String) = stringResource(
         "personal_classifier_suggestion" -> R.string.review_reason_transport
         "short_stop_between_similar_tracks" -> R.string.review_reason_short_stop
         "nearby_same_type_tracks" -> R.string.review_reason_merge
+        "unnamed_visit_near_place", "unnamed_visit_new_place" -> R.string.review_reason_unnamed_visit
+        "moved_unrecorded_gap", "moved_unrecorded_gap_with_place_evidence" -> R.string.review_reason_missing_recording
         else -> R.string.review_reason_generic
     },
 )
@@ -219,6 +316,7 @@ private fun reviewSuggestion(item: ReviewQueueEntity) = stringResource(
     when (item.kind) {
         ReviewQueueEntity.MERGE_TRACKS -> R.string.review_suggestion_merge
         ReviewQueueEntity.SHORT_STOP -> R.string.review_suggestion_short_stop
+        ReviewQueueEntity.MISSING_RECORDING -> R.string.review_suggestion_missing_recording
         ReviewQueueEntity.VISIT_DRIFT -> R.string.review_suggestion_visit
         ReviewQueueEntity.PLACE_ASSIGNMENT -> R.string.review_suggestion_place
         ReviewQueueEntity.PLACE_DUPLICATE -> R.string.review_suggestion_duplicate

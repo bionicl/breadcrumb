@@ -76,15 +76,15 @@ object TrackMerge {
     )
 
     data class AutoSequenceRules(
-        val assignedVisitAnchors: Set<Long>,
+        val resolvedVisitAnchors: Set<Long>,
         val distance: DistanceFn,
         val protectedSeams: Set<Pair<Long, Long>> = emptySet(),
     )
 
     /**
      * Auto-merge only intervals whose clock span and endpoint distance both fit the user's small-gap
-     * rule. Missing coordinates are not evidence of proximity. Explicitly assigned places remain
-     * separate; a DELETE_VISIT correction does not block absorbing the stop into the trip.
+     * rule. Missing coordinates are not evidence of proximity. Any active user visit correction
+     * keeps its seam separate from automatic composition.
      */
     fun autoSequences(
         summariesNewestFirst: List<TrackSummary>,
@@ -114,7 +114,7 @@ object TrackMerge {
             val beforeEnd = endpoints[before.id]?.end
             val afterStart = endpoints[after.id]?.start
             val eligible = interval != null &&
-                before.id !in rules.assignedVisitAnchors &&
+                before.id !in rules.resolvedVisitAnchors &&
                 (before.id to after.id) !in rules.protectedSeams &&
                 sameRecordedActivity(before, after) &&
                 actualGapDuration != null &&

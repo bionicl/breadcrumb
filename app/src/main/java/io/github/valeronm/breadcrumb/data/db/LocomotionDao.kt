@@ -133,6 +133,16 @@ interface LocomotionDao {
     @Query("SELECT * FROM review_queue WHERE id = :id")
     suspend fun reviewItem(id: String): ReviewQueueEntity?
 
+    @Query("SELECT * FROM review_queue WHERE evidenceKey = :evidenceKey")
+    suspend fun reviewItemByEvidenceKey(evidenceKey: String): ReviewQueueEntity?
+
+    @Query(
+        "SELECT * FROM review_queue WHERE primaryTrackId = :firstTrackId " +
+            "AND secondaryTrackId = :secondTrackId " +
+            "AND kind IN ('MERGE_TRACKS','SHORT_STOP') AND state IN ('PENDING','SNOOZED')",
+    )
+    suspend fun activeVisitReviewsForSeam(firstTrackId: Long, secondTrackId: Long): List<ReviewQueueEntity>
+
     @Query("SELECT * FROM review_queue")
     suspend fun allReviewItems(): List<ReviewQueueEntity>
 

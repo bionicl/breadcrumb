@@ -37,6 +37,7 @@ data class ReviewQueueEntity(
         const val STALE = "STALE"
         const val MERGE_TRACKS = "MERGE_TRACKS"
         const val SHORT_STOP = "SHORT_STOP"
+        const val MISSING_RECORDING = "MISSING_RECORDING"
         const val TRANSPORT = "TRANSPORT"
         const val PLACE_ASSIGNMENT = "PLACE_ASSIGNMENT"
         const val PLACE_DUPLICATE = "PLACE_DUPLICATE"

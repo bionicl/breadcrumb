@@ -3,8 +3,10 @@ package io.github.valeronm.breadcrumb.debug
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import io.github.valeronm.breadcrumb.data.DerivationStore
 import io.github.valeronm.breadcrumb.data.ROUTE_ANALYSIS_PARAMETERS_VERSION
 import io.github.valeronm.breadcrumb.data.ROUTE_ANALYSIS_VERSION
+import io.github.valeronm.breadcrumb.data.StoredDerivation
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.EngineObservationEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
@@ -109,6 +111,8 @@ class DebugBridgeReceiver : BroadcastReceiver() {
         val observations = db.locomotionDao().observationsBetween(start, end)
         val reviews = db.locomotionDao().reviewItemsBetween(start, end)
         val places = db.placeDao().allPlaces()
+        val derivation = DerivationStore(context, db).observeStored().first()
+        val derivedJson = derivation.toDayJson(ids.toSet(), start, end)
         val uniqueCompositions = relatedCompositions.distinctBy(TrackCompositionEntity::mergedTrackId)
         val uniqueParts = relatedParts.distinctBy(TrackCompositionPartEntity::id)
         return JSONObject().put("ok", true).put("command", "day").put("date", day.toString())
@@ -118,6 +122,9 @@ class DebugBridgeReceiver : BroadcastReceiver() {
             .put("engineObservations", observations.toJsonArray { it.toJson() })
             .put("reviewItems", reviews.toJsonArray { it.toJson() })
             .put("analysisJobs", jobs.toJsonArray { it.toJson() })
+            .put("derivedIntervals", derivedJson.getJSONArray("derivedIntervals"))
+            .put("derivedClusters", derivedJson.getJSONArray("derivedClusters"))
+            .put("visitCorrections", derivedJson.getJSONArray("visitCorrections"))
             .put(
                 "places",
                 places.toJsonArray { place ->
@@ -213,4 +220,47 @@ class DebugBridgeReceiver : BroadcastReceiver() {
         const val MAX_LIMIT = 2000
         val ID_PATTERN = Regex("[a-f0-9-]{36}")
     }
+}
+
+/** Derived context and user decisions needed to explain a day's review suggestions. */
+internal fun StoredDerivation.toDayJson(trackIds: Set<Long>, startMs: Long, endMs: Long): JSONObject {
+    val relevantIntervals = intervals.filter {
+        it.afterTrackId in trackIds || it.start < endMs && it.endedAt >= startMs
+    }
+    val relatedAnchors = trackIds + relevantIntervals.map { it.afterTrackId }
+    val relatedCorrections = visitCorrections.filter { correction ->
+        correction.targetSegmentId.removePrefix("derived-visit:").toLongOrNull() in relatedAnchors
+    }
+    val relatedClusterIds = relevantIntervals.flatMap { interval ->
+        listOfNotNull(interval.clusterId, interval.fromClusterId, interval.toClusterId)
+    }.toSet()
+    fun <T> List<T>.jsonArray(encode: (T) -> JSONObject) = JSONArray().also { array ->
+        forEach { array.put(encode(it)) }
+    }
+    fun JSONObject.putNullable(key: String, value: Any?) = put(key, value ?: JSONObject.NULL)
+    val intervalJson = relevantIntervals.jsonArray { interval ->
+        JSONObject().put("type", interval.type).put("start", interval.start)
+            .put("endedAt", interval.endedAt).put("afterTrackId", interval.afterTrackId)
+            .putNullable("clusterId", interval.clusterId).putNullable("reason", interval.reason)
+            .putNullable("fromClusterId", interval.fromClusterId).putNullable("toClusterId", interval.toClusterId)
+            .putNullable("fromLat", interval.fromLat).putNullable("fromLon", interval.fromLon)
+            .putNullable("toLat", interval.toLat).putNullable("toLon", interval.toLon)
+    }
+    val clusterJson = clusters.filter { it.id in relatedClusterIds }.jsonArray { cluster ->
+        JSONObject().put("id", cluster.id).putNullable("placeId", cluster.placeId)
+            .put("anchorLat", cluster.anchorLat).put("anchorLon", cluster.anchorLon)
+            .put("radiusM", cluster.radiusM).put("memberCount", cluster.memberCount)
+    }
+    val correctionJson = relatedCorrections.jsonArray { correction ->
+        JSONObject().put("id", correction.id).put("operationId", correction.operationId)
+            .put("targetSegmentId", correction.targetSegmentId).put("kind", correction.kind)
+            .put("createdAtWallTimeMs", correction.createdAtWallTimeMs)
+            .putNullable("referenceCorrectionId", correction.referenceCorrectionId)
+            .putNullable("correctedPlaceId", correction.correctedPlaceId)
+            .putNullable("visitStartWallTimeMs", correction.visitStartWallTimeMs)
+            .putNullable("visitEndWallTimeMs", correction.visitEndWallTimeMs)
+            .putNullable("boundaryKind", correction.boundaryKind)
+    }
+    return JSONObject().put("derivedIntervals", intervalJson)
+        .put("derivedClusters", clusterJson).put("visitCorrections", correctionJson)
 }
