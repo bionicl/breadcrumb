@@ -98,6 +98,20 @@ interface LocomotionDao {
     )
     suspend fun analysisJobs(limit: Int): List<RouteAnalysisJobEntity>
 
+    @Query(
+        "SELECT " +
+            "COALESCE(SUM(CASE WHEN j.state = 'QUEUED' THEN 1 ELSE 0 END), 0) AS queued, " +
+            "COALESCE(SUM(CASE WHEN j.state = 'RUNNING' THEN 1 ELSE 0 END), 0) AS running, " +
+            "COALESCE(SUM(CASE WHEN j.state = 'FAILED' THEN 1 ELSE 0 END), 0) AS failed, " +
+            "(SELECT COUNT(*) FROM tracks t WHERE t.endedAt IS NOT NULL AND t.discardedAt IS NULL " +
+            "AND (t.pathProcessorVersion < :processorVersion OR t.pathParametersVersion < :parametersVersion " +
+            "OR t.pathProcessedRevision != t.pathRevision) " +
+            "AND NOT EXISTS (SELECT 1 FROM route_analysis_jobs pending " +
+            "WHERE pending.trackId = t.id AND pending.state IN ('QUEUED','RUNNING','FAILED'))) AS unprocessed " +
+            "FROM route_analysis_jobs j",
+    )
+    fun observeAnalysisQueueStatus(processorVersion: Int, parametersVersion: Int): Flow<RouteAnalysisQueueStatus>
+
     @Query("SELECT * FROM route_analysis_jobs WHERE trackId = :trackId AND processorVersion = :processorVersion AND inputRevision = :inputRevision")
     suspend fun analysisJob(trackId: Long, processorVersion: Int, inputRevision: Long): RouteAnalysisJobEntity?
 

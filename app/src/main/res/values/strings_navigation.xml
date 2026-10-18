@@ -4,8 +4,7 @@
     <string name="nav_record">Record</string>
     <string name="nav_timeline">Timeline</string>
     <string name="nav_places">Places</string>
-    <string name="nav_review">To review</string>
-    <string name="nav_review_count">To review · %1$d</string>
+    <string name="nav_review">Review</string>
     <string name="nav_insights">Insights</string>
 
     <!--

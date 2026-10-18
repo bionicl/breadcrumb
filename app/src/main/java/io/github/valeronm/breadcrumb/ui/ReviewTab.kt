@@ -36,6 +36,20 @@ import java.util.Date
 @Composable
 internal fun ReviewTab(viewModel: TrackListViewModel) {
     val all by viewModel.reviewQueue.collectAsStateWithLifecycle()
+    val analysis by viewModel.analysisQueueStatus.collectAsStateWithLifecycle()
+    val analysisEnabled = viewModel.analysisEnabled
+    val analysisMessage = when {
+        !analysisEnabled -> stringResource(R.string.review_analysis_disabled)
+        analysis.running + analysis.queued + analysis.failed + analysis.unprocessed == 0 ->
+            stringResource(R.string.review_analysis_current)
+        else -> stringResource(
+            R.string.review_analysis_status,
+            analysis.running,
+            analysis.queued,
+            analysis.unprocessed,
+            analysis.failed,
+        )
+    }
     var showResolved by remember { mutableStateOf(false) }
     val visible = all.filter { item ->
         if (showResolved) {
@@ -45,6 +59,21 @@ internal fun ReviewTab(viewModel: TrackListViewModel) {
         }
     }
     Column(Modifier.fillMaxSize()) {
+        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(
+                analysisMessage,
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Button(
+            onClick = viewModel::runRouteAnalysisNow,
+            enabled = analysisEnabled &&
+                analysis.queued + analysis.running + analysis.failed + analysis.unprocessed > 0,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        ) {
+            Text(stringResource(R.string.review_process_queue_now))
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),

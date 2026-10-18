@@ -217,6 +217,10 @@
     <string name="review_resolved">Решённые</string>
     <string name="review_filter_all">Все типы</string>
     <string name="review_restore">Вернуть в очередь</string>
+    <string name="review_analysis_disabled">Фоновый анализ выключен. Маршруты сохранены и будут обработаны после включения анализа в настройках.</string>
+    <string name="review_analysis_current">Фоновый анализ завершён. Нет маршрутов, ожидающих обработки.</string>
+    <string name="review_analysis_status">Фоновый анализ: обрабатывается %1$d · в очереди %2$d · ожидают анализа %3$d · ошибок %4$d.</string>
+    <string name="review_process_queue_now">Обработать очередь сейчас</string>
     <string name="review_empty">Сейчас нет решений, требующих вашего внимания.</string>
     <string name="review_empty_resolved">Проверенных подсказок пока нет.</string>
     <string name="review_suggestion">Сейчас: %1$s · Предложение: %2$s</string>

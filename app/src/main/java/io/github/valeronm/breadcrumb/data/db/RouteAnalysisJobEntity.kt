@@ -27,3 +27,11 @@ data class RouteAnalysisJobEntity(
         const val FAILED = "FAILED"
     }
 }
+
+/** Live work and remaining stale tracks, projected for the Review screen's background status. */
+data class RouteAnalysisQueueStatus(
+    val queued: Int,
+    val running: Int,
+    val failed: Int,
+    val unprocessed: Int,
+)

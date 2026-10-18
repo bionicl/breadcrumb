@@ -17,6 +17,7 @@ import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity
+import io.github.valeronm.breadcrumb.data.db.RouteAnalysisQueueStatus
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -75,6 +76,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     val reviewQueue: StateFlow<List<ReviewQueueEntity>> = repository.observeReviewQueue()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val analysisQueueStatus: StateFlow<RouteAnalysisQueueStatus> = repository.observeAnalysisQueueStatus()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RouteAnalysisQueueStatus(0, 0, 0, 0))
+
+    val analysisEnabled: Boolean get() = Settings.routeAnalysisEnabled(getApplication())
+
+    fun runRouteAnalysisNow() = repository.runRouteAnalysisNow()
 
     suspend fun reviewPoints(trackId: Long) = repository.pointsFor(trackId)
 

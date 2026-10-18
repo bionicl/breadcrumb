@@ -46,6 +46,10 @@
     <string name="review_resolved">Resolved</string>
     <string name="review_filter_all">All types</string>
     <string name="review_restore">Return to queue</string>
+    <string name="review_analysis_disabled">Background analysis is off. Recorded routes are saved, but new results will wait until it is enabled in Settings.</string>
+    <string name="review_analysis_current">Background analysis is up to date. There are no routes waiting to be processed.</string>
+    <string name="review_analysis_status">Background analysis: %1$d processing · %2$d queued · %3$d routes not yet processed · %4$d failed.</string>
+    <string name="review_process_queue_now">Process queue now</string>
     <string name="review_empty">Nothing needs your decision right now.</string>
     <string name="review_empty_resolved">No reviewed suggestions yet.</string>
     <string name="review_suggestion">Current: %1$s · Suggested: %2$s</string>

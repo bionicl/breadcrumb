@@ -209,6 +209,10 @@
     <string name="review_resolved">Resolvidas</string>
     <string name="review_filter_all">Todos os tipos</string>
     <string name="review_restore">Voltar à fila</string>
+    <string name="review_analysis_disabled">A análise em segundo plano está desativada. As rotas ficam guardadas e aguardam até a ativar nas Definições.</string>
+    <string name="review_analysis_current">A análise em segundo plano está atualizada. Não há rotas por processar.</string>
+    <string name="review_analysis_status">Análise em segundo plano: %1$d a processar · %2$d na fila · %3$d rotas por analisar · %4$d com erro.</string>
+    <string name="review_process_queue_now">Processar fila agora</string>
     <string name="review_empty">Não há decisões pendentes.</string>
     <string name="review_empty_resolved">Ainda não há sugestões analisadas.</string>
     <string name="review_suggestion">Atual: %1$s · Sugestão: %2$s</string>

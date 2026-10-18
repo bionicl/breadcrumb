@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -486,6 +488,9 @@ private fun MainScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ) {
                         for (tab in HomeTab.entries) {
+                            val pendingReviews = reviewQueue.count {
+                                it.state == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING
+                            }
                             NavigationBarItem(
                                 selected = selectedTab == tab,
                                 onClick = {
@@ -502,13 +507,19 @@ private fun MainScreen(
                                         }
                                     }
                                 },
-                                icon = { Icon(tab.icon, contentDescription = null) },
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (tab == HomeTab.REVIEW && pendingReviews > 0) {
+                                                Badge { Text(if (pendingReviews > 99) "99+" else pendingReviews.toString()) }
+                                            }
+                                        },
+                                    ) {
+                                        Icon(tab.icon, contentDescription = null)
+                                    }
+                                },
                                 label = {
-                                    Text(
-                                        if (tab == HomeTab.REVIEW) {
-                                            stringResource(R.string.nav_review_count, reviewQueue.count { it.state == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING })
-                                        } else stringResource(tab.labelRes),
-                                    )
+                                    Text(stringResource(tab.labelRes))
                                 },
                             )
                         }

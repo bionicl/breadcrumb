@@ -26,6 +26,16 @@ object RouteAnalysisWork {
         }.onFailure { DebugLog.e("RouteAnalysis", "could not enqueue analysis", it) }
     }
 
+    /** Replaces a delayed retry so a user request starts a fresh worker immediately. */
+    fun runNow(context: Context) {
+        val request = OneTimeWorkRequestBuilder<RouteAnalysisWorker>().build()
+        runCatching {
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.REPLACE, request)
+            DebugLog.i("RouteAnalysis", "manual run requested")
+        }.onFailure { DebugLog.e("RouteAnalysis", "could not start analysis immediately", it) }
+    }
+
     fun cancel(context: Context) {
         runCatching { WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE_NAME) }
             .onFailure { DebugLog.e("RouteAnalysis", "could not cancel analysis", it) }
@@ -99,7 +109,9 @@ class RouteAnalysisWorker(context: Context, params: WorkerParameters) : Coroutin
                 ROUTE_ANALYSIS_PARAMETERS_VERSION,
             ).isNotEmpty()
         ) {
-            return Result.retry()
+            // A full batch is normal continuation, not a failure. Append another worker so the
+            // queue drains promptly instead of applying WorkManager's exponential retry backoff.
+            RouteAnalysisWork.enqueue(applicationContext)
         }
         return Result.success()
     }

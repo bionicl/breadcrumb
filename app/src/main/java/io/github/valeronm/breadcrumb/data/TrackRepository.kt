@@ -8,6 +8,7 @@ import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
+import io.github.valeronm.breadcrumb.data.db.RouteAnalysisQueueStatus
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionEntity
@@ -458,6 +459,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     fun observeReviewQueue(): Flow<List<io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity>> =
         db.locomotionDao().observeAllReviewItems()
+
+    fun observeAnalysisQueueStatus(): Flow<RouteAnalysisQueueStatus> =
+        db.locomotionDao().observeAnalysisQueueStatus(ROUTE_ANALYSIS_VERSION, ROUTE_ANALYSIS_PARAMETERS_VERSION)
+
+    fun runRouteAnalysisNow() {
+        if (Settings.routeAnalysisEnabled(appContext)) RouteAnalysisWork.runNow(appContext)
+    }
 
     suspend fun decideReview(id: String, decision: String, correctedValue: String? = null) {
         db.withTransaction {
