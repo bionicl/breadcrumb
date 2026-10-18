@@ -169,6 +169,21 @@ installed). No `JAVA_HOME` override is needed.
 ./gradlew :app:installDebug    # build + install on a connected device / emulator
 ```
 
+With a debuggable `debug` install connected over USB or Wireless Debugging, the host CLI can read
+analysis status, Review suggestions, a day's routes and sensor observations, or persisted app logs:
+
+```bash
+python3 tools/breadcrumb_debug.py status
+python3 tools/breadcrumb_debug.py suggestions --state PENDING
+python3 tools/breadcrumb_debug.py day 2026-10-18
+python3 tools/breadcrumb_debug.py logs
+```
+
+The command prints the path of a temporary JSON file on the host. Day boundaries use the Pixel's
+current timezone; pass `--timezone Europe/Warsaw` to override it. The bridge is read-only, exists
+only in the `debug` variant, and uses ADB plus `run-as` without opening a network port. It does not
+work with `perf`, release, or Play installs.
+
 The debug APK lands in `app/build/outputs/apk/debug/` and installs as
 `io.github.valeronm.breadcrumb.debug` (alongside a release install, with a distinct
 blueprint-grid launcher icon).

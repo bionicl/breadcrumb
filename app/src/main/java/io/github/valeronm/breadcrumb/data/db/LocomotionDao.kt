@@ -98,6 +98,9 @@ interface LocomotionDao {
     )
     suspend fun analysisJobs(limit: Int): List<RouteAnalysisJobEntity>
 
+    @Query("SELECT * FROM route_analysis_jobs WHERE trackId IN (:trackIds) ORDER BY updatedAtWallTimeMs DESC")
+    suspend fun analysisJobsForTracks(trackIds: List<Long>): List<RouteAnalysisJobEntity>
+
     @Query(
         "SELECT " +
             "COALESCE(SUM(CASE WHEN j.state = 'QUEUED' THEN 1 ELSE 0 END), 0) AS queued, " +
@@ -132,6 +135,12 @@ interface LocomotionDao {
 
     @Query("SELECT * FROM review_queue")
     suspend fun allReviewItems(): List<ReviewQueueEntity>
+
+    @Query("SELECT * FROM review_queue WHERE startWallTimeMs < :endedAt AND COALESCE(endWallTimeMs, startWallTimeMs) >= :startedAt ORDER BY startWallTimeMs")
+    suspend fun reviewItemsBetween(startedAt: Long, endedAt: Long): List<ReviewQueueEntity>
+
+    @Query("SELECT * FROM engine_observations WHERE wallTimeMs >= :startedAt AND wallTimeMs < :endedAt ORDER BY wallTimeMs, elapsedRealtimeNanos, id")
+    suspend fun observationsBetween(startedAt: Long, endedAt: Long): List<EngineObservationEntity>
 
     @Update
     suspend fun updateReviewItem(item: ReviewQueueEntity)

@@ -67,6 +67,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_compositions")
     suspend fun allCompositions(): List<TrackCompositionEntity>
 
+    @Query("SELECT * FROM track_compositions WHERE mergedTrackId IN (:trackIds) OR earlierTrackId IN (:trackIds) OR laterTrackId IN (:trackIds)")
+    suspend fun compositionsTouching(trackIds: List<Long>): List<TrackCompositionEntity>
+
     @Query("DELETE FROM track_compositions WHERE mergedTrackId = :trackId")
     suspend fun deleteComposition(trackId: Long)
 
@@ -332,6 +335,17 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     suspend fun exportTracks(): List<Track>
 
+    /** Complete read for the diagnostic export: open and soft-deleted source tracks matter there. */
+    @Query("SELECT * FROM tracks ORDER BY startedAt ASC, id ASC")
+    suspend fun debugExportTracks(): List<Track>
+    @Query("SELECT * FROM tracks WHERE COALESCE(endedAt, :now) >= :startedAt AND startedAt < :endedAt ORDER BY startedAt, id")
+    suspend fun tracksOverlapping(startedAt: Long, endedAt: Long, now: Long): List<Track>
+
+    @Query("SELECT * FROM track_composition_parts ORDER BY mergedTrackId, ordinal")
+    suspend fun allCompositionParts(): List<TrackCompositionPartEntity>
+
+    @Query("SELECT * FROM track_composition_parts WHERE mergedTrackId IN (:trackIds) OR sourceTrackId IN (:trackIds) ORDER BY mergedTrackId, ordinal")
+    suspend fun compositionPartsTouching(trackIds: List<Long>): List<TrackCompositionPartEntity>
     // --- Observed queries -----------------------------------------------------------------------
     // These deliberately read `tracks` only: Room invalidates per table, so touching `track_points`
     // would re-run them on every fix of a live recording — a scan of the whole point history, once
