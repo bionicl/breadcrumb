@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.util
 import android.content.Context
 import androidx.core.net.toUri
 import io.github.valeronm.breadcrumb.BuildConfig
-import io.github.valeronm.breadcrumb.R
 
 internal object WebLinks {
     const val SITE = "https://breadcrumb.place/"
@@ -15,4 +14,4 @@ internal object WebLinks {
     const val PLAY = "https://play.google.com/store/apps/details?id=${BuildConfig.PLAY_PACKAGE}"
 }
 
-internal fun Context.openInBrowser(url: String) = viewUri(url.toUri(), R.string.browser_no_app)
+internal fun Context.openInBrowser(url: String, onNoApp: () -> Unit) = viewUri(url.toUri(), onNoApp)

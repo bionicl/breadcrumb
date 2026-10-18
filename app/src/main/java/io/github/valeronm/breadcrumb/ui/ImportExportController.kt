@@ -37,13 +37,14 @@ internal class ImportExportController(
     private val scope: CoroutineScope,
     private val repository: TrackRepository,
     private val backupRepositories: BackupRepositories,
+    private val say: (String) -> Unit,
 ) {
 
     /** Track progress of a long-running export/restore-style operation. */
     class OpProgress(val tracksDone: Int, val tracksTotal: Int?)
 
     /** What a restore reports when it is not a failure, which is null. */
-    sealed interface RestoreOutcome {
+    private sealed interface RestoreOutcome {
         class Restored(val summary: BackupImporter.Summary) : RestoreOutcome
 
         /** Refused at the start: the history holds a track, and a restore merges nothing. */
@@ -65,12 +66,12 @@ internal class ImportExportController(
     /**
      * The shared scaffold of the long-running operations above: one at a time per [progress] flow
      * (a second call while one runs is ignored), progress published as the operation reports it
-     * and cleared when it ends, failures logged and surfaced to [onDone] as null.
+     * and cleared when it ends, failures logged and handed to [message] as null.
      */
     private fun <T> runExclusiveOp(
         progress: MutableStateFlow<OpProgress?>,
         logLabel: String,
-        onDone: (T?) -> Unit,
+        message: (T?) -> String,
         op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
     ) {
         if (progress.value != null) return
@@ -86,7 +87,7 @@ internal class ImportExportController(
                 try {
                     op { done, total -> progress.value = OpProgress(done, total) }
                     // Boundary catch: whatever an export/import throws, the user gets the failure
-                    // toast instead of a crash. Cancellation isn't a failure — rethrow so the
+                    // message instead of a crash. Cancellation isn't a failure — rethrow so the
                     // coroutine winds down instead of reporting a spurious null result.
                 } catch (e: CancellationException) {
                     throw e
@@ -98,26 +99,25 @@ internal class ImportExportController(
             val elapsed = SystemClock.elapsedRealtime() - startedAt
             DebugLog.i(TAG, "$logLabel ${if (result == null) "gave up" else "finished"} in $elapsed ms")
             progress.value = null
-            onDone(result)
+            say(message(result))
         }
     }
 
-    /**
-     * Exports every track as a .gpx file into the picked folder; reports how many were written, or
-     * [onBusy] instead while another operation on the history runs.
-     */
-    fun exportAll(treeUri: Uri, onBusy: () -> Unit, onDone: (Int?) -> Unit) =
-        runHistoryOp(_gpxExportProgress, "gpx export", onBusy, onDone) { onProgress ->
+    private fun exportResultMessage(count: Int?): String = if (count == null) {
+        app.getString(R.string.data_export_failed)
+    } else {
+        app.counted(R.plurals.data_exported, count)
+    }
+
+    /** Exports every track as a .gpx file into the picked folder. */
+    fun exportAll(treeUri: Uri) =
+        runHistoryOp(_gpxExportProgress, "gpx export", ::exportResultMessage) { onProgress ->
             GpxExporter.exportAllToTree(app, repository, treeUri, onProgress)
         }
 
-    /**
-     * Writes the whole history as one gzipped JSON file (backup, and the web companion's data
-     * source); reports the track count, or null on failure, or [onBusy] instead while another
-     * operation on the history runs.
-     */
-    fun exportBackup(uri: Uri, onBusy: () -> Unit, onDone: (Int?) -> Unit) =
-        runHistoryOp(_exportProgress, "backup export", onBusy, onDone) { onProgress ->
+    /** Writes the whole history as one gzipped JSON file (backup, and the web companion's data source). */
+    fun exportBackup(uri: Uri) =
+        runHistoryOp(_exportProgress, "backup export", ::exportResultMessage) { onProgress ->
             BackupExporter.exportTo(app, backupRepositories, uri, System.currentTimeMillis(), onProgress)
         }
 
@@ -126,32 +126,51 @@ internal class ImportExportController(
     val clearProgress: StateFlow<OpProgress?> = _clearProgress
 
     /** Two operations on the history running together would each read or write without seeing the other. */
-    fun historyOpRunning(): Boolean = historyOps.any { it.value != null }
+    private fun historyOpRunning(): Boolean = historyOps.any { it.value != null }
+
+    /** True while another operation on the history runs, which the reader is then told. */
+    fun refuseIfBusy(): Boolean {
+        val busy = historyOpRunning()
+        if (busy) say(app.getString(R.string.data_load_busy))
+        return busy
+    }
 
     private fun <T> runHistoryOp(
         progress: MutableStateFlow<OpProgress?>,
         logLabel: String,
-        onBusy: () -> Unit,
-        onDone: (T?) -> Unit,
+        message: (T?) -> String,
         op: suspend (onProgress: (Int, Int?) -> Unit) -> T?,
     ) {
-        if (historyOpRunning()) onBusy() else runExclusiveOp(progress, logLabel, onDone, op)
+        if (!refuseIfBusy()) runExclusiveOp(progress, logLabel, message, op)
     }
 
     /** Deletes the whole history, recording left armed. */
-    fun clearHistory(onBusy: () -> Unit, onDone: (cleared: Boolean) -> Unit) =
-        runHistoryOp(_clearProgress, "history clear", onBusy, { onDone(it != null) }) {
+    fun clearHistory() =
+        runHistoryOp(
+            _clearProgress,
+            "history clear",
+            { app.getString(if (it == null) R.string.data_clear_failed else R.string.data_cleared) },
+        ) {
             val clear: suspend () -> Unit = { repository.clearHistory() }
             LocationRecordingService.instance?.clearingHistory(clear) ?: clear()
         }
 
+    private fun restoreMessage(outcome: RestoreOutcome?): String = when (outcome) {
+        null -> app.getString(R.string.data_restore_failed)
+        is RestoreOutcome.Restored -> app.getString(
+            R.string.data_restored,
+            app.counted(R.plurals.data_trip_count, outcome.summary.tracks),
+            app.counted(R.plurals.data_place_count, outcome.summary.places),
+        )
+        RestoreOutcome.NotEmpty -> app.getString(R.string.data_load_not_empty)
+    }
+
     /**
-     * Restores a backup file whole into an empty history. Reports the outcome, or null on failure.
-     * Emptiness is checked as the restore starts rather than when it was offered: a recording can
-     * end while the file is being picked.
+     * Restores a backup file whole into an empty history. Emptiness is checked as the restore
+     * starts rather than when it was offered: a recording can end while the file is being picked.
      */
-    fun restoreBackup(uri: Uri, onBusy: () -> Unit, onDone: (RestoreOutcome?) -> Unit) =
-        runHistoryOp(_restoreProgress, "backup restore", onBusy, onDone) { onProgress ->
+    fun restoreBackup(uri: Uri) =
+        runHistoryOp(_restoreProgress, "backup restore", ::restoreMessage) { onProgress ->
             if (repository.hasKeptTracks()) {
                 RestoreOutcome.NotEmpty
             } else {
@@ -164,27 +183,45 @@ internal class ImportExportController(
     private val _googleTimelineImportProgress = MutableStateFlow<OpProgress?>(null)
     val googleTimelineImportProgress: StateFlow<OpProgress?> = _googleTimelineImportProgress
 
-    /** Loads a Google Timeline export into the history. Reports the counts, or null on failure. */
-    fun importGoogleTimeline(
-        uri: Uri,
-        onBusy: () -> Unit,
-        onDone: (GoogleTimelineImporter.Summary?) -> Unit,
-    ) = runHistoryOp(_googleTimelineImportProgress, "google timeline import", onBusy, onDone) { onProgress ->
-        GoogleTimelineImporter.importFrom(
-            app,
-            backupRepositories,
-            uri,
-            placeLabel = { app.getString(it.labelRes) },
-            onProgress = onProgress,
-        )
+    private fun googleImportMessage(summary: GoogleTimelineImporter.Summary?): String {
+        if (summary == null) return app.getString(R.string.data_google_import_failed)
+        val trips = app.counted(R.plurals.data_trip_count, summary.tracks)
+        val places = app.counted(R.plurals.data_place_count, summary.places)
+        val loaded = if (summary.skipped == 0) {
+            app.getString(R.string.data_google_imported, trips, places)
+        } else {
+            val unreadable = app.counted(R.plurals.data_google_unreadable, summary.skipped)
+            app.getString(R.string.data_google_imported_skipped, trips, places, unreadable)
+        }
+        if (summary.overlapping == 0) return loaded
+        val overlapping = app.counted(R.plurals.gpx_overlapping, summary.overlapping)
+        return "$loaded · $overlapping"
     }
 
-    class GpxImportSummary(
+    fun importGoogleTimeline(uri: Uri) =
+        runHistoryOp(_googleTimelineImportProgress, "google timeline import", ::googleImportMessage) { onProgress ->
+            GoogleTimelineImporter.importFrom(
+                app,
+                backupRepositories,
+                uri,
+                placeLabel = { app.getString(it.labelRes) },
+                onProgress = onProgress,
+            )
+        }
+
+    private class GpxImportSummary(
         val imported: Int,
         val duplicates: Int,
         val overlapping: Int,
         val failed: Int,
     )
+
+    private fun gpxImportMessage(result: GpxImportSummary): String = buildList {
+        add(app.counted(R.plurals.gpx_imported, result.imported))
+        if (result.duplicates > 0) add(app.counted(R.plurals.gpx_duplicates, result.duplicates))
+        if (result.overlapping > 0) add(app.counted(R.plurals.gpx_overlapping, result.overlapping))
+        if (result.failed > 0) add(app.counted(R.plurals.gpx_failed, result.failed))
+    }.joinToString(" · ")
 
     class GpxImportProgress(val filesDone: Int, val filesTotal: Int, val imported: Int)
 
@@ -208,16 +245,11 @@ internal class ImportExportController(
         .stateIn(scope, SharingStarted.Eagerly, false)
 
     /**
-     * Imports the picked GPX files, one file at a time with [importProgress] updates.
-     * [GpxImportSummary.failed] counts unreadable/unparseable files plus tracks without enough
-     * timestamped points to place on the timeline. [onBusy] instead while another operation on the
-     * history runs.
+     * The failures it reports count unreadable or unparseable files and tracks without enough
+     * timestamped points to place on the timeline.
      */
-    fun importGpx(uris: List<Uri>, onBusy: () -> Unit, onDone: (GpxImportSummary) -> Unit) {
-        if (historyOpRunning()) {
-            onBusy()
-            return
-        }
+    fun importGpx(uris: List<Uri>) {
+        if (refuseIfBusy()) return
         _importProgress.value = GpxImportProgress(0, uris.size, 0)
         scope.launch {
             var imported = 0
@@ -249,7 +281,7 @@ internal class ImportExportController(
                 }
             }
             _importProgress.value = null
-            onDone(GpxImportSummary(imported, duplicates, overlapping, failed))
+            say(gpxImportMessage(GpxImportSummary(imported, duplicates, overlapping, failed)))
         }
     }
 

@@ -40,6 +40,7 @@ import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,6 +51,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -65,7 +67,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val backupRepositories =
         BackupRepositories(repository, placeRepository, derivationStore)
 
-    internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
+    private val messageQueue = Channel<String>(Channel.UNLIMITED)
+
+    /** Transient messages for the snackbar host, held until the app is on screen. */
+    internal val messages: Flow<String> = messageQueue.receiveAsFlow()
+
+    internal fun say(message: String) {
+        messageQueue.trySend(message)
+    }
+
+    internal val importExport =
+        ImportExportController(app, viewModelScope, repository, backupRepositories, ::say)
 
     /** The language the screens are in, which places are named in. It outlives a language switch,
      *  as this model does, so the screens hand it over ([useLanguage]). */
@@ -623,11 +635,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Refused, like an import, while an operation on the whole history runs. */
-    fun restoreTrack(trackId: Long, onBusy: () -> Unit = {}, onOverlapping: () -> Unit = {}) {
-        if (importExport.historyOpRunning()) {
-            onBusy()
-            return
-        }
+    fun restoreTrack(trackId: Long, onOverlapping: () -> Unit = {}) {
+        if (importExport.refuseIfBusy()) return
         viewModelScope.launch { if (!repository.restoreTrack(trackId)) onOverlapping() }
     }
 

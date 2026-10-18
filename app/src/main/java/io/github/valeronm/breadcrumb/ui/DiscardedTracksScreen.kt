@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -148,8 +147,8 @@ internal fun DiscardedTracksScreen(
                         nowMs = nowMs,
                         onOpenTrack = onOpenTrack,
                         onRestore = { id ->
-                            viewModel.restoreTrack(id, onBusy = { busyToast(appContext) }) {
-                                Toast.makeText(appContext, R.string.discarded_restore_overlaps, Toast.LENGTH_LONG).show()
+                            viewModel.restoreTrack(id) {
+                                viewModel.say(appContext.getString(R.string.discarded_restore_overlaps))
                             }
                         },
                     )

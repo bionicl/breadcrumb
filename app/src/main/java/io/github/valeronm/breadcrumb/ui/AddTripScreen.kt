@@ -30,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -46,7 +45,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,7 +70,6 @@ import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -200,7 +197,6 @@ private class TimeEdit(
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
     draft: TripDraft,
-    snackbarHostState: SnackbarHostState,
     onClose: () -> Unit,
 ) {
     // Keyed on the draft: a second gap's form can open while the first is still animating out, and
@@ -224,7 +220,6 @@ internal fun AddTripScreen(
     // like the ends beside it: a second form opening while the first animates out gets a map of its
     // own, and would otherwise sort around wherever that one was left.
     var mapCenter by remember(draft) { mutableStateOf<Coordinate?>(null) }
-    val scope = rememberCoroutineScope()
 
     val originCity by produceState<CityAtlas.City?>(null, origin.pin) {
         value = origin.pin?.let { viewModel.cityAt(it) }
@@ -322,7 +317,7 @@ internal fun AddTripScreen(
                             if (refusal == null) {
                                 onClose()
                             } else {
-                                scope.launch { snackbarHostState.showSnackbar(refusal) }
+                                viewModel.say(refusal)
                             }
                         }
                     }

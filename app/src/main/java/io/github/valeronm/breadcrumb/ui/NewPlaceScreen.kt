@@ -44,7 +44,7 @@ internal fun NewPlaceScreen(
         summaries.orEmpty().filter { it.isListed }.map { overviewPlaceOf(it) }
     }
     val camera = remember { CameraCarry(start) }
-    val myLocation = rememberMyLocation()
+    val myLocation = rememberMyLocation(viewModel::say)
     Scaffold(
         topBar = {
             TopAppBar(

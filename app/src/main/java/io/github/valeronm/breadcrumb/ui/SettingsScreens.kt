@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.content.res.AppCompatResources
@@ -67,9 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
-import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
 import io.github.valeronm.breadcrumb.data.export.LogExporter
-import io.github.valeronm.breadcrumb.ui.ImportExportController.RestoreOutcome
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.SliderStops
@@ -725,6 +722,7 @@ internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewMode
                 LinkRow(
                     stringResource(R.string.data_viewer),
                     WebLinks.VIEWER,
+                    say = viewModel::say,
                     subtitle = stringResource(R.string.data_viewer_sub),
                 )
             },
@@ -736,7 +734,7 @@ internal fun DataSettingsScreen(onBack: () -> Unit, viewModel: TrackListViewMode
 }
 
 @Composable
-internal fun AboutSettingsScreen(onBack: () -> Unit) {
+internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
     SettingsSubScreen(stringResource(R.string.settings_about), onBack) {
         AppIcon(Modifier.align(Alignment.CenterHorizontally))
         Spacer(Modifier.height(12.dp))
@@ -749,10 +747,10 @@ internal fun AboutSettingsScreen(onBack: () -> Unit) {
         VersionText(MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(24.dp))
         GroupedRows(
-            { LinkRow(stringResource(R.string.about_google_play), WebLinks.PLAY) },
-            { LinkRow(stringResource(R.string.about_privacy_policy), WebLinks.PRIVACY_POLICY) },
-            { LinkRow(stringResource(R.string.about_website), WebLinks.SITE) },
-            { LinkRow(stringResource(R.string.about_source_code), WebLinks.SOURCE) },
+            { LinkRow(stringResource(R.string.about_google_play), WebLinks.PLAY, say) },
+            { LinkRow(stringResource(R.string.about_privacy_policy), WebLinks.PRIVACY_POLICY, say) },
+            { LinkRow(stringResource(R.string.about_website), WebLinks.SITE, say) },
+            { LinkRow(stringResource(R.string.about_source_code), WebLinks.SOURCE, say) },
         )
         Spacer(Modifier.height(24.dp))
         // CC BY 4.0 asks for the credit wherever the work is used, and the timeline's place names
@@ -805,16 +803,11 @@ private val APP_ICON_SIZE = 72.dp
 
 @Composable
 private fun ImportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
-    val context = LocalContext.current
     val importProgress by viewModel.importExport.importProgress.collectAsStateWithLifecycle()
-    val appContext = context.applicationContext
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        viewModel.importExport.importGpx(uris, onBusy = { busyToast(appContext) }) { result ->
-            Toast.makeText(appContext, gpxImportMessage(appContext, result), Toast.LENGTH_LONG).show()
-        }
+        if (uris.isNotEmpty()) viewModel.importExport.importGpx(uris)
     }
     val progress = importProgress
     DataActionRow(
@@ -890,26 +883,13 @@ private fun progressSubtitle(
     else -> verb(progress.tracksDone)
 }
 
-private fun exportResultToast(context: Context, count: Int?) {
-    val message = if (count == null) {
-        context.getString(R.string.data_export_failed)
-    } else {
-        context.counted(R.plurals.data_exported, count)
-    }
-    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-}
-
 @Composable
 private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
-    val appContext = LocalContext.current.applicationContext
     val progress by viewModel.importExport.gpxExportProgress.collectAsStateWithLifecycle()
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.exportAll(uri, onBusy = { busyToast(appContext) }) { count ->
-            exportResultToast(appContext, count)
-        }
+        if (uri != null) viewModel.importExport.exportAll(uri)
     }
     DataActionRow(
         stringResource(R.string.data_export_tracks),
@@ -927,14 +907,10 @@ private fun ExportTracksRow(viewModel: TrackListViewModel, blockedBy: String?) {
 
 @Composable
 private fun rememberBackupLauncher(viewModel: TrackListViewModel): () -> Unit {
-    val appContext = LocalContext.current.applicationContext
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(BackupExporter.MIME_TYPE),
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.exportBackup(uri, onBusy = { busyToast(appContext) }) { count ->
-            exportResultToast(appContext, count)
-        }
+        if (uri != null) viewModel.importExport.exportBackup(uri)
     }
     return { launcher.launch(BackupExporter.fileName(System.currentTimeMillis())) }
 }
@@ -960,7 +936,6 @@ private fun ExportBackupRow(viewModel: TrackListViewModel, blockedBy: String?) {
 
 @Composable
 private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?) {
-    val appContext = LocalContext.current.applicationContext
     val clearable by viewModel.historyClearable.collectAsStateWithLifecycle()
     val progress by viewModel.importExport.clearProgress.collectAsStateWithLifecycle()
     val backUp = rememberBackupLauncher(viewModel)
@@ -996,10 +971,7 @@ private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?)
         confirmLabel = stringResource(R.string.data_clear_confirm),
         onConfirm = {
             confirming = false
-            viewModel.importExport.clearHistory(onBusy = { busyToast(appContext) }) { cleared ->
-                val message = if (cleared) R.string.data_cleared else R.string.data_clear_failed
-                Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
-            }
+            viewModel.importExport.clearHistory()
         },
         onDismiss = { confirming = false },
         secondaryLabel = stringResource(R.string.data_clear_backup_first),
@@ -1010,9 +982,6 @@ private fun ClearHistoryRow(viewModel: TrackListViewModel, busyBlocked: String?)
     )
 }
 
-internal fun busyToast(context: Context) =
-    Toast.makeText(context, R.string.data_load_busy, Toast.LENGTH_LONG).show()
-
 // Octet-stream is what a file manager hands over for an extension it does not recognize. Each
 // importer rejects a file that isn't its format.
 private val BACKUP_MIME_TYPES =
@@ -1022,22 +991,9 @@ private val GOOGLE_TIMELINE_MIME_TYPES = arrayOf("application/json", "applicatio
 
 @Composable
 private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
-    val appContext = LocalContext.current.applicationContext
     val progress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.restoreBackup(uri, onBusy = { busyToast(appContext) }) { outcome ->
-            val message = when (outcome) {
-                null -> appContext.getString(R.string.data_restore_failed)
-                is RestoreOutcome.Restored -> appContext.getString(
-                    R.string.data_restored,
-                    appContext.counted(R.plurals.data_trip_count, outcome.summary.tracks),
-                    appContext.counted(R.plurals.data_place_count, outcome.summary.places),
-                )
-                RestoreOutcome.NotEmpty -> appContext.getString(R.string.data_load_not_empty)
-            }
-            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
-        }
+        if (uri != null) viewModel.importExport.restoreBackup(uri)
     }
     DataActionRow(
         stringResource(R.string.data_restore),
@@ -1055,18 +1011,9 @@ private fun RestoreRow(viewModel: TrackListViewModel, blockedBy: String?) {
 
 @Composable
 private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?) {
-    val appContext = LocalContext.current.applicationContext
     val progress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        viewModel.importExport.importGoogleTimeline(uri, onBusy = { busyToast(appContext) }) { summary ->
-            val message = if (summary == null) {
-                appContext.getString(R.string.data_google_import_failed)
-            } else {
-                googleImportMessage(appContext, summary)
-            }
-            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
-        }
+        if (uri != null) viewModel.importExport.importGoogleTimeline(uri)
     }
     DataActionRow(
         stringResource(R.string.data_google_import),
@@ -1080,18 +1027,4 @@ private fun GoogleTimelineRow(viewModel: TrackListViewModel, blockedBy: String?)
         total = progress?.tracksTotal,
         blockedBy = blockedBy,
     ) { launcher.launch(GOOGLE_TIMELINE_MIME_TYPES) }
-}
-
-private fun googleImportMessage(context: Context, summary: GoogleTimelineImporter.Summary): String {
-    val trips = context.counted(R.plurals.data_trip_count, summary.tracks)
-    val places = context.counted(R.plurals.data_place_count, summary.places)
-    val loaded = if (summary.skipped == 0) {
-        context.getString(R.string.data_google_imported, trips, places)
-    } else {
-        val unreadable = context.counted(R.plurals.data_google_unreadable, summary.skipped)
-        context.getString(R.string.data_google_imported_skipped, trips, places, unreadable)
-    }
-    if (summary.overlapping == 0) return loaded
-    val overlapping = context.counted(R.plurals.gpx_overlapping, summary.overlapping)
-    return "$loaded · $overlapping"
 }

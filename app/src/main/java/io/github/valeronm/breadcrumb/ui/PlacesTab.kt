@@ -208,6 +208,7 @@ internal fun PlacesTab(
                     homeRequest = homeRequest,
                     onOpenPlace = onOpenPlace,
                     mapCamera = mapCamera,
+                    say = viewModel::say,
                 ) {
                     MapFilterChip(
                         selected = showRareStops,
@@ -264,6 +265,7 @@ private fun PlacesMapPage(
     homeRequest: Int,
     onOpenPlace: (String) -> Unit,
     mapCamera: CameraSlot,
+    say: (String) -> Unit,
     filters: @Composable ColumnScope.() -> Unit,
 ) {
     val camera = remember { CameraCarry() }
@@ -271,7 +273,7 @@ private fun PlacesMapPage(
         mapCamera.camera = camera
         onDispose { mapCamera.camera = null }
     }
-    val myLocation = rememberMyLocation()
+    val myLocation = rememberMyLocation(say)
     // Card padding keeps the texture-mode map off the back-gesture edge strips.
     Card(
         Modifier
