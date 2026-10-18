@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 
@@ -12,6 +13,7 @@ import androidx.room.Index
 data class RouteAnalysisJobEntity(
     val trackId: Long,
     val processorVersion: Int,
+    @ColumnInfo(defaultValue = "1") val parametersVersion: Int = 1,
     val inputRevision: Long,
     val state: String = QUEUED,
     val attempts: Int = 0,

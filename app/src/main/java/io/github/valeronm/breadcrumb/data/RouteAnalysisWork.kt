@@ -6,6 +6,8 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import io.github.valeronm.breadcrumb.data.ROUTE_ANALYSIS_PARAMETERS_VERSION
+import io.github.valeronm.breadcrumb.data.ROUTE_ANALYSIS_VERSION
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.RouteAnalysisJobEntity
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -20,7 +22,7 @@ object RouteAnalysisWork {
         // the recording path. App startup retries the queue reconciliation.
         runCatching {
             WorkManager.getInstance(context.applicationContext)
-                .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
+                .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }.onFailure { DebugLog.e("RouteAnalysis", "could not enqueue analysis", it) }
     }
 
@@ -38,7 +40,9 @@ class RouteAnalysisWorker(context: Context, params: WorkerParameters) : Coroutin
         val tracks = db.trackDao()
         val locomotion = db.locomotionDao()
         val now = System.currentTimeMillis()
-        val staleIds = runCatching { tracks.trackIdsNeedingAnalysis(ROUTE_ANALYSIS_VERSION) }
+        val staleIds = runCatching {
+            tracks.trackIdsNeedingAnalysis(ROUTE_ANALYSIS_VERSION, ROUTE_ANALYSIS_PARAMETERS_VERSION)
+        }
             .getOrElse { return Result.retry() }
         for (trackId in staleIds) {
             val track = tracks.track(trackId) ?: continue
@@ -46,6 +50,7 @@ class RouteAnalysisWorker(context: Context, params: WorkerParameters) : Coroutin
                 RouteAnalysisJobEntity(
                     trackId = trackId,
                     processorVersion = ROUTE_ANALYSIS_VERSION,
+                    parametersVersion = ROUTE_ANALYSIS_PARAMETERS_VERSION,
                     inputRevision = track.pathRevision,
                     updatedAtWallTimeMs = now,
                 ),
@@ -64,14 +69,15 @@ class RouteAnalysisWorker(context: Context, params: WorkerParameters) : Coroutin
             locomotion.updateAnalysisJob(running)
             try {
                 val completed = TrackRepository(applicationContext, db)
-                    .processRouteAnalysis(job.trackId, job.processorVersion, job.inputRevision)
+                    .processRouteAnalysis(job.trackId, job.processorVersion, job.parametersVersion, job.inputRevision)
                 val latestTrack = tracks.track(job.trackId)
                 if (!completed && latestTrack != null && latestTrack.pathRevision != job.inputRevision) {
                     locomotion.updateAnalysisJob(running.copy(state = RouteAnalysisJobEntity.QUEUED))
                     locomotion.enqueueAnalysisJob(
                         RouteAnalysisJobEntity(
                             trackId = latestTrack.id,
-                    processorVersion = ROUTE_ANALYSIS_VERSION,
+                            processorVersion = ROUTE_ANALYSIS_VERSION,
+                            parametersVersion = ROUTE_ANALYSIS_PARAMETERS_VERSION,
                             inputRevision = latestTrack.pathRevision,
                             updatedAtWallTimeMs = System.currentTimeMillis(),
                         ),
@@ -87,9 +93,18 @@ class RouteAnalysisWorker(context: Context, params: WorkerParameters) : Coroutin
                 return Result.retry()
             }
         }
-        if (jobs.size == JOBS_PER_RUN) return Result.retry()
+        if (jobs.size == JOBS_PER_RUN ||
+            tracks.trackIdsNeedingAnalysis(
+                ROUTE_ANALYSIS_VERSION,
+                ROUTE_ANALYSIS_PARAMETERS_VERSION,
+            ).isNotEmpty()
+        ) {
+            return Result.retry()
+        }
         return Result.success()
     }
 
-    private companion object { const val JOBS_PER_RUN = 5 }
+    private companion object {
+        const val JOBS_PER_RUN = 5
+    }
 }

@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionDraft
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
@@ -205,7 +206,14 @@ class TrackRepositoryTest {
 
         var track = dao.track(id)!!
         assertFalse(track.pathProcessed)
-        assertTrue(repository.processRouteAnalysis(id, ROUTE_ANALYSIS_VERSION, track.pathRevision))
+        assertTrue(
+            repository.processRouteAnalysis(
+                id,
+                ROUTE_ANALYSIS_VERSION,
+                ROUTE_ANALYSIS_PARAMETERS_VERSION,
+                track.pathRevision,
+            ),
+        )
         track = dao.track(id)!!
         assertTrue(track.pathProcessed)
         val raw = dao.allPointsFor(id)
@@ -215,7 +223,7 @@ class TrackRepositoryTest {
         assertEquals(raw[3].smoothedLongitude!!, repository.pointsFor(id)[3].longitude, 1e-9)
         assertEquals(raw[3].smoothedLongitude!!, repository.trackPointsFor(id).good[3].longitude, 1e-9)
         test.assertStatsMatchPoints(id)
-        dao.setPathProcessed(id, false, 0, track.pathRevision)
+        dao.setPathProcessed(id, false, 0, 0, track.pathRevision)
         assertEquals(1, repository.processUnprocessedPaths(listOf(id)))
         assertEquals(1, repository.processUnprocessedPaths(listOf(id)))
         assertEquals(1, test.db.locomotionDao().analysisJobs(10).size)
@@ -721,6 +729,101 @@ class TrackRepositoryTest {
         assertEquals(DiscardReason.MERGED.code, dao.track(mergedId)!!.discardReason)
         assertNull(dao.track(first)!!.discardedAt)
         assertNull(dao.track(second)!!.discardedAt)
+    }
+
+    @Test fun `accepting a review preserves the stop as composition and undo survives in queue`() = runTest {
+        val first = finishedWalk(0)
+        val second = finishedWalk(6)
+        val firstRow = dao.track(first)!!
+        val secondRow = dao.track(second)!!
+        val revision = firstRow.pathRevision * 31 + secondRow.pathRevision
+        test.db.locomotionDao().insertReview(
+            ReviewQueueEntity(
+                id = "merge-review",
+                kind = ReviewQueueEntity.SHORT_STOP,
+                primaryTrackId = first,
+                secondaryTrackId = second,
+                startWallTimeMs = firstRow.endedAt!!,
+                endWallTimeMs = secondRow.startedAt,
+                currentValue = firstRow.activityType,
+                reasonCode = "test",
+                evidenceKey = "merge-review-evidence",
+                inputRevision = revision,
+                createdAtWallTimeMs = TEST_START,
+                updatedAtWallTimeMs = TEST_START,
+            ),
+        )
+
+        assertTrue(repository.acceptReviewMerge("merge-review", revision))
+        val accepted = repository.reviewItem("merge-review")!!
+        val mergedId = accepted.correctedValue!!.substringBefore(',').toLong()
+        assertEquals(ReviewQueueEntity.ACCEPTED, accepted.state)
+        assertEquals(listOf("PATH", "STATIONARY", "PATH"), repository.compositionTreePartsFor(mergedId).map { it.kind })
+
+        assertTrue(repository.undoReviewMerge("merge-review"))
+        assertEquals(ReviewQueueEntity.UNDONE, repository.reviewItem("merge-review")!!.state)
+        assertNull(dao.track(first)!!.discardedAt)
+        assertNull(dao.track(second)!!.discardedAt)
+    }
+
+    @Test fun `stale review is withdrawn and a postponed review can return`() = runTest {
+        val trackId = finishedWalk(0)
+        val track = dao.track(trackId)!!
+        val item = ReviewQueueEntity(
+            id = "transport-review",
+            kind = ReviewQueueEntity.TRANSPORT,
+            primaryTrackId = trackId,
+            startWallTimeMs = track.startedAt,
+            endWallTimeMs = track.endedAt,
+            suggestedValue = ActivityType.CYCLING.name,
+            currentValue = track.activityType,
+            reasonCode = "test",
+            evidenceKey = "transport-review-evidence",
+            inputRevision = track.pathRevision,
+            createdAtWallTimeMs = TEST_START,
+            updatedAtWallTimeMs = TEST_START,
+        )
+        test.db.locomotionDao().insertReview(item)
+        repository.decideReview(item.id, "SKIP")
+        assertEquals(ReviewQueueEntity.SNOOZED, repository.reviewItem(item.id)!!.state)
+        repository.restoreReview(item.id)
+        assertEquals(ReviewQueueEntity.PENDING, repository.reviewItem(item.id)!!.state)
+
+        dao.bumpPathRevision(trackId)
+        assertFalse(repository.isReviewCurrent(repository.reviewItem(item.id)!!))
+        assertEquals(listOf(trackId), repository.withdrawStaleReview(item.id))
+        assertEquals(ReviewQueueEntity.STALE, repository.reviewItem(item.id)!!.state)
+    }
+
+    @Test fun `transport review changes the track and decision atomically`() = runTest {
+        val trackId = finishedWalk(0)
+        val track = dao.track(trackId)!!
+        val item = ReviewQueueEntity(
+            id = "transport-accept-review",
+            kind = ReviewQueueEntity.TRANSPORT,
+            primaryTrackId = trackId,
+            startWallTimeMs = track.startedAt,
+            endWallTimeMs = track.endedAt,
+            suggestedValue = ActivityType.CYCLING.name,
+            currentValue = track.activityType,
+            reasonCode = "test",
+            evidenceKey = "transport-accept-evidence",
+            inputRevision = track.pathRevision,
+            createdAtWallTimeMs = TEST_START,
+            updatedAtWallTimeMs = TEST_START,
+        )
+        test.db.locomotionDao().insertReview(item)
+
+        assertTrue(
+            repository.applyReviewTransport(
+                item.id,
+                item.inputRevision,
+                ActivityType.CYCLING,
+                "ACCEPT",
+            ),
+        )
+        assertEquals(ActivityType.CYCLING.name, dao.track(trackId)!!.activityType)
+        assertEquals(ReviewQueueEntity.ACCEPTED, repository.reviewItem(item.id)!!.state)
     }
 
     @Test fun `a short sequence can join recorded and hand entered paths and split back`() = runTest {

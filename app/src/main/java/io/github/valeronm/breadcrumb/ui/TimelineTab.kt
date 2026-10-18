@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -82,7 +83,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import android.widget.Toast
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
@@ -509,36 +509,14 @@ private fun TimelineListPage(
                             onOpenJourney = onOpenJourney,
                             onRepair = {
                                 viewModel.repairDay(dayTracks.map { it.id }, processUnprocessedPaths = true) { result ->
-                                    val mergeMessage = when {
-                                        result.candidateCount == 0 -> context.getString(R.string.timeline_repair_no_candidates)
-                                        result.mergedCount == 0 -> context.getString(
-                                            R.string.timeline_repair_failed,
-                                            result.candidateCount,
-                                            result.rejectionReason?.let { reason ->
-                                                val reasonRes = when (reason) {
-                                                    "path_unavailable", "path_already_discarded" -> R.string.timeline_repair_reason_stale
-                                                    "activity_type_mismatch", "unsupported_activity" -> R.string.timeline_repair_reason_activity
-                                                    "interval_mismatch" -> R.string.timeline_repair_reason_interval
-                                                    "missing_endpoint" -> R.string.timeline_repair_reason_endpoint
-                                                    "distance_limit" -> R.string.timeline_repair_reason_distance
-                                                    else -> R.string.timeline_repair_reason_unknown
-                                                }
-                                                context.getString(reasonRes)
-                                            } ?: context.getString(R.string.timeline_repair_reason_unknown),
+                                    val message = when {
+                                        result.queued -> context.getString(
+                                            R.string.timeline_repair_processed,
+                                            result.processedTrackCount,
                                         )
-                                        else -> context.resources.getQuantityString(
-                                            R.plurals.timeline_repair_merged,
-                                            result.mergedCount,
-                                            result.mergedCount,
-                                        )
+                                        result.processingFailed -> context.getString(R.string.timeline_repair_processing_failed)
+                                        else -> context.getString(R.string.timeline_repair_no_candidates)
                                     }
-                                    val message = buildList {
-                                        if (result.processedTrackCount > 0) {
-                                            add(context.getString(R.string.timeline_repair_processed, result.processedTrackCount))
-                                        }
-                                        if (result.processingFailed) add(context.getString(R.string.timeline_repair_processing_failed))
-                                        if (result.processedTrackCount == 0 || result.candidateCount > 0) add(mergeMessage)
-                                    }.joinToString("\n")
                                     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                                 }
                             },

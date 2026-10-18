@@ -2,8 +2,8 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import androidx.room.withTransaction
-import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
@@ -14,8 +14,8 @@ import io.github.valeronm.breadcrumb.data.db.TrackCompositionEntity
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartDraft
 import io.github.valeronm.breadcrumb.data.db.TrackCompositionPartEntity
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
-import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackPathPointUpdate
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -30,8 +30,8 @@ import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.locomotion.BoundaryKind
@@ -43,6 +43,7 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -57,6 +58,7 @@ private const val MAX_LEADING_STRAYS_DROPPED = 5
 private const val MAX_TIMELINE_SUGGESTIONS = 500
 private const val MIN_TIMELINE_SUGGESTION_CONFIDENCE = 0.60f
 internal const val ROUTE_ANALYSIS_VERSION = 1
+internal const val ROUTE_ANALYSIS_PARAMETERS_VERSION = 1
 private const val ONE_MINUTE_MS = 60_000L
 private const val FIVE_MINUTES_MS = 5 * ONE_MINUTE_MS
 private const val MAX_REVIEW_SEAM_DISTANCE_METERS = 300.0
@@ -403,7 +405,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun setActivityType(trackId: Long, activityType: ActivityType) {
         val correctedTrack = db.withTransaction { setActivityTypeInTransaction(trackId, activityType) }
-        correctedTrack?.let { learnFromUserCorrection(it, activityType) }
+        correctedTrack?.let {
+            learnFromUserCorrection(it, activityType)
+            processUnprocessedPaths(listOf(trackId))
+        }
     }
 
     private suspend fun setActivityTypeInTransaction(
@@ -475,7 +480,158 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
     }
 
+    /** A skipped suggestion is postponed, not rejected; bring it back without changing its evidence. */
+    suspend fun restoreReview(id: String) {
+        db.withTransaction {
+            val dao = db.locomotionDao()
+            val current = dao.reviewItem(id) ?: return@withTransaction
+            if (current.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SNOOZED) {
+                return@withTransaction
+            }
+            dao.updateReviewItem(
+                current.copy(
+                    state = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING,
+                    decision = null,
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+    suspend fun withdrawStaleReview(id: String): List<Long> = db.withTransaction {
+        val dao = db.locomotionDao()
+        val item = dao.reviewItem(id) ?: return@withTransaction emptyList()
+        if (item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING &&
+            item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SNOOZED
+        ) {
+            return@withTransaction emptyList()
+        }
+        dao.updateReviewItem(
+            item.copy(
+                state = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.STALE,
+                decision = "STALE",
+                updatedAtWallTimeMs = System.currentTimeMillis(),
+            ),
+        )
+        listOfNotNull(item.primaryTrackId, item.secondaryTrackId)
+    }
+
     suspend fun reviewItem(id: String) = db.locomotionDao().reviewItem(id)
+
+    /** Accept a connection suggestion as an ordered, source-preserving composition. */
+    suspend fun acceptReviewMerge(id: String, expectedInputRevision: Long): Boolean = db.withTransaction {
+        val locomotion = db.locomotionDao()
+        val item = locomotion.reviewItem(id) ?: return@withTransaction false
+        if (item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING ||
+            item.inputRevision != expectedInputRevision ||
+            !isReviewCurrent(item)
+        ) {
+            return@withTransaction false
+        }
+        if (item.kind !in setOf(
+                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.MERGE_TRACKS,
+                io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.SHORT_STOP,
+            )
+        ) {
+            return@withTransaction false
+        }
+        val firstId = item.primaryTrackId ?: return@withTransaction false
+        val secondId = item.secondaryTrackId ?: return@withTransaction false
+        val first = dao.track(firstId) ?: return@withTransaction false
+        val second = dao.track(secondId) ?: return@withTransaction false
+        val firstEnd = first.endedAt ?: return@withTransaction false
+        val secondEnd = second.endedAt ?: return@withTransaction false
+        val interval = DerivedReadModel.mappedRows(derivation.observeStored().first()).intervals
+            .firstOrNull { it.afterTrackId == firstId }
+        val stationary = interval is StayDeriver.Stay
+        val parts = listOf(
+            TrackCompositionPartDraft(
+                kind = "PATH", sourceTrackId = firstId, activityType = first.activityType,
+                startedAt = first.startedAt, endedAt = firstEnd,
+            ),
+            TrackCompositionPartDraft(
+                kind = if (stationary) "STATIONARY" else "UNKNOWN",
+                activityType = if (stationary) ActivityType.STILL.name else ActivityType.UNKNOWN.name,
+                startedAt = firstEnd, endedAt = second.startedAt,
+                beforeTrackId = firstId, afterTrackId = secondId,
+            ),
+            TrackCompositionPartDraft(
+                kind = "PATH", sourceTrackId = secondId, activityType = second.activityType,
+                startedAt = second.startedAt, endedAt = secondEnd,
+            ),
+        )
+        val mergedId = mergeTrackSequence(
+            parts,
+            expectedRevisions = mapOf(firstId to first.pathRevision, secondId to second.pathRevision),
+        ) ?: return@withTransaction false
+        locomotion.updateReviewItem(
+            item.copy(
+                state = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.ACCEPTED,
+                decision = "ACCEPT",
+                correctedValue = "$mergedId,$firstId,$secondId",
+                updatedAtWallTimeMs = System.currentTimeMillis(),
+            ),
+        )
+        true
+    }
+
+    suspend fun undoReviewMerge(id: String): Boolean = db.withTransaction {
+        val locomotion = db.locomotionDao()
+        val item = locomotion.reviewItem(id) ?: return@withTransaction false
+        if (item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.ACCEPTED) {
+            return@withTransaction false
+        }
+        val ids = item.correctedValue?.split(',')?.mapNotNull(String::toLongOrNull)
+            ?: return@withTransaction false
+        if (ids.size != 3) return@withTransaction false
+        unmergeTracks(ids[0], ids[1], ids[2])
+        locomotion.updateReviewItem(
+            item.copy(
+                state = io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.UNDONE,
+                decision = "UNDO",
+                updatedAtWallTimeMs = System.currentTimeMillis(),
+            ),
+        )
+        true
+    }
+
+    /** Apply the transport correction and close its review card in one database transaction. */
+    suspend fun applyReviewTransport(
+        id: String,
+        expectedInputRevision: Long,
+        activityType: ActivityType,
+        decision: String,
+    ): Boolean {
+        if (decision !in setOf("ACCEPT", "CORRECT")) return false
+        val corrected = db.withTransaction {
+            val locomotion = db.locomotionDao()
+            val item = locomotion.reviewItem(id) ?: return@withTransaction null
+            if (item.kind != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.TRANSPORT ||
+                item.state != io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.PENDING ||
+                item.inputRevision != expectedInputRevision || !isReviewCurrent(item)
+            ) {
+                return@withTransaction null
+            }
+            val trackId = item.primaryTrackId ?: return@withTransaction null
+            val track = setActivityTypeInTransaction(trackId, activityType) ?: return@withTransaction null
+            locomotion.updateReviewItem(
+                item.copy(
+                    state = if (decision == "ACCEPT") {
+                        io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.ACCEPTED
+                    } else {
+                        io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.CORRECTED
+                    },
+                    decision = decision,
+                    correctedValue = activityType.name,
+                    updatedAtWallTimeMs = System.currentTimeMillis(),
+                ),
+            )
+            track to trackId
+        } ?: return false
+        learnFromUserCorrection(corrected.first, activityType)
+        processUnprocessedPaths(listOf(corrected.second))
+        return true
+    }
 
     /** Refuse a decision if any source row changed since the evidence was presented. */
     suspend fun isReviewCurrent(item: io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity): Boolean {
@@ -499,25 +655,29 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         endedAt: Long,
         kind: String,
         placeId: Long? = null,
-    ): String = db.withTransaction {
-        require(kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE"))
-        require(kind != "ASSIGN_VISIT_PLACE" || placeId != null)
-        val id = UUID.randomUUID().toString()
-        val target = engineVisitSegmentId(afterTrackId)
-        db.locomotionDao().insertUserCorrection(
-            EngineUserCorrectionEntity(
-                id = id,
-                operationId = UUID.randomUUID().toString(),
-                targetSegmentId = target,
-                kind = kind,
-                createdAtWallTimeMs = System.currentTimeMillis(),
-                correctedPlaceId = placeId,
-                visitStartWallTimeMs = startedAt,
-                visitEndWallTimeMs = endedAt,
-            ),
-        )
-        refreshVisitTrainingLabels(target)
-        id
+    ): String {
+        val id = db.withTransaction {
+            require(kind in setOf("MARK_VISIT_BOGUS", "DELETE_VISIT", "ASSIGN_VISIT_PLACE"))
+            require(kind != "ASSIGN_VISIT_PLACE" || placeId != null)
+            val correctionId = UUID.randomUUID().toString()
+            val target = engineVisitSegmentId(afterTrackId)
+            db.locomotionDao().insertUserCorrection(
+                EngineUserCorrectionEntity(
+                    id = correctionId,
+                    operationId = UUID.randomUUID().toString(),
+                    targetSegmentId = target,
+                    kind = kind,
+                    createdAtWallTimeMs = System.currentTimeMillis(),
+                    correctedPlaceId = placeId,
+                    visitStartWallTimeMs = startedAt,
+                    visitEndWallTimeMs = endedAt,
+                ),
+            )
+            refreshVisitTrainingLabels(target)
+            correctionId
+        }
+        processUnprocessedPaths(listOf(afterTrackId))
+        return id
     }
 
     /** Undo one visit correction without deleting the audit trail or raw observations. */
@@ -683,6 +843,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 io.github.valeronm.breadcrumb.data.db.RouteAnalysisJobEntity(
                     trackId = trackId,
                     processorVersion = ROUTE_ANALYSIS_VERSION,
+                    parametersVersion = ROUTE_ANALYSIS_PARAMETERS_VERSION,
                     inputRevision = track.pathRevision,
                     updatedAtWallTimeMs = System.currentTimeMillis(),
                 ),
@@ -692,13 +853,104 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         trackIds.distinct().size
     }
 
-    suspend fun processRouteAnalysis(trackId: Long, processorVersion: Int, inputRevision: Long): Boolean {
-        val processed = smoothPathIfNeeded(trackId, processorVersion, inputRevision)
-        if (processed) dao.track(trackId)?.takeIf { it.endedAt != null && it.discardedAt == null }?.let { track ->
-            applyStoredModelSuggestion(track)
-            addNeighborhoodReview(track)
+    suspend fun processRouteAnalysis(
+        trackId: Long,
+        processorVersion: Int,
+        parametersVersion: Int,
+        inputRevision: Long,
+    ): Boolean {
+        val processed = smoothPathIfNeeded(trackId, processorVersion, parametersVersion, inputRevision)
+        if (processed) {
+            dao.track(trackId)?.takeIf { it.endedAt != null && it.discardedAt == null }?.let { track ->
+                applyStoredModelSuggestion(track)
+                addNeighborhoodReview(track)
+                applyAutomaticMerges(setOf(track.id))
+            }
         }
         return processed
+    }
+
+    data class AutomaticMergeResult(val candidates: Int, val merged: Int, val rejectionReason: String? = null)
+
+    /** Apply only the existing strict same-mode small-gap rule, in the processing layer. */
+    suspend fun applyAutomaticMerges(relatedTrackIds: Set<Long>? = null): AutomaticMergeResult {
+        val summaries = observeSummaries().first()
+        val stored = derivation.observeStored().first()
+        val intervals = DerivedReadModel.mappedRows(stored).intervals
+        val endpoints = dao.endpointsOnce().associate { it.id to it.toTrackEnd() }
+        val corrections = stored.visitCorrections
+        val undone = corrections.asSequence().filter { it.kind == "UNDO" }
+            .mapNotNull { it.referenceCorrectionId }.toSet()
+        val active = corrections.asSequence()
+            .filterNot { it.id in undone }
+            .toList()
+        val assigned = active.asSequence()
+            .filter { it.kind == "ASSIGN_VISIT_PLACE" }
+            .mapNotNull { it.targetSegmentId.removePrefix("derived-visit:").toLongOrNull() }
+            .toSet()
+        val locksByOperation = active.filter { it.kind == "LOCK_BOUNDARY" }.groupBy { it.operationId }
+        val manuallyLockedSeams = locksByOperation.values.mapNotNull { locks ->
+            val before = locks.firstOrNull { it.boundaryKind == "END" }
+                ?.targetSegmentId?.removePrefix("legacy-track:")?.toLongOrNull()
+            val after = locks.firstOrNull { it.boundaryKind == "START" }
+                ?.targetSegmentId?.removePrefix("legacy-track:")?.toLongOrNull()
+            if (before != null && after != null) before to after else null
+        }.toSet()
+        val rejectedSeams = db.locomotionDao().allReviewItems().asSequence()
+            .filter { it.state == io.github.valeronm.breadcrumb.data.db.ReviewQueueEntity.REJECTED }
+            .mapNotNull { item ->
+                val before = item.primaryTrackId ?: return@mapNotNull null
+                val after = item.secondaryTrackId ?: return@mapNotNull null
+                before to after
+            }.toSet()
+        val sequences = TrackMerge.autoSequences(
+            summariesNewestFirst = summaries,
+            intervals = intervals,
+            endpoints = endpoints,
+            rules = TrackMerge.AutoSequenceRules(
+                assignedVisitAnchors = assigned,
+                distance = AndroidDistance,
+                protectedSeams = manuallyLockedSeams + rejectedSeams,
+            ),
+        ).filter { sequence -> relatedTrackIds == null || sequence.tracks.any { it.id in relatedTrackIds } }
+        var merged = 0
+        var rejectionReason: String? = null
+        for (sequence in sequences) {
+            val parts = buildList {
+                sequence.tracks.forEachIndexed { index, track ->
+                    val pathEnd = track.endedAt ?: return@forEachIndexed
+                    add(
+                        TrackCompositionPartDraft(
+                            kind = "PATH", sourceTrackId = track.id, activityType = track.activityType,
+                            startedAt = track.startedAt, endedAt = pathEnd,
+                        ),
+                    )
+                    val interval = sequence.intervals.getOrNull(index) ?: return@forEachIndexed
+                    val next = sequence.tracks.getOrNull(index + 1) ?: return@forEachIndexed
+                    val correctionId = active.firstOrNull {
+                        it.targetSegmentId == engineVisitSegmentId(interval.afterTrackId) && it.kind == "DELETE_VISIT"
+                    }?.id
+                    add(
+                        TrackCompositionPartDraft(
+                            kind = if (interval is StayDeriver.Stay) "STATIONARY" else "UNKNOWN",
+                            activityType = if (interval is StayDeriver.Stay) ActivityType.STILL.name else ActivityType.UNKNOWN.name,
+                            startedAt = pathEnd, endedAt = next.startedAt,
+                            beforeTrackId = track.id, afterTrackId = next.id,
+                            visitCorrectionId = correctionId,
+                        ),
+                    )
+                }
+            }
+            if (parts.size != sequence.tracks.size * 2 - 1) continue
+            val revisions = sequence.tracks.associate { summary -> summary.id to summary.pathRevision }
+            if (mergeTrackSequence(parts, expectedRevisions = revisions) { reason ->
+                    if (rejectionReason == null) rejectionReason = reason
+                } != null
+            ) {
+                merged++
+            }
+        }
+        return AutomaticMergeResult(sequences.size, merged, rejectionReason)
     }
 
     private suspend fun addNeighborhoodReview(track: Track) {
@@ -756,12 +1008,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     suspend fun smoothPathIfNeeded(
         trackId: Long,
         processorVersion: Int = ROUTE_ANALYSIS_VERSION,
+        parametersVersion: Int = ROUTE_ANALYSIS_PARAMETERS_VERSION,
         expectedRevision: Long? = null,
     ): Boolean {
         val snapshot = db.withTransaction {
             val track = dao.track(trackId) ?: return@withTransaction null
             val alreadyProcessed = track.pathProcessorVersion >= processorVersion &&
-                track.pathProcessedRevision == track.pathRevision && expectedRevision == null
+                track.pathParametersVersion >= parametersVersion &&
+                track.pathProcessedRevision == track.pathRevision &&
+                expectedRevision == null
             if (track.endedAt == null || track.discardedAt != null || alreadyProcessed) return@withTransaction null
             if (expectedRevision != null && track.pathRevision != expectedRevision) return@withTransaction null
             track to dao.allPointsFor(trackId)
@@ -772,19 +1027,21 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             var run = mutableListOf<TrackPoint>()
             fun flush() {
                 if (run.isEmpty()) return
-                val result = RoutePathSmoother.smooth(run.map { point ->
-                    RouteSmoothingFix(
-                        latitudeDegrees = point.latitude,
-                        longitudeDegrees = point.longitude,
-                        timestampMs = point.timestamp,
-                        horizontalAccuracyMeters = point.accuracy?.toDouble(),
-                        speedMetersPerSecond = point.speed?.toDouble(),
-                        bearingDegrees = point.bearing?.toDouble(),
-                        speedAccuracyMetersPerSecond = point.speedAccuracy?.toDouble(),
-                        bearingAccuracyDegrees = point.bearingAccuracy?.toDouble(),
-                        segmentStart = point.segmentStart,
-                    )
-                })
+                val result = RoutePathSmoother.smooth(
+                    run.map { point ->
+                        RouteSmoothingFix(
+                            latitudeDegrees = point.latitude,
+                            longitudeDegrees = point.longitude,
+                            timestampMs = point.timestamp,
+                            horizontalAccuracyMeters = point.accuracy?.toDouble(),
+                            speedMetersPerSecond = point.speed?.toDouble(),
+                            bearingDegrees = point.bearing?.toDouble(),
+                            speedAccuracyMetersPerSecond = point.speedAccuracy?.toDouble(),
+                            bearingAccuracyDegrees = point.bearingAccuracy?.toDouble(),
+                            segmentStart = point.segmentStart,
+                        )
+                    },
+                )
                 run.forEachIndexed { index, point ->
                     result[index]?.let { coordinate ->
                         output += TrackPathPointUpdate(point.id, coordinate.latitudeDegrees, coordinate.longitudeDegrees)
@@ -816,7 +1073,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 (expectedRevision != null && current.pathRevision != expectedRevision)
             if (current.endedAt == null || current.discardedAt != null || revisionChanged) return@withTransaction false
             if (updates.isNotEmpty()) dao.updateSmoothedPoints(updates)
-            dao.setPathProcessed(trackId, true, processorVersion, current.pathRevision)
+            dao.setPathProcessed(trackId, true, processorVersion, parametersVersion, current.pathRevision)
             true
         }
     }
@@ -1155,8 +1412,11 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val nextAncestors = ancestors + id
             val pathExpansions = direct.filter { it.kind == "PATH" }.associate { part ->
                 val sourceId = checkNotNull(part.sourceTrackId)
-                sourceId to if (dao.compositionFor(sourceId) != null) expand(sourceId, rootId, nextAncestors)
-                else listOf(part.copy(mergedTrackId = rootId))
+                sourceId to if (dao.compositionFor(sourceId) != null) {
+                    expand(sourceId, rootId, nextAncestors)
+                } else {
+                    listOf(part.copy(mergedTrackId = rootId))
+                }
             }
             val ordered = mutableListOf<TrackCompositionPartEntity>()
             val paths = direct.filter { it.kind == "PATH" }
@@ -1203,6 +1463,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      */
     suspend fun mergeTrackSequence(
         parts: List<TrackCompositionPartDraft>,
+        expectedRevisions: Map<Long, Long> = emptyMap(),
         onRejected: ((String) -> Unit)? = null,
     ): Long? = db.withTransaction {
         fun reject(reason: String): Long? {
@@ -1220,6 +1481,9 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val paths = pathParts.map { draft ->
             closedTrack(checkNotNull(draft.sourceTrackId)) ?: return@withTransaction reject("path_unavailable")
         }
+        if (expectedRevisions.isNotEmpty() && paths.any { expectedRevisions[it.id] != it.pathRevision }) {
+            return@withTransaction reject("path_changed")
+        }
         if (paths.any { it.discardedAt != null }) return@withTransaction reject("path_already_discarded")
         if (paths.any { it.activityType != paths.first().activityType }) return@withTransaction reject("activity_type_mismatch")
         val activity = ActivityType.ofName(paths.first().activityType) ?: return@withTransaction reject("unsupported_activity")
@@ -1232,10 +1496,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val gap = gapParts[index]
             val beforeEndedAt = before.endedAt ?: return@withTransaction reject("path_unavailable")
             val afterStartedAt = after.startedAt
-            if (gap.beforeTrackId != before.id || gap.afterTrackId != after.id ||
-                gap.startedAt != beforeEndedAt || gap.endedAt != afterStartedAt ||
-                afterStartedAt < beforeEndedAt || afterStartedAt - beforeEndedAt > 4 * 60_000L
-            ) return@withTransaction reject("interval_mismatch")
+            if (gap.beforeTrackId != before.id ||
+                gap.afterTrackId != after.id ||
+                gap.startedAt != beforeEndedAt ||
+                gap.endedAt != afterStartedAt ||
+                afterStartedAt < beforeEndedAt ||
+                afterStartedAt - beforeEndedAt > 4 * 60_000L
+            ) {
+                return@withTransaction reject("interval_mismatch")
+            }
             val endLat = before.endLat ?: return@withTransaction reject("missing_endpoint")
             val endLon = before.endLon ?: return@withTransaction reject("missing_endpoint")
             val startLat = after.startLat ?: return@withTransaction reject("missing_endpoint")
@@ -1407,9 +1676,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 ?: return@withTransaction
             val sourceIds = parts.filter { it.kind == "PATH" }.mapNotNull { it.sourceTrackId }.distinct()
             val component = dao.track(componentTrackId)
-            if (component == null || componentTrackId !in sourceIds || ActivityType.ofName(component.activityType) == activityType ||
+            if (component == null ||
+                componentTrackId !in sourceIds ||
+                ActivityType.ofName(component.activityType) == activityType ||
                 sourceIds.any { dao.track(it)?.discardReason != DiscardReason.MERGED.code }
-            ) return@withTransaction
+            ) {
+                return@withTransaction
+            }
             val correctionRows = parts.mapNotNull { it.visitCorrectionId }.distinct()
             val allCorrections = db.locomotionDao().allUserCorrections().associateBy { it.id }
             for (correctionId in correctionRows) {

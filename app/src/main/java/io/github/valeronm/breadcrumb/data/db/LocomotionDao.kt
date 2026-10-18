@@ -4,7 +4,6 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -91,7 +90,12 @@ interface LocomotionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun enqueueAnalysisJob(job: RouteAnalysisJobEntity)
 
-    @Query("SELECT * FROM route_analysis_jobs WHERE state IN ('QUEUED','RUNNING','FAILED') ORDER BY CASE state WHEN 'QUEUED' THEN 0 ELSE 1 END, updatedAtWallTimeMs DESC LIMIT :limit")
+    @Query(
+        "SELECT j.* FROM route_analysis_jobs j LEFT JOIN tracks t ON t.id = j.trackId " +
+            "WHERE j.state IN ('QUEUED','RUNNING','FAILED') " +
+            "ORDER BY CASE j.state WHEN 'QUEUED' THEN 0 ELSE 1 END, t.startedAt DESC, " +
+            "j.updatedAtWallTimeMs DESC LIMIT :limit",
+    )
     suspend fun analysisJobs(limit: Int): List<RouteAnalysisJobEntity>
 
     @Query("SELECT * FROM route_analysis_jobs WHERE trackId = :trackId AND processorVersion = :processorVersion AND inputRevision = :inputRevision")
@@ -111,6 +115,9 @@ interface LocomotionDao {
 
     @Query("SELECT * FROM review_queue WHERE id = :id")
     suspend fun reviewItem(id: String): ReviewQueueEntity?
+
+    @Query("SELECT * FROM review_queue")
+    suspend fun allReviewItems(): List<ReviewQueueEntity>
 
     @Update
     suspend fun updateReviewItem(item: ReviewQueueEntity)

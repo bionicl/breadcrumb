@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RouteAnalysisJobEntity::class, ReviewQueueEntity::class,
         TrackCompositionEntity::class, TrackCompositionPartEntity::class,
     ],
-    version = 33,
+    version = 34,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -460,6 +460,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN pathParametersVersion INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE route_analysis_jobs ADD COLUMN parametersVersion INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -473,7 +480,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
             MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
             MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32,
-            MIGRATION_32_33,
+            MIGRATION_32_33, MIGRATION_33_34,
         )
 
         fun get(context: Context): AppDatabase =

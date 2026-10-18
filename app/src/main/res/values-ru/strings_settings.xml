@@ -215,6 +215,8 @@
     <string name="settings_route_analysis_description">Обрабатывает записанные маршруты и собирает данные датчиков движения для подсказок. На запись это не влияет.</string>
     <string name="review_pending">Ожидают (%1$d)</string>
     <string name="review_resolved">Решённые</string>
+    <string name="review_filter_all">Все типы</string>
+    <string name="review_restore">Вернуть в очередь</string>
     <string name="review_empty">Сейчас нет решений, требующих вашего внимания.</string>
     <string name="review_empty_resolved">Проверенных подсказок пока нет.</string>
     <string name="review_suggestion">Сейчас: %1$s · Предложение: %2$s</string>

@@ -33,6 +33,8 @@ data class ReviewQueueEntity(
         const val ACCEPTED = "ACCEPTED"
         const val REJECTED = "REJECTED"
         const val CORRECTED = "CORRECTED"
+        const val UNDONE = "UNDONE"
+        const val STALE = "STALE"
         const val MERGE_TRACKS = "MERGE_TRACKS"
         const val SHORT_STOP = "SHORT_STOP"
         const val TRANSPORT = "TRANSPORT"

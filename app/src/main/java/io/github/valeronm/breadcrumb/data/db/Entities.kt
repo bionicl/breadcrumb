@@ -98,6 +98,7 @@ data class Track(
     @ColumnInfo(defaultValue = "0") val pathProcessorVersion: Int = 0,
     @ColumnInfo(defaultValue = "0") val pathRevision: Long = 0,
     @ColumnInfo(defaultValue = "0") val pathProcessedRevision: Long = 0,
+    @ColumnInfo(defaultValue = "0") val pathParametersVersion: Int = 0,
 )
 
 @Entity(
@@ -373,4 +374,8 @@ data class TrackSummary(
     val engineSuggestionConfidence: Float? = null,
     val engineSuggestionModelVersion: String? = null,
     val pathProcessed: Boolean = false,
+    val pathProcessorVersion: Int = 0,
+    val pathRevision: Long = 0,
+    val pathProcessedRevision: Long = 0,
+    val pathParametersVersion: Int = 0,
 )

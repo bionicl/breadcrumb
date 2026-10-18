@@ -162,8 +162,11 @@ class TrackMergeTest {
         }
         return TrackMerge.autoSequences(
             summariesNewestFirst = listOf(second, first), intervals = listOf(interval),
-            endpoints = endpoints, assignedVisitAnchors = emptySet(),
-            distance = DistanceFn { _, _, _, _ -> distanceM },
+            endpoints = endpoints,
+            rules = TrackMerge.AutoSequenceRules(
+                assignedVisitAnchors = emptySet(),
+                distance = DistanceFn { _, _, _, _ -> distanceM },
+            ),
         )
     }
 

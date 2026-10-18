@@ -38,8 +38,11 @@ internal fun ReviewTab(viewModel: TrackListViewModel) {
     val all by viewModel.reviewQueue.collectAsStateWithLifecycle()
     var showResolved by remember { mutableStateOf(false) }
     val visible = all.filter { item ->
-        if (showResolved) item.state != ReviewQueueEntity.PENDING && item.state != ReviewQueueEntity.SNOOZED
-        else item.state == ReviewQueueEntity.PENDING
+        if (showResolved) {
+            item.state != ReviewQueueEntity.PENDING && item.state != ReviewQueueEntity.SNOOZED
+        } else {
+            item.state == ReviewQueueEntity.PENDING
+        }
     }
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -110,7 +113,9 @@ private fun ReviewCard(item: ReviewQueueEntity, viewModel: TrackListViewModel, r
             )
             if (resolved) {
                 Text(item.state.lowercase(), style = MaterialTheme.typography.labelMedium)
-                if (item.kind == ReviewQueueEntity.MERGE_TRACKS || item.kind == ReviewQueueEntity.SHORT_STOP) {
+                if (item.state == ReviewQueueEntity.ACCEPTED &&
+                    (item.kind == ReviewQueueEntity.MERGE_TRACKS || item.kind == ReviewQueueEntity.SHORT_STOP)
+                ) {
                     OutlinedButton(onClick = { viewModel.undoReviewMerge(item) }) {
                         Text(stringResource(R.string.review_undo_merge))
                     }
@@ -132,8 +137,11 @@ private fun ReviewActions(item: ReviewQueueEntity, viewModel: TrackListViewModel
             Text(stringResource(if (item.kind == ReviewQueueEntity.TRANSPORT) R.string.review_confirm_type else R.string.review_confirm))
         }
         OutlinedButton(onClick = {
-            if (item.kind == ReviewQueueEntity.TRANSPORT) showOptions = true
-            else viewModel.answerReview(item, "REJECT")
+            if (item.kind == ReviewQueueEntity.TRANSPORT) {
+                showOptions = true
+            } else {
+                viewModel.answerReview(item, "REJECT")
+            }
         }) {
             Text(if (item.kind == ReviewQueueEntity.TRANSPORT) other else stringResource(R.string.review_keep_separate))
         }

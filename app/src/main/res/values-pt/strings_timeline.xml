@@ -45,7 +45,7 @@
     <string name="timeline_away_day">Dia %1$d</string>
     <string name="timeline_share_day">Partilhar os trajetos de %1$s</string>
     <string name="timeline_repair_day">Reparar os trajetos de %1$s</string>
-    <string name="timeline_repair_processed">Percursos processados: %1$d.</string>
+    <string name="timeline_repair_processed">Percursos na fila para análise em segundo plano: %1$d.</string>
     <string name="timeline_repair_processing_failed">Não foi possível suavizar os percursos; tente novamente.</string>
     <string name="timeline_repair_no_candidates">Não há trajetos próximos do mesmo tipo para unir neste dia.</string>
     <string name="timeline_repair_failed">Foram encontrados %1$d grupos de trajetos, mas não foi possível guardar a união: %2$s.</string>

@@ -48,7 +48,7 @@
     <string name="timeline_away_day">День %1$d</string>
     <string name="timeline_share_day">Поделиться маршрутами за %1$s</string>
     <string name="timeline_repair_day">Исправить маршруты за %1$s</string>
-    <string name="timeline_repair_processed">Обработано маршрутов: %1$d.</string>
+    <string name="timeline_repair_processed">Маршрутов в очереди фонового анализа: %1$d.</string>
     <string name="timeline_repair_processing_failed">Не удалось сгладить маршруты; попробуйте ещё раз.</string>
     <string name="timeline_repair_no_candidates">В этот день нет близких маршрутов одного типа для объединения.</string>
     <string name="timeline_repair_failed">Найдено групп маршрутов: %1$d, но объединение не сохранено: %2$s.</string>

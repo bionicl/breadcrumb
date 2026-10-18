@@ -75,6 +75,12 @@ object TrackMerge {
         val intervals: List<StayDeriver.Interval>,
     )
 
+    data class AutoSequenceRules(
+        val assignedVisitAnchors: Set<Long>,
+        val distance: DistanceFn,
+        val protectedSeams: Set<Pair<Long, Long>> = emptySet(),
+    )
+
     /**
      * Auto-merge only intervals whose clock span and endpoint distance both fit the user's small-gap
      * rule. Missing coordinates are not evidence of proximity. Explicitly assigned places remain
@@ -84,8 +90,7 @@ object TrackMerge {
         summariesNewestFirst: List<TrackSummary>,
         intervals: List<StayDeriver.Interval>,
         endpoints: Map<Long, TrackEnd>,
-        assignedVisitAnchors: Set<Long>,
-        distance: DistanceFn,
+        rules: AutoSequenceRules,
     ): List<AutoSequence> {
         val chronological = summariesNewestFirst.asReversed()
         if (chronological.size < 2) return emptyList()
@@ -108,12 +113,16 @@ object TrackMerge {
             val actualGapDuration = beforeEndedAt?.let { after.startedAt - it }
             val beforeEnd = endpoints[before.id]?.end
             val afterStart = endpoints[after.id]?.start
-            val eligible = interval != null && before.id !in assignedVisitAnchors &&
+            val eligible = interval != null &&
+                before.id !in rules.assignedVisitAnchors &&
+                (before.id to after.id) !in rules.protectedSeams &&
                 sameRecordedActivity(before, after) &&
-                actualGapDuration != null && actualGapDuration >= 0 &&
+                actualGapDuration != null &&
+                actualGapDuration >= 0 &&
                 actualGapDuration <= AUTO_MAX_INTERVAL_MS &&
-                beforeEnd != null && afterStart != null &&
-                distance.meters(beforeEnd.lat, beforeEnd.lon, afterStart.lat, afterStart.lon) <= AUTO_MAX_ENDPOINT_DISTANCE_M
+                beforeEnd != null &&
+                afterStart != null &&
+                rules.distance.meters(beforeEnd.lat, beforeEnd.lon, afterStart.lat, afterStart.lon) <= AUTO_MAX_ENDPOINT_DISTANCE_M
 
             if (eligible) {
                 if (tracks.isEmpty()) tracks += before
