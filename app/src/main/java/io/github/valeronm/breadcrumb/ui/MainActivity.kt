@@ -787,7 +787,7 @@ private fun MainDestinationOverlay(
                 )
             }
 
-            MainDestination.Settings -> SettingsScreen(onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
+            MainDestination.Settings -> SettingsScreen(viewModel::say, onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
         }
     }
 }

@@ -4,6 +4,11 @@
 # grandfathering the findings that predate adoption, so only new findings fail.
 
 style:
+  ForbiddenImport:
+    active: true
+    imports:
+      - value: 'android.widget.Toast'
+        reason: 'A transient message goes through the snackbar host: TrackListViewModel.say.'
   MagicNumber:
     active: false # tuned, commented constants are the domain here
   MaxLineLength:

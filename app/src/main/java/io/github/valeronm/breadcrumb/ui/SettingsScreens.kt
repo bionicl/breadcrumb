@@ -80,7 +80,7 @@ import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 @Composable
-internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Unit) {
+internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPage: (SettingsPage) -> Unit) {
     SettingsSubScreen(
         stringResource(R.string.settings_title),
         onBack,
@@ -116,7 +116,7 @@ internal fun SettingsScreen(onBack: () -> Unit, onOpenPage: (SettingsPage) -> Un
             },
         )
         Spacer(Modifier.height(32.dp))
-        VersionText(MaterialTheme.typography.bodySmall)
+        VersionText(MaterialTheme.typography.bodySmall, say)
     }
 }
 
@@ -744,7 +744,7 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.titleLarge,
         )
-        VersionText(MaterialTheme.typography.bodyMedium)
+        VersionText(MaterialTheme.typography.bodyMedium, say)
         Spacer(Modifier.height(24.dp))
         GroupedRows(
             { LinkRow(stringResource(R.string.about_google_play), WebLinks.PLAY, say) },
@@ -762,14 +762,16 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
 }
 
 @Composable
-private fun VersionText(style: TextStyle) {
+private fun VersionText(style: TextStyle, say: (String) -> Unit) {
     val context = LocalContext.current
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Text(
             stringResource(R.string.about_version, BuildIdentity.shown),
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
-                .clickable { context.copyToClipboard(BuildIdentity.shown, R.string.about_version_copied) }
+                .clickable {
+                    context.copyToClipboard(BuildIdentity.shown) { say(context.getString(R.string.about_version_copied)) }
+                }
                 .padding(horizontal = 8.dp, vertical = 2.dp),
             textAlign = TextAlign.Center,
             style = style,
