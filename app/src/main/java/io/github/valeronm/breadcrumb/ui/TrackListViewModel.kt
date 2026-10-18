@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
@@ -635,9 +636,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Refused, like an import, while an operation on the whole history runs. */
-    fun restoreTrack(trackId: Long, onOverlapping: () -> Unit = {}) {
+    fun restoreTrack(trackId: Long) {
         if (importExport.refuseIfBusy()) return
-        viewModelScope.launch { if (!repository.restoreTrack(trackId)) onOverlapping() }
+        viewModelScope.launch {
+            if (!repository.restoreTrack(trackId)) {
+                say(getApplication<Application>().getString(R.string.discarded_restore_overlaps))
+            }
+        }
     }
 
     fun purgeDiscarded(through: Long) {

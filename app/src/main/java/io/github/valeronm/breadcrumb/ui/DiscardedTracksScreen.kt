@@ -82,7 +82,6 @@ internal fun DiscardedTracksScreen(
     onOpenTrack: (Long) -> Unit,
 ) {
     val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
-    val appContext = LocalContext.current.applicationContext
     val nowMs = remember { System.currentTimeMillis() }
     var showClearDialog by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(DiscardFilter.ALL) }
@@ -146,11 +145,7 @@ internal fun DiscardedTracksScreen(
                         rows = shown,
                         nowMs = nowMs,
                         onOpenTrack = onOpenTrack,
-                        onRestore = { id ->
-                            viewModel.restoreTrack(id) {
-                                viewModel.say(appContext.getString(R.string.discarded_restore_overlaps))
-                            }
-                        },
+                        onRestore = viewModel::restoreTrack,
                     )
                 }
             }
