@@ -84,7 +84,35 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     fun runRouteAnalysisNow() = repository.runRouteAnalysisNow()
 
-    suspend fun reviewPoints(trackId: Long) = repository.pointsFor(trackId)
+    internal suspend fun reviewContext(item: ReviewQueueEntity): ReviewContext = withContext(Dispatchers.IO) {
+        val stored = derivationStore.observeStored().first()
+        val primary = item.primaryTrackId?.let { repository.track(it) }
+        val secondary = item.secondaryTrackId?.let { repository.track(it) }
+        val undone = stored.visitCorrections.filter { it.kind == "UNDO" }.mapNotNull { it.referenceCorrectionId }.toSet()
+        fun placeLabel(anchor: Long?): String? {
+            val correction = stored.visitCorrections.filter {
+                it.targetSegmentId == "derived-visit:$anchor" &&
+                    it.id !in undone &&
+                    it.kind in setOf("ASSIGN_VISIT_PLACE", "DELETE_VISIT", "MARK_VISIT_BOGUS")
+            }.maxByOrNull { it.createdAtWallTimeMs }
+            if (correction != null) {
+                return stored.places.firstOrNull { it.id == correction.correctedPlaceId }?.label
+            }
+            val interval = stored.intervals.firstOrNull { it.afterTrackId == anchor } ?: return null
+            val placeId = stored.clusters.firstOrNull { it.id == interval.clusterId }?.placeId
+            return stored.places.firstOrNull { it.id == placeId }?.label
+        }
+        val preceding = primary?.let { track -> stored.intervals.firstOrNull { it.endedAt == track.startedAt } }
+        ReviewContext(
+            primary = primary,
+            secondary = secondary,
+            primaryPoints = primary?.let { repository.pointsFor(it.id) }.orEmpty(),
+            secondaryPoints = secondary?.let { repository.pointsFor(it.id) }.orEmpty(),
+            focus = if (item.kind == ReviewQueueEntity.TRANSPORT) null else repository.reviewFocusCoordinate(item),
+            beforePlace = stored.places.firstOrNull { it.id == primary?.startPlaceId }?.label ?: placeLabel(preceding?.afterTrackId),
+            afterPlace = stored.places.firstOrNull { it.id == primary?.endPlaceId }?.label ?: placeLabel(primary?.id),
+        )
+    }
 
     fun answerReview(item: ReviewQueueEntity, decision: String, correctedValue: String? = null) {
         viewModelScope.launch {
@@ -105,7 +133,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     ReviewQueueEntity.MERGE_TRACKS,
                     ReviewQueueEntity.SHORT_STOP,
-                    ReviewQueueEntity.MISSING_RECORDING -> {
+                    ReviewQueueEntity.MISSING_RECORDING,
+                    -> {
                         if (repository.acceptReviewMerge(current.id, current.inputRevision)) {
                             repository.reviewItem(current.id)?.correctedValue
                                 ?.substringBefore(',')?.toLongOrNull()
@@ -134,8 +163,31 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repository.restoreReview(item.id) }
     }
 
+    fun reconcileStaleReviewItems() {
+        viewModelScope.launch(Dispatchers.IO) { repository.reconcileStaleReviewItems() }
+    }
+
+    private suspend fun withdrawReviewIfStale(item: ReviewQueueEntity) {
+        repository.withdrawStaleReview(item.id).takeIf { it.isNotEmpty() }
+            ?.let { repository.processUnprocessedPaths(it) }
+    }
+
     fun assignReviewPlace(item: ReviewQueueEntity, placeId: Long? = null, newPlaceName: String? = null) {
-        viewModelScope.launch { repository.assignReviewPlace(item.id, item.inputRevision, placeId, newPlaceName) }
+        viewModelScope.launch {
+            if (!repository.assignReviewPlace(item.id, item.inputRevision, placeId, newPlaceName)) {
+                withdrawReviewIfStale(item)
+            }
+        }
+    }
+
+    fun deleteReviewStop(item: ReviewQueueEntity) {
+        viewModelScope.launch {
+            if (!repository.deleteReviewStop(item.id, item.inputRevision)) withdrawReviewIfStale(item)
+        }
+    }
+
+    fun undoReviewStop(item: ReviewQueueEntity) {
+        viewModelScope.launch { repository.undoReviewStop(item.id) }
     }
 
     fun undoReviewPlace(item: ReviewQueueEntity) {

@@ -58,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -220,6 +221,7 @@ private fun MainScreen(
     LaunchedEffect(viewModel, language) { viewModel.useLanguage(language) }
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
     val reviewQueue by viewModel.reviewQueue.collectAsStateWithLifecycle()
+    var reviewBucket by rememberSaveable { mutableStateOf(ReviewBucket.PENDING) }
 
     // Waits for the lock rather than relying on the gate: PrivacyGate draws over this composition
     // instead of replacing it, so an import shared in while the app is locked would otherwise run
@@ -427,7 +429,11 @@ private fun MainScreen(
                         colors = canvasTopBarColors(),
                         title = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(selectedTab.titleRes))
+                                if (selectedTab == HomeTab.REVIEW) {
+                                    ReviewTitle(reviewBucket, { reviewBucket = it }, Modifier.weight(1f, fill = false))
+                                } else {
+                                    Text(stringResource(selectedTab.titleRes))
+                                }
                                 // What it says is the variant, named in one place; whether to draw one
                                 // at all is a decision of its own, off on release and on demo so that
                                 // neither a shipped screen nor a screenshot carries a badge.
@@ -471,6 +477,7 @@ private fun MainScreen(
                                     )
                                 }
                             }
+                            if (selectedTab == HomeTab.REVIEW) ReviewAnalysisAction(viewModel)
                             IconButton(onClick = { mainDestination = MainDestination.Settings }) {
                                 Icon(
                                     Icons.Filled.Settings,
@@ -593,7 +600,7 @@ private fun MainScreen(
                             mapCamera = placesMapCamera,
                             onOpenData = { settingsPage = SettingsPage.Data },
                         )
-                        HomeTab.REVIEW -> ReviewTab(viewModel)
+                        HomeTab.REVIEW -> ReviewTab(viewModel, reviewBucket)
                         HomeTab.INSIGHTS -> InsightsTab(
                             viewModel = viewModel,
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },

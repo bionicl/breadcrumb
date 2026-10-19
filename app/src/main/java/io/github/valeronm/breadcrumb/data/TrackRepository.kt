@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
-import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
+import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.EngineUserCorrectionEntity
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
@@ -543,6 +543,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         }
     }
 
+    /** Withdraw cards made obsolete by corrections or changed source data since the last run. */
+    suspend fun reconcileStaleReviewItems() {
+        val queue = db.locomotionDao().allReviewItems()
+        for (item in queue) {
+            if (item.state in setOf(ReviewQueueEntity.PENDING, ReviewQueueEntity.SNOOZED) && !isReviewCurrent(item)) {
+                withdrawStaleReview(item.id)
+            }
+        }
+    }
+
     suspend fun withdrawStaleReview(id: String): List<Long> = db.withTransaction {
         val dao = db.locomotionDao()
         val item = dao.reviewItem(id) ?: return@withTransaction emptyList()
@@ -622,6 +632,73 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         true
     }
 
+    /** Resolve an unwanted stop using the same source-preserving correction as the timeline. */
+    suspend fun deleteReviewStop(id: String, expectedInputRevision: Long): Boolean = db.withTransaction {
+        val queue = db.locomotionDao()
+        val item = queue.reviewItem(id) ?: return@withTransaction false
+        if (item.kind !in setOf(ReviewQueueEntity.PLACE_ASSIGNMENT, ReviewQueueEntity.SHORT_STOP) ||
+            item.state != ReviewQueueEntity.PENDING || item.inputRevision != expectedInputRevision ||
+            !isReviewCurrent(item)
+        ) return@withTransaction false
+        val firstId = item.primaryTrackId ?: return@withTransaction false
+        val secondId = item.secondaryTrackId ?: return@withTransaction false
+        val interval = db.derivedDao().intervalsOnce().firstOrNull { it.afterTrackId == firstId }
+            ?: return@withTransaction false
+        if (interval.type != DerivedInterval.TYPE_STAY) return@withTransaction false
+        val stopEnd = item.endWallTimeMs ?: return@withTransaction false
+        val correctionId = UUID.randomUUID().toString()
+        queue.insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = correctionId, operationId = UUID.randomUUID().toString(),
+                targetSegmentId = engineVisitSegmentId(firstId), kind = "DELETE_VISIT",
+                createdAtWallTimeMs = System.currentTimeMillis(),
+                visitStartWallTimeMs = item.startWallTimeMs, visitEndWallTimeMs = item.endWallTimeMs,
+            ),
+        )
+        val mergedId = mergeTracks(
+            firstId, secondId,
+            TrackCompositionDraft(
+                visitAfterTrackId = firstId, visitStartMs = item.startWallTimeMs,
+                visitEndMs = stopEnd, visitCorrectionId = correctionId,
+            ),
+        )
+        refreshVisitTrainingLabels(engineVisitSegmentId(firstId))
+        withdrawReviewsForResolvedVisit(firstId)
+        queue.updateReviewItem(
+            item.copy(
+                state = ReviewQueueEntity.ACCEPTED, decision = "DELETE_STOP",
+                correctedValue = "$correctionId,${mergedId ?: 0},$firstId,$secondId",
+                updatedAtWallTimeMs = System.currentTimeMillis(),
+            ),
+        )
+        true
+    }
+
+    suspend fun undoReviewStop(id: String): Boolean = db.withTransaction {
+        val queue = db.locomotionDao()
+        val item = queue.reviewItem(id) ?: return@withTransaction false
+        if (item.state != ReviewQueueEntity.ACCEPTED || item.decision != "DELETE_STOP") return@withTransaction false
+        val values = item.correctedValue?.split(',') ?: return@withTransaction false
+        if (values.size != 4) return@withTransaction false
+        val mergedId = values[1].toLongOrNull() ?: return@withTransaction false
+        val firstId = values[2].toLongOrNull() ?: return@withTransaction false
+        val secondId = values[3].toLongOrNull() ?: return@withTransaction false
+        // Restore sources before replaying the correction, so no hidden seam is reprocessed.
+        if (mergedId != 0L) unmergeTracks(mergedId, firstId, secondId)
+        queue.insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = UUID.randomUUID().toString(), operationId = UUID.randomUUID().toString(),
+                targetSegmentId = engineVisitSegmentId(firstId), kind = "UNDO",
+                createdAtWallTimeMs = System.currentTimeMillis(), referenceCorrectionId = values[0],
+            ),
+        )
+        refreshVisitTrainingLabels(engineVisitSegmentId(firstId))
+        queue.updateReviewItem(
+            item.copy(state = ReviewQueueEntity.UNDONE, decision = "UNDO", updatedAtWallTimeMs = System.currentTimeMillis()),
+        )
+        true
+    }
+
     /** Assign an evidence-backed stay or gap to an existing place, or create a new named place. */
     suspend fun assignReviewPlace(
         id: String,
@@ -678,7 +755,6 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val nearest = nearestNamedPlace(coordinate, stored.places)
             if (nearest?.id?.toString() != item.suggestedValue) return@withTransaction false
             val selected = if (selectedPlaceId != null) {
-                if (selectedPlaceId != nearest?.id) return@withTransaction false
                 db.placeDao().place(selectedPlaceId)?.takeIf { !it.label.isNullOrBlank() }
                     ?: return@withTransaction false
             } else {
@@ -757,8 +833,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                 val corrections = queue.allUserCorrections()
                 val undoneIds = corrections.filter { it.kind == "UNDO" }.mapNotNullTo(HashSet()) { it.referenceCorrectionId }
                 val usedByAnotherCorrection = corrections.any {
-                    it.id != correctionId && it.id !in undoneIds &&
-                        it.kind == "ASSIGN_VISIT_PLACE" && it.correctedPlaceId == placeId
+                    it.id != correctionId &&
+                        it.id !in undoneIds &&
+                        it.kind == "ASSIGN_VISIT_PLACE" &&
+                        it.correctedPlaceId == placeId
                 }
                 val usedByTrack = dao.debugExportTracks().any {
                     it.startPlaceId == placeId || it.endPlaceId == placeId
@@ -831,6 +909,15 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         learnFromUserCorrection(corrected.first, activityType)
         processUnprocessedPaths(listOf(corrected.second))
         return true
+    }
+
+    /** The measured location of the question, independent of a nearby proposed place's pin. */
+    suspend fun reviewFocusCoordinate(item: ReviewQueueEntity): Coordinate? {
+        val stored = derivation.observeStored().first()
+        val interval = stored.intervals.firstOrNull { it.afterTrackId == item.primaryTrackId } ?: return null
+        return interval.clusterId?.let { id -> stored.clusters.firstOrNull { it.id == id } }
+            ?.let(::clusterCenter)
+            ?: stableGapCoordinate(interval.start, interval.endedAt)
     }
 
     /** Refuse a decision if any source row changed since the evidence was presented. */
@@ -1303,6 +1390,10 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             if (second.endedAt == null) continue
             val duration = interval.endedAt - interval.start
             val revision = first.pathRevision * 31 + second.pathRevision
+            if (first.id in stored.resolvedVisitAnchors()) {
+                withdrawReviewsForResolvedVisit(first.id)
+                continue
+            }
             when (interval.type) {
                 DerivedInterval.TYPE_STAY -> {
                     if (duration < REVIEW_MIN_UNNAMED_STAY_MS) continue

@@ -691,6 +691,41 @@ class TrackRepositoryTest {
         )
     }
 
+    @Test fun `resolved visit does not generate a place review card`() = runTest {
+        val firstId = finishedWalk(0)
+        val secondId = finishedWalk(100)
+        alignSeam(firstId, secondId)
+        val first = dao.track(firstId)!!
+        val second = dao.track(secondId)!!
+        val clusterId = test.db.derivedDao().insertCluster(
+            DerivedCluster(
+                placeId = null, anchorLat = 1.01, anchorLon = -2.0, radiusM = 20.0,
+                sumLat = 2.02, sumLon = -4.0, memberCount = 2,
+            ),
+        )
+        test.db.openHelper.writableDatabase.execSQL(
+            "UPDATE derived_intervals SET type = ?, start = ?, endedAt = ?, clusterId = ?, reason = NULL WHERE afterTrackId = ?",
+            arrayOf<Any?>(DerivedInterval.TYPE_STAY, first.endedAt, second.startedAt, clusterId, firstId),
+        )
+        test.db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = "resolved-stop", operationId = "resolved-stop-op",
+                targetSegmentId = "derived-visit:$firstId", kind = "DELETE_VISIT",
+                createdAtWallTimeMs = TEST_START,
+                visitStartWallTimeMs = first.endedAt, visitEndWallTimeMs = second.startedAt,
+            ),
+        )
+
+        analyze(firstId)
+        analyze(secondId)
+
+        assertFalse(
+            test.db.locomotionDao().allReviewItems().any {
+                it.primaryTrackId == firstId && it.kind == ReviewQueueEntity.PLACE_ASSIGNMENT
+            },
+        )
+    }
+
     @Test fun `unnamed recurring stop offers a new place and can be undone`() = runTest {
         val firstId = finishedWalk(0)
         val secondId = finishedWalk(100) // More than five minutes stationary between paths.
@@ -721,6 +756,85 @@ class TrackRepositoryTest {
         assertTrue(repository.undoReviewPlace(item.id))
         assertNull(test.db.placeDao().place(placeId))
         assertEquals(ReviewQueueEntity.UNDONE, repository.reviewItem(item.id)!!.state)
+    }
+
+    @Test fun `review allows selecting a different existing place and undo preserves it`() = runTest {
+        val firstId = finishedWalk(0)
+        val secondId = finishedWalk(100) // More than five minutes stationary between paths.
+        alignSeam(firstId, secondId)
+        val first = dao.track(firstId)!!
+        val second = dao.track(secondId)!!
+        val clusterId = test.db.derivedDao().insertCluster(
+            DerivedCluster(
+                placeId = null, anchorLat = 1.01, anchorLon = -2.0, radiusM = 20.0,
+                sumLat = 2.02, sumLon = -4.0, memberCount = 2,
+            ),
+        )
+        test.db.openHelper.writableDatabase.execSQL(
+            "UPDATE derived_intervals SET type = ?, start = ?, endedAt = ?, clusterId = ?, reason = NULL WHERE afterTrackId = ?",
+            arrayOf<Any?>(DerivedInterval.TYPE_STAY, first.endedAt, second.startedAt, clusterId, firstId),
+        )
+
+        analyze(firstId)
+        analyze(secondId)
+
+        val item = test.db.locomotionDao().allReviewItems().first {
+            it.kind == ReviewQueueEntity.PLACE_ASSIGNMENT && it.primaryTrackId == firstId
+        }
+        val selectedId = test.db.placeDao().insert(
+            Place(label = "Different place", lat = 3.0, lon = 4.0, createdAt = TEST_START, radiusM = 100.0),
+        )
+        assertNull(item.suggestedValue)
+        assertTrue(repository.assignReviewPlace(item.id, item.inputRevision, selectedPlaceId = selectedId))
+        val resolved = repository.reviewItem(item.id)!!
+        assertEquals("ASSIGN_PLACE", resolved.decision)
+        val correctionId = resolved.correctedValue!!.split(':')[1]
+        assertEquals(selectedId, test.db.locomotionDao().allUserCorrections().first { it.id == correctionId }.correctedPlaceId)
+        assertTrue(repository.undoReviewPlace(item.id))
+        assertNotNull(test.db.placeDao().place(selectedId))
+        assertEquals(ReviewQueueEntity.UNDONE, repository.reviewItem(item.id)!!.state)
+    }
+
+    @Test fun `review stop deletion preserves sources and supports durable undo`() = runTest {
+        val firstId = finishedWalk(0)
+        val secondId = finishedWalk(100) // More than five minutes stationary between paths.
+        alignSeam(firstId, secondId)
+        val first = dao.track(firstId)!!
+        val second = dao.track(secondId)!!
+        val clusterId = test.db.derivedDao().insertCluster(
+            DerivedCluster(
+                placeId = null, anchorLat = 1.01, anchorLon = -2.0, radiusM = 20.0,
+                sumLat = 2.02, sumLon = -4.0, memberCount = 2,
+            ),
+        )
+        test.db.openHelper.writableDatabase.execSQL(
+            "UPDATE derived_intervals SET type = ?, start = ?, endedAt = ?, clusterId = ?, reason = NULL WHERE afterTrackId = ?",
+            arrayOf<Any?>(DerivedInterval.TYPE_STAY, first.endedAt, second.startedAt, clusterId, firstId),
+        )
+
+        analyze(firstId)
+        analyze(secondId)
+
+        val item = test.db.locomotionDao().allReviewItems().first {
+            it.kind == ReviewQueueEntity.PLACE_ASSIGNMENT && it.primaryTrackId == firstId
+        }
+        assertFalse(repository.deleteReviewStop(item.id, item.inputRevision + 1))
+        assertTrue(repository.deleteReviewStop(item.id, item.inputRevision))
+        val resolved = repository.reviewItem(item.id)!!
+        assertEquals("DELETE_STOP", resolved.decision)
+        assertFalse(repository.deleteReviewStop(item.id, item.inputRevision))
+        val values = resolved.correctedValue!!.split(',')
+        val correction = test.db.locomotionDao().allUserCorrections().first { it.id == values[0] }
+        assertEquals("DELETE_VISIT", correction.kind)
+        val mergedId = values[1].toLong()
+        assertTrue(mergedId != 0L)
+        assertEquals(listOf("PATH", "STATIONARY", "PATH"), repository.compositionTreePartsFor(mergedId).map { it.kind })
+        assertTrue(repository.undoReviewStop(item.id))
+        assertNull(dao.track(firstId)!!.discardedAt)
+        assertNull(dao.track(secondId)!!.discardedAt)
+        assertTrue(test.db.locomotionDao().allUserCorrections().any { it.kind == "UNDO" && it.referenceCorrectionId == correction.id })
+        assertEquals(ReviewQueueEntity.UNDONE, repository.reviewItem(item.id)!!.state)
+        assertFalse(repository.undoReviewStop(item.id))
     }
 
     @Test fun `long moved recording gap offers trip and preserves the gap segment`() = runTest {
@@ -882,6 +996,28 @@ class TrackRepositoryTest {
 
         assertEquals(ReviewQueueEntity.PENDING, repository.reviewItem(pending.id)!!.state)
         assertTrue(repository.isReviewCurrent(repository.reviewItem(pending.id)!!))
+    }
+
+    @Test fun `review entry withdraws cards invalidated by an existing visit correction`() = runTest {
+        val firstId = finishedWalk(0)
+        val secondId = finishedWalk(100)
+        alignSeam(firstId, secondId)
+        val first = dao.track(firstId)!!
+        val second = dao.track(secondId)!!
+        val item = review(first, second)
+        test.db.locomotionDao().insertReview(item)
+        test.db.locomotionDao().insertUserCorrection(
+            EngineUserCorrectionEntity(
+                id = "already-resolved", operationId = "already-resolved-op",
+                targetSegmentId = "derived-visit:$firstId", kind = "DELETE_VISIT",
+                createdAtWallTimeMs = TEST_START,
+                visitStartWallTimeMs = first.endedAt, visitEndWallTimeMs = second.startedAt,
+            ),
+        )
+
+        repository.reconcileStaleReviewItems()
+
+        assertEquals(ReviewQueueEntity.STALE, repository.reviewItem(item.id)!!.state)
     }
 
     @Test fun `unmerging drops the copy and returns both originals to the timeline`() = runTest {
