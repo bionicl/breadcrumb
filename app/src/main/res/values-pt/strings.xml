@@ -51,6 +51,8 @@
         <item quantity="other">%d falharam</item>
     </plurals>
     <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
+    <string name="common_osm_data_credit">Dados © contribuidores do %1$s (%2$s) · %3$s</string>
+    <string name="common_osm_report_error">Comunicar um erro no mapa</string>
     <string name="common_origin_google_timeline">Linha cronológica da Google</string>
     <string name="common_origin_entered_by_hand">Introduzida à mão</string>
     <string name="track_segments_action">Ver segmentos da rota</string>

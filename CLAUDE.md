@@ -585,9 +585,10 @@ bad-fix rule, and `EdgeStayIgnore`'s `IgnoreReason.EDGE_STAY` for good fixes rec
 at a track's edges (`IgnoreReason` holds the distinction). The second is applied automatically
 wherever a track's points change — finished, imported, merged, split, restored, or retyped across
 the foot/vehicle line — and `HistorySweeps.edgeStays` re-derives the whole history when
-`EdgeStayDetector.RULE_VERSION` moves. A Google Timeline track is the exception, the rule having
-no tuning for it (`EdgeStayDetector.paramsFor`): Google ends a trip at the instant its visit begins,
-so the stop is already placed.
+`EdgeStayDetector.RULE_VERSION` moves. A writer that ends its trips at their stops
+(`TrackOrigin.endsAtStops`) is the exception, the rule having no tuning for it
+(`EdgeStayDetector.paramsFor`): Google ends a trip at the instant its visit begins, and a manual
+trip's typed ends are its stops, so the stop is already placed.
 
 **A track's clock is then set from the fixes that survive** (`TrackBounds`, applied in the same pass):
 its bounds are the first and last *good* point, never the transition that opened or closed the row.
@@ -611,28 +612,31 @@ a backgrounded Compose tree keeps collecting otherwise, and the process outlives
 
 **A track's writer is declared, not measured.** `source` (`TrackOrigin.code`) is set by whoever
 inserts the row — the recorder in `startTrack`, the GPX import, the add-trip form
-(`insertManualTrack`, a `manual` track: two typed endpoints and nothing between), a backup restore,
-and merge/split handing it on to the rows they create. `TrackOrigin.inferFrom` reconstructs it only
-where no declaration exists: a backup file carrying no `source` key (a source-less manual track
-reads as imported there — a path, not a measurement, which is the honest half of the
-truth). **No "mixed" writer exists** — `TrackMerge.plan` refuses a merge across
-writers rather than inventing one, which also keeps typed endpoints from being absorbed into
-measured fixes. Besides that refusal it is read by `availableColorModes` (`ui/TrackColoring`),
-which drops the colour metrics an import or a manual entry can't carry. Manual tracks bypass the
-keep thresholds like imports do — `KeepRule`'s two-point purge floor would otherwise delete every
-one on arrival — and their two points are stamped exactly at the row's bounds, since `TrackBounds`
-derives those same bounds back off them: a fix stamped anywhere else would move the clock away from
-what the user typed.
+(`insertManualTrack`, a `manual` track: two typed endpoints, with a router's road shape between them
+where the user asked for one), a backup restore, and merge/split handing it on to the rows they
+create. `TrackOrigin.inferFrom` reconstructs it only where no declaration exists: a backup file
+carrying no `source` key (a source-less manual track reads as imported there — a path, not a
+measurement, which is the honest half of the truth). **No "mixed" writer exists** —
+`TrackMerge.plan` refuses a merge across writers rather than inventing one, which also keeps typed
+endpoints from being absorbed into measured fixes. Besides that refusal it is read by
+`availableColorModes` (`ui/TrackColoring`), which drops the colour metrics an import or a manual
+entry can't carry. Manual tracks bypass the keep thresholds like imports do — `KeepRule`'s two-point
+purge floor would otherwise delete every one on arrival — and their two ends are stamped exactly at
+the row's bounds, since `TrackBounds` derives those same bounds back off them: a fix stamped
+anywhere else would move the clock away from what the user typed, which is why a road shape between
+them (`ManualPath`) keeps them as the first and last fix.
+
 
 **A manual track is also the only one that can be rewritten** (`updateManualTrack`, reached by the
-track detail's pencil, which on any other track opens the type dialog instead): the same two pins and
-two times go back onto the row that produced them, replacing its fixes outright — which is exactly
-why `source` gates it, every other track's points being a measurement or a file's. Two things follow
-from rewriting in place: the row is excluded from its own overlap check (`NO_TRACK` where an insert
-excludes nothing), since the fixes it would collide with are the ones being replaced; and the write
-is otherwise an insert, `finalizeImportedTrack` included, because the aggregates and the overrun
-verdict are functions of the points and these are new points. An edit is deliberately **not**
-undoable — every value is in the form, unlike a merge or a delete.
+track detail's pencil, which on any other track opens the type dialog instead): the same two pins
+and two times, and the road shape the form holds, go back onto the row that produced them, replacing
+its fixes outright — which is exactly why `source` gates it, every other track's points being a
+measurement or a file's. Two things follow from rewriting in place: the row is excluded from its own
+overlap check (`NO_TRACK` where an insert excludes nothing), since the fixes it would collide with
+are the ones being replaced; and the write is otherwise an insert, `finalizeImportedTrack` included,
+because the aggregates and the overrun verdict are functions of the points and these are new points.
+An edit is deliberately **not** undoable — every value is in the form, unlike a merge or a delete.
+
 
 **Backfills** (one-time Kotlin data migrations): when a new rule needs to reprocess *existing*
 rows and a Room SQL migration can't express the logic, add a repository pass and run it from
@@ -978,17 +982,22 @@ why the workflow is the only thing standing between a forgotten bump and Play.
 - `applicationId` is permanent once published; the `${applicationId}.fileprovider` authority and
   notification/manifest pieces derive from it, so don't hardcode the package elsewhere.
 - All data is local; the network carries map data — Protomaps vector tiles (hosted API) plus the
-  glyphs/sprite from `protomaps.github.io` — and one deliberate exception: the **online place
-  search** (`data/OnlinePlaceSearch`, photon.komoot.io, OpenStreetMap data), which sends the typed
-  query and — where there is a pin to bias by — that pin's coordinate, treats every failure as "no
-  results", and is switchable off in Settings → Privacy. The add-trip form searches it for an end's
-  pin, and the place edit screen for a name, keeping only results inside the place's circle; a
-  suggestion becomes the name only by being picked. **The coordinate is a pin — one the user placed,
-  or the pin of the place being named — never wherever the map happens to be looking**: the form's
-  own place list sorts by the map centre because re-ordering rows the device already holds discloses
-  nothing, and that is the whole reason the two use different anchors. The ODbL credit in Settings
-  and at the results is a licence requirement, like the GeoNames one. There is no server sync (a possible future feature — the
-  Online services section of Settings → Privacy is where server URL/key fields would go).
+  glyphs/sprite from `protomaps.github.io` — and two deliberate exceptions, each behind its own
+  switch in Settings → Privacy. The **online place search** (`data/OnlinePlaceSearch`,
+  photon.komoot.io, OpenStreetMap data) sends the typed query and — where there is a pin to bias
+  by — that pin's coordinate, and treats every failure as "no results". The add-trip form searches
+  it for an end's pin, and the place edit screen for a name, keeping only results inside the place's
+  circle; a suggestion becomes the name only by being picked. **The coordinate is a pin — one the
+  user placed, or the pin of the place being named — never wherever the map happens to be
+  looking**: the form's own place list sorts by the map centre because re-ordering rows the device
+  already holds discloses nothing, and that is the whole reason the two use different anchors. The
+  **online road routing** (`data/OnlineRouting`, OpenStreetMap data too) sends a trip's two points
+  and nothing else, and only when asked for by the add-trip form's chip. The ODbL credit in
+  Settings and at the search results is a licence requirement, like the GeoNames one, and the
+  linked data credit under a routed road and in Settings (`OsmDataCredit`) is what FOSSGIS's
+  terms ask for of the routing's users, their report-an-error link included. There is no
+  server sync (a possible future feature — the Online services section of Settings → Privacy is
+  where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as
   `protomapsApiKey=…` (gitignored), surfaced as `BuildConfig.PROTOMAPS_API_KEY`, and injected into the
   bundled style at load time (`{PROTOMAPS_KEY}` placeholder in `assets/protomaps-{dark,light}.json`).

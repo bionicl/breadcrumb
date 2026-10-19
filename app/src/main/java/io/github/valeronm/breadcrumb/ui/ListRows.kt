@@ -43,12 +43,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.util.WebLinks
 import kotlinx.coroutines.delay
 
 /**
@@ -320,6 +327,31 @@ internal fun SearchDropdown(
             content = results,
         )
     }
+}
+
+/**
+ * The OpenStreetMap data credit in the form FOSSGIS's terms ask for: the contributors, the licence
+ * and a way to report an error, each linked. Owed wherever their routing's answer is on screen, and
+ * shown once in Settings for the basemap and the search besides.
+ */
+@Composable
+internal fun OsmDataCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
+    val linkStyle = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary))
+    fun link(url: String, text: String) = buildAnnotatedString {
+        withLink(LinkAnnotation.Url(url, linkStyle)) { append(text) }
+    }
+    Text(
+        annotatedStringResource(
+            R.string.common_osm_data_credit,
+            link(WebLinks.OSM_COPYRIGHT, "OpenStreetMap"),
+            link(WebLinks.ODBL, "ODbL"),
+            link(WebLinks.OSM_FIX_THE_MAP, stringResource(R.string.common_osm_report_error)),
+        ),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = textAlign,
+        modifier = modifier,
+    )
 }
 
 /** ODbL's credit, owed at every list holding [OnlinePlaceSearch] results. */

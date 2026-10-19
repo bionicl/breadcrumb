@@ -26,11 +26,17 @@ class CarrierEvidenceTest {
     /** An honest run — above WALKING's own ceiling, far under the group's. */
     private val RUNNING = Motion.Moving(Speed.kmh(14.4))
 
-    private fun evidence() = CarrierEvidence().apply { restart(FOOT_CEILING) }
+    private val WALKING = Motion.Moving(Speed.kmh(6.0))
+
+    private val WALK_FLOOR = TrackQuality.labelCeiling(ActivityType.WALKING)
+
+    private val RUN_FLOOR = TrackQuality.labelCeiling(ActivityType.RUNNING)
+
+    private fun evidence() = CarrierEvidence().apply { restart(WALK_FLOOR, FOOT_CEILING) }
 
     /** Feed [motion] every 5 s from t=0 for [totalSec] seconds. */
-    private fun CarrierEvidence.ride(motion: Motion, totalSec: Long, parked: Boolean) {
-        for (sec in 0..totalSec step 5) onSample(sec * 1000, motion, parked)
+    private fun CarrierEvidence.ride(motion: Motion, totalSec: Long, parked: Boolean, trusted: Speed = WALK_FLOOR) {
+        for (sec in 0..totalSec step 5) onSample(sec * 1000, motion, if (parked) trusted else null)
     }
 
     // --- The body-still channel ---------------------------------------------
@@ -53,6 +59,38 @@ class CarrierEvidenceTest {
     @Test fun `moving ground with nothing parked builds no body-still case`() {
         val e = evidence()
         e.ride(CARRIED, totalSec = 300, parked = false)
+        assertEquals(0, e.bodyStillMs)
+    }
+
+    @Test fun `a stop misreported mid-walk builds no body-still case`() {
+        val e = evidence()
+        e.ride(WALKING, totalSec = 300, parked = true)
+        assertFalse(e.proven)
+        assertEquals(0, e.bodyStillMs)
+    }
+
+    @Test fun `a stop misreported mid-run builds no body-still case`() {
+        val e = CarrierEvidence().apply {
+            restart(RUN_FLOOR, FOOT_CEILING)
+        }
+        e.ride(RUNNING, totalSec = 300, parked = true)
+        assertFalse(e.proven)
+        assertEquals(0, e.bodyStillMs)
+    }
+
+    @Test fun `a run on a walking-labelled track builds no body-still case`() {
+        val e = evidence()
+        e.ride(RUNNING, totalSec = 300, parked = true, trusted = RUN_FLOOR)
+        assertFalse(e.proven)
+        assertEquals(0, e.bodyStillMs)
+    }
+
+    @Test fun `a run whose readings flip to walking keeps the run's floor`() {
+        val e = CarrierEvidence().apply {
+            restart(RUN_FLOOR, FOOT_CEILING)
+        }
+        e.ride(RUNNING, totalSec = 300, parked = true, trusted = WALK_FLOOR)
+        assertFalse(e.proven)
         assertEquals(0, e.bodyStillMs)
     }
 
@@ -125,7 +163,7 @@ class CarrierEvidenceTest {
 
     @Test fun `the first sample credits nothing however strong it is`() {
         val e = evidence()
-        e.onSample(0, FAST_CARRIER, true)
+        e.onSample(0, FAST_CARRIER, WALK_FLOOR)
         assertEquals(0, e.bodyStillMs)
         assertEquals(0, e.bodyMovingMs)
     }
@@ -134,11 +172,11 @@ class CarrierEvidenceTest {
         // Moving, then a gap the window went stale across, then Moving again: the abstaining
         // sample in between fences the gap off both channels.
         val e = evidence()
-        e.onSample(0, FAST_CARRIER, false)
-        e.onSample(5_000, FAST_CARRIER, false)
-        e.onSample(65_000, Motion.Unknown, false)
-        e.onSample(70_000, FAST_CARRIER, false)
-        e.onSample(75_000, FAST_CARRIER, false)
+        e.onSample(0, FAST_CARRIER, null)
+        e.onSample(5_000, FAST_CARRIER, null)
+        e.onSample(65_000, Motion.Unknown, null)
+        e.onSample(70_000, FAST_CARRIER, null)
+        e.onSample(75_000, FAST_CARRIER, null)
         assertEquals(10_000, e.bodyMovingMs)
     }
 
@@ -146,15 +184,15 @@ class CarrierEvidenceTest {
         // Two Moving samples five minutes apart credit the cap, not the five minutes — evidence
         // accrues at the rate fixes arrive, so a stale window cannot credit a delivery gap.
         val e = evidence()
-        e.onSample(0, FAST_CARRIER, false)
-        e.onSample(300_000, FAST_CARRIER, false)
+        e.onSample(0, FAST_CARRIER, null)
+        e.onSample(300_000, FAST_CARRIER, null)
         assertTrue("credited ${e.bodyMovingMs}", e.bodyMovingMs in 1..35_000)
     }
 
     @Test fun `an out-of-order sample is refused`() {
         val e = evidence()
-        e.onSample(60_000, FAST_CARRIER, true)
-        e.onSample(1_000, FAST_CARRIER, true)
+        e.onSample(60_000, FAST_CARRIER, WALK_FLOOR)
+        e.onSample(1_000, FAST_CARRIER, WALK_FLOOR)
         assertEquals(0, e.bodyStillMs)
     }
 
@@ -162,7 +200,7 @@ class CarrierEvidenceTest {
         val e = evidence()
         e.ride(FAST_CARRIER, totalSec = 300, parked = true)
         assertTrue(e.proven)
-        e.restart(FOOT_CEILING)
+        e.restart(WALK_FLOOR, FOOT_CEILING)
         assertFalse(e.proven)
         assertEquals(0, e.bodyStillMs)
         assertEquals(0, e.bodyMovingMs)

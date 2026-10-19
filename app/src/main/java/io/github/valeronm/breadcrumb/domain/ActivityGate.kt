@@ -6,7 +6,7 @@ package io.github.valeronm.breadcrumb.domain
  * trusted activity actually changes. Also the one place a second witness may overrule that stream:
  * a reading the ground cannot vouch for is **parked**, not dropped — see [onReading] — and lands
  * later, either because the ground came round ([onMotion]) or because the recorder stopped waiting
- * ([releaseHeld]). Which of those two may end a hold is decided by why it was raised; see [Hold].
+ * ([releaseHeld]). Which of those two may end a hold is decided by its kind; see [Hold].
  *
  * A pure signal filter — no timing, windows, or track vocabulary: whether a change opens a track or
  * closes one is a track-lifecycle question [TrackController] owns; *when* a parked reading is
@@ -23,9 +23,10 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
 
     /**
      * Why a reading is being held, which decides how it may be released. **The two are not the same
-     * kind of doubt**: [CONTRADICTED] is the ground positively disagreeing, and only the ground
-     * changing its mind may end it; [UNCORROBORATED] is the ground saying nothing at all, and
-     * silence must not hold a reading forever, so the recorder caps it with its own clock.
+     * kind of doubt**: [CONTRADICTED] is the ground positively disagreeing, and no deadline may end
+     * it; [UNCORROBORATED] is the ground saying nothing at all, and silence must not hold a reading
+     * forever, so the recorder caps it with its own clock. A hold's kind follows the latest verdict
+     * ([onMotion]), whichever kind it was raised as.
      */
     enum class Hold { CONTRADICTED, UNCORROBORATED }
 
@@ -50,13 +51,14 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      * something else happens to close it; holding the reading keeps the edge and costs only the
      * delay.
      *
-     * **Whether a stop takes positive corroboration is the caller's policy**, carried by
+     * **Whether a stop arriving takes positive corroboration is the caller's policy**, carried by
      * [requireCorroboration], because the waiting it implies is measured on a clock this filter
-     * does not have. With it set, ground that says nothing holds a STILL as [Hold.UNCORROBORATED] —
-     * the two errors are not symmetric, and a stop applied early ends a journey and loses the rest
-     * of it while one applied late costs a little GPS and a tail the edge-stay rule trims. Left
-     * unset, [motion] and [Motion.Unknown] behave exactly as this filter did before there was a
-     * second witness, which is what its own suite pins.
+     * does not have; a hold already raised follows [onMotion] instead. With it set, ground that
+     * says nothing holds a STILL as [Hold.UNCORROBORATED] — the two errors are not symmetric, and a
+     * stop applied early ends a journey and loses the rest of it while one applied late costs a
+     * little GPS and a tail the edge-stay rule trims. Left
+     * unset, a reading under [Motion.Unknown] lands exactly as it did before there was a second
+     * witness, which is what its own suite pins.
      */
     fun onReading(
         raw: ActivityType,
@@ -82,26 +84,25 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
     }
 
     /**
-     * Reconsider the parked reading against a fresh [motion], returning it once the hold's own rule
-     * is satisfied — null when nothing is parked or it still stands. **The rule depends on why the
-     * reading was held**, and the asymmetry is the point:
+     * Reconsider the parked reading against a fresh [motion], returning it once the ground vouches
+     * for it — null when nothing is parked or it still stands:
      *
-     *  - A [Hold.CONTRADICTED] reading lands as soon as the ground is no longer too fast to explain
-     *    it, [Motion.Unknown] included. That is what the recorder leans on wherever it is about to
-     *    turn GPS off: with no fixes nothing could ever release the slot, so it goes down with the
-     *    probe. It is also what bounds the hold on a foot reading — the walk that follows a drive
-     *    waits only for the trailing window to slow to a human pace, not for it to fall silent.
-     *  - A [Hold.UNCORROBORATED] reading was held *because* the ground said nothing, so hearing
-     *    nothing again cannot land it — only [Motion.Stopped] can, or the recorder through
-     *    [releaseHeld].
+     *  - Ground too fast for the reading makes the hold [Hold.CONTRADICTED], whatever it was.
+     *  - [Motion.Unknown] makes it [Hold.UNCORROBORATED] rather than landing it: a walk's window
+     *    abstains for a moment on a turn, its halves drawing closer than the moving bar.
+     *  - Anything else lands it: [Motion.Stopped], or ground slow enough to explain the reading. That
+     *    bounds the hold on a foot reading — the walk that follows a drive waits only for the
+     *    trailing window to slow to a human pace.
      */
     fun onMotion(motion: Motion): ActivityType? {
         val waiting = held ?: return null
-        val released = when (waiting.kind) {
-            Hold.CONTRADICTED -> !tooFastFor(waiting.activity, motion)
-            Hold.UNCORROBORATED -> motion is Motion.Stopped
+        val kind = when {
+            tooFastFor(waiting.activity, motion) -> Hold.CONTRADICTED
+            motion is Motion.Unknown -> Hold.UNCORROBORATED
+            else -> return land(waiting.activity)
         }
-        return if (released) land(waiting.activity) else null
+        held = waiting.copy(kind = kind)
+        return null
     }
 
     /**
@@ -110,8 +111,8 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      *
      * **Refuses a [Hold.CONTRADICTED] hold outright**, and that refusal is the whole reason the two
      * are told apart: the ground positively disagreeing is evidence a journey is under way, and a
-     * deadline cannot distinguish a stale hold from a long one — which is why that hold has no cap
-     * and is released only by a fresh verdict.
+     * deadline cannot distinguish a stale hold from a long one — which is why a cap applies only
+     * once the ground has fallen silent.
      */
     fun releaseHeld(): ActivityType? {
         val waiting = held ?: return null

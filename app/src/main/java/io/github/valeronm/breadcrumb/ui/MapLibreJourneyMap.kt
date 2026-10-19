@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toArgb
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -49,10 +48,10 @@ internal fun MapLibreJourneyMap(
     modifier: Modifier = Modifier,
 ) {
     // Only the unknown-type fallback depends on the map's shade.
-    val fallback = mapNeutral(isMapDark())
-    val colorByType = remember(lines, fallback) {
+    val dark = isMapDark()
+    val colorByType = remember(lines, dark) {
         lines.map { it.activityType }.distinct()
-            .associateWith { activityColorOr(ActivityType.ofName(it), fallback).toArgb() }
+            .associateWith { mapActivityArgb(ActivityType.ofName(it), dark) }
     }
     val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
     val originalCollection = remember(originalLines) {

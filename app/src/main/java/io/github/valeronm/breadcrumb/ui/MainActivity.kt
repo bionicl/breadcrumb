@@ -9,7 +9,6 @@ import android.os.BatteryManager
 import android.os.Bundle
 import android.view.Window
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -74,7 +73,10 @@ import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
@@ -230,12 +232,7 @@ private fun MainScreen(
         val uris = pendingGpxImport.value ?: return@SideEffect
         if (Privacy.isLocked(context)) return@SideEffect
         pendingGpxImport.value = null
-        viewModel.importExport.importGpx(
-            uris,
-            onBusy = { busyToast(context) },
-        ) { result ->
-            Toast.makeText(context, gpxImportMessage(context, result), Toast.LENGTH_LONG).show()
-        }
+        viewModel.importExport.importGpx(uris)
     }
 
     // Keep-screen-on while charging: live charger state + persisted preference; the window flag
@@ -387,6 +384,12 @@ private fun MainScreen(
     // and a snackbar still on its timer with them.
     val snackbarHostState = remember { SnackbarHostState() }
     val undo = rememberUndoSnackbar(snackbarHostState)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+        }
+    }
     var tabsBarHeightPx by remember { mutableIntStateOf(0) }
     // A place goes by the editor's Remove button, and the way back is the Undo — which has to be
     // raised from this host, not from a screen that may be dismissed by the same tap. Deleting
@@ -659,6 +662,11 @@ private fun MainScreen(
                     }
                 }
             },
+            onOpenGap = { listed ->
+                timelineJump = TimelineJump.Gap(listed)
+                landOnTimeline()
+            },
+            onOpenPlace = { placeDetailKey = it },
             onAdjustArea = { editingArea = true },
             onRemove = { place ->
                 placeLayer.dismiss()
@@ -729,7 +737,6 @@ private fun MainScreen(
         AddTripOverlay(
             layer = addTripLayer,
             viewModel = viewModel,
-            snackbarHostState = snackbarHostState,
         )
 
         JourneyDetailOverlay(
@@ -754,6 +761,7 @@ private fun MainScreen(
                 .offset {
                     IntOffset(0, -lerp(tabsBarHeightPx, navigationBars.getBottom(this), tabsLayer.covered))
                 },
+            snackbar = { SwipeDismissSnackbar(it) },
         )
 
         when (val open = setup.prompt) {
@@ -798,13 +806,11 @@ private fun NewPlaceOverlay(
 private fun AddTripOverlay(
     layer: OverlayLayerState<TripDraft>,
     viewModel: TrackListViewModel,
-    snackbarHostState: SnackbarHostState,
 ) {
     OverlayFrame(layer) { draft ->
         AddTripScreen(
             viewModel = viewModel,
             draft = draft,
-            snackbarHostState = snackbarHostState,
             onClose = layer.dismiss,
         )
     }
@@ -885,7 +891,7 @@ private fun MainDestinationOverlay(
                 )
             }
 
-            MainDestination.Settings -> SettingsScreen(onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
+            MainDestination.Settings -> SettingsScreen(viewModel::say, onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
         }
     }
 }
@@ -908,6 +914,8 @@ private fun PlaceDetailOverlay(
     onResolved: (PlaceResolver.PlaceSummary) -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onDeleteVisit: (StayDeriver.Stay) -> Unit,
+    onOpenGap: (PlaceResolver.PlaceGap) -> Unit,
+    onOpenPlace: (String) -> Unit,
     onAdjustArea: () -> Unit,
     onRemove: (Place) -> Unit,
     onOpenMerge: () -> Unit,
@@ -934,6 +942,8 @@ private fun PlaceDetailOverlay(
                 onBack = layer.dismiss,
                 onOpenVisit = onOpenVisit,
                 onDeleteVisit = onDeleteVisit,
+                onOpenGap = onOpenGap,
+                onOpenPlace = onOpenPlace,
                 onAdjustArea = onAdjustArea,
                 onRemove = onRemove,
                 canMerge = canMerge,
@@ -1119,20 +1129,10 @@ private fun SettingsPagesOverlay(
             SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
             SettingsPage.EngineDiagnostics -> EngineDiagnosticsScreen(onBack = layer.dismiss)
             SettingsPage.PathSmoothingDebug -> PathSmoothingDebugScreen(onBack = layer.dismiss, viewModel = viewModel)
-            SettingsPage.About -> AboutSettingsScreen(layer.dismiss)
+            SettingsPage.About -> AboutSettingsScreen(viewModel::say, layer.dismiss)
         }
     }
 }
-
-internal fun gpxImportMessage(
-    context: Context,
-    result: ImportExportController.GpxImportSummary,
-): String = buildList {
-    add(context.counted(R.plurals.gpx_imported, result.imported))
-    if (result.duplicates > 0) add(context.counted(R.plurals.gpx_duplicates, result.duplicates))
-    if (result.overlapping > 0) add(context.counted(R.plurals.gpx_overlapping, result.overlapping))
-    if (result.failed > 0) add(context.counted(R.plurals.gpx_failed, result.failed))
-}.joinToString(" · ")
 
 /** Live charger state from the sticky ACTION_BATTERY_CHANGED broadcast (reacts to plug/unplug). */
 @Composable

@@ -129,8 +129,39 @@ internal class TimelineViewedDay {
  * one place whether asked once or twice.
  */
 internal sealed interface TimelineJump {
+    /**
+     * A request landing on one row, found by [matches]; where the row is gone (a re-derivation
+     * moved it), the day holding [anchorMs] stands in.
+     */
+    sealed interface Row : TimelineJump {
+        val anchorMs: Long
+
+        fun matches(item: TimelineItem): Boolean
+    }
+
     /** Land on this stay — a visit tapped on a place's detail. */
-    data class Visit(val stay: StayDeriver.Stay) : TimelineJump
+    data class Visit(val stay: StayDeriver.Stay) : Row {
+        override val anchorMs: Long get() = stay.start
+
+        // Multi-day stays are sliced per day, but the first slice keeps the stay's original start.
+        override fun matches(item: TimelineItem): Boolean =
+            item is TimelineItem.StayItem &&
+                item.stay.afterTrackId == stay.afterTrackId &&
+                item.stay.start == stay.start
+    }
+
+    /**
+     * Land on this gap at the end a place listed it by — a gap longer than a day is two rows, one
+     * per end.
+     */
+    data class Gap(val listed: PlaceResolver.PlaceGap) : Row {
+        override val anchorMs: Long get() = listed.atMs
+
+        override fun matches(item: TimelineItem): Boolean =
+            item is TimelineItem.GapItem &&
+                item.gap.afterTrackId == listed.gap.afterTrackId &&
+                (if (listed.fromHere) item.holdsDeparture else item.holdsArrival)
+    }
 
     /** Land on this day — a journey's day, or the map's parting day on a return to the list. */
     data class Day(val date: LocalDate) : TimelineJump
@@ -256,7 +287,7 @@ internal fun TimelineTab(
     }
 
     // The tab's half of a landing, taken before either view sees it and total over the kinds, so
-    // which view a request is bound for is settled in one place. A Visit or a Day is the list's to
+    // which view a request is bound for is settled in one place. A Row or a Day is the list's to
     // consume — its effects only run while the list is composed, so a request arriving while the
     // map is showing would otherwise wait forever; straight to the list rather than through
     // [switchTo], since the request carries its own destination and the map's parting day would
@@ -266,7 +297,7 @@ internal fun TimelineTab(
     // return to the list should land there too.
     SideEffect(jump) {
         when (jump) {
-            is TimelineJump.Visit, is TimelineJump.Day -> page = TimelinePage.LIST
+            is TimelineJump.Row, is TimelineJump.Day -> page = TimelinePage.LIST
             TimelineJump.Home ->
                 if (page == TimelinePage.MAP) {
                     mapDay = LocalDate.now(timelineZone())
@@ -420,21 +451,13 @@ private fun TimelineListPage(
                 homeScroll.launch { listState.animateScrollToItem(0) }
                 return@LaunchedEffect
             }
-            // Multi-day stays are sliced per day here, but the first slice keeps the stay's
-            // original start, so it matches by identity; if the stay is gone (re-derivation
-            // shifted it), its day header still anchors the jump.
-            is TimelineJump.Visit -> {
-                val target = jump.stay
+            is TimelineJump.Row -> {
                 val hit = groups.indices.firstNotNullOfOrNull { g ->
-                    val i = groups[g].items.indexOfFirst {
-                        it is TimelineItem.StayItem &&
-                            it.stay.afterTrackId == target.afterTrackId &&
-                            it.stay.start == target.start
-                    }
+                    val i = groups[g].items.indexOfFirst(jump::matches)
                     if (i >= 0) (dayAnchors[g].itemIndex + 1 + i) to groups[g].items[i] else null
                 }
                 if (hit != null) {
-                    // One row above the stay so it sits below the sticky day header, not under it.
+                    // One row above the target so it sits below the sticky day header.
                     listState.scrollToItem(hit.first - 1)
                     highlightKey = hit.second.rowKey()
                 } else {
@@ -442,7 +465,7 @@ private fun TimelineListPage(
                     // zone, and dating it on the device's clock would miss the day a foreign stay
                     // was filed under. Groups descend, so the first whose oldest row is at or
                     // before the target holds it.
-                    groups.indexOfFirst { it.items.last().startedAt <= target.start }
+                    groups.indexOfFirst { it.items.last().startedAt <= jump.anchorMs }
                         .takeIf { it >= 0 }
                         ?.let { listState.scrollToItem(dayAnchors[it].itemIndex) }
                 }

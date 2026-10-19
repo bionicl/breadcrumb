@@ -31,6 +31,8 @@ Sections and order follow `en.md`, so the two files read side by side.
 | Concept | Term | Notes |
 |---|---|---|
 | track | маршрут | Only the recorded path — everywhere the sentence is about the journey itself, the word is *поездка*. Never *трек* (jargon a GPX-minded reader knows but a plain one doesn't), *путь*, *след*. |
+| gap | нет записи | A clause rather than a noun phrase: Russian states the absence directly, where «пропуск» or «пробел» would name a thing. |
+| gap-end | прибыли · отправились | The polite plural, which keeps a past-tense verb genderless as «вы были» does. *Отправились* over *уехали* or *ушли*, which each name a way of moving. |
 | point | точка | Rejected ones are *отклонённые* — never the calque *шумные* (which reads as loud, not as measurement noise) nor *выбросы* (which reads as emissions); a guessed one is *приблизительное местоположение*. |
 | activity | активность | Where a settings sentence explains what is detected, «способ передвижения» may carry it — that names the *type*, not the concept. The **inline forms** of the carrier-borne types are headed by the trip's own noun — «поездка на велосипеде», «поездка на такси» — while the rest are bare («ходьба», «перелёт»): the sentences those forms drop into are about the trip, and a bare «велосипед» cannot be their subject. |
 | movement | движение | The state, and the *Движение* activity label. A **counted stretch** is *перемещение* («перемещения с перерывом короче…») — the word names a piece of movement here, not a trip, which is why its rejection as trip's name doesn't ban it. |

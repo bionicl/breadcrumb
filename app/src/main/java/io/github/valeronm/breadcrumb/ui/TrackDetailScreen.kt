@@ -54,7 +54,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -81,6 +80,7 @@ import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSplit
@@ -342,7 +342,7 @@ internal fun TrackDetailScreen(
                             metricGraphData(seams, colorMode, activity, darkTheme, measures)
                         }
                     }
-                    val lineArgb = activityColorOr(activity, mapNeutral(isMapDark())).toArgb()
+                    val lineArgb = mapActivityArgb(activity, isMapDark())
                     val solidLine = remember(load.good, lineArgb, colorModes) {
                         if (colorModes.isEmpty()) solidColoring(load.good.size, lineArgb) else null
                     }
@@ -1135,8 +1135,8 @@ private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
 }
 
 /**
- * This manual track as the trip form's input: its two fixes and the bounds they were stamped at,
- * under whatever the user calls those spots.
+ * This manual track as the trip form's input: its first and last fixes and the bounds they were
+ * stamped at, under whatever the user calls those spots, and the road shape between them.
  *
  * The times come from the *row*, not from the points, though a manual track has them equal by
  * construction — the row's bounds are the declaration, the points a restatement of it. A track still
@@ -1160,7 +1160,11 @@ private fun tripDraftOf(
         day = summary.startedAt.toLocalDate(zone),
         origin = endAt(points?.firstOrNull(), summary.startedAt, summary.startPlaceId),
         destination = summary.endedAt?.let { endAt(points?.lastOrNull(), it, summary.endPlaceId) },
-        editing = EditedTrip(summary.id, ActivityType.ofName(summary.activityType)),
+        editing = EditedTrip(
+            summary.id,
+            ActivityType.ofName(summary.activityType),
+            path = ManualPath.shapeOf(points.orEmpty().map { Coordinate(it.latitude, it.longitude) }),
+        ),
     )
 }
 

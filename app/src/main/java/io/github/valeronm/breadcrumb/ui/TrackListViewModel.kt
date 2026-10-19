@@ -3,12 +3,14 @@ package io.github.valeronm.breadcrumb.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Cities
 import io.github.valeronm.breadcrumb.data.DerivationStore
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.JourneyPolylines
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
+import io.github.valeronm.breadcrumb.data.OnlineRouting
 import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackPoints
@@ -47,6 +49,7 @@ import io.github.valeronm.breadcrumb.locomotion.RoutePathSmoother
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,6 +60,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -72,7 +76,17 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     private val backupRepositories =
         BackupRepositories(repository, placeRepository, derivationStore)
 
-    internal val importExport = ImportExportController(app, viewModelScope, repository, backupRepositories)
+    private val messageQueue = Channel<String>(Channel.UNLIMITED)
+
+    /** Transient messages for the snackbar host, held until the app is on screen. */
+    internal val messages: Flow<String> = messageQueue.receiveAsFlow()
+
+    internal fun say(message: String) {
+        messageQueue.trySend(message)
+    }
+
+    internal val importExport =
+        ImportExportController(app, viewModelScope, repository, backupRepositories, ::say)
 
     val reviewQueue: StateFlow<List<ReviewQueueEntity>> = repository.observeReviewQueue()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -589,7 +603,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
-        PlaceResolver.summarize(d.stays, d.derivation.clusters, d.places, d.now, d.cities)
+        PlaceResolver.summarize(d.derivation, d.places, d.now, d.cities)
     }.flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
@@ -753,28 +767,34 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** [placeName] is non-null exactly when the end should become a place. */
     class ManualTripEnd(val end: TrackRepository.ManualEnd, val placeName: String?)
 
+    /** A trip as the form states it; [path] is the road shape between the ends, or empty. */
+    class ManualTrip(
+        val activityType: ActivityType,
+        val origin: ManualTripEnd,
+        val destination: ManualTripEnd,
+        val path: List<Coordinate>,
+    )
+
     /**
      * Insert a manual trip, or rewrite [editing] in place, then create places for the ends picked
      * by name. [onResult] receives the verdict, a refusal included.
      */
     fun saveManualTrack(
         editing: Long?,
-        activityType: ActivityType,
-        origin: ManualTripEnd,
-        destination: ManualTripEnd,
+        trip: ManualTrip,
         onResult: (TrackRepository.ManualTrackResult) -> Unit,
     ) {
         viewModelScope.launch {
             val result = if (editing == null) {
-                repository.insertManualTrack(activityType, origin.end, destination.end)
+                repository.insertManualTrack(trip.activityType, trip.origin.end, trip.destination.end, trip.path)
             } else {
-                repository.updateManualTrack(editing, activityType, origin.end, destination.end)
+                repository.updateManualTrack(editing, trip.activityType, trip.origin.end, trip.destination.end, trip.path)
             }
             if (result is TrackRepository.ManualTrackResult.Saved) {
                 createTripPlaces(
                     listOfNotNull(
-                        origin.placeName?.let { it to origin.end.at },
-                        destination.placeName?.let { it to destination.end.at },
+                        trip.origin.placeName?.let { it to trip.origin.end.at },
+                        trip.destination.placeName?.let { it to trip.destination.end.at },
                     ),
                 )
             }
@@ -892,12 +912,13 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Refused, like an import, while an operation on the whole history runs. */
-    fun restoreTrack(trackId: Long, onBusy: () -> Unit = {}, onOverlapping: () -> Unit = {}) {
-        if (importExport.historyOpRunning()) {
-            onBusy()
-            return
+    fun restoreTrack(trackId: Long) {
+        if (importExport.refuseIfBusy()) return
+        viewModelScope.launch {
+            if (!repository.restoreTrack(trackId)) {
+                say(getApplication<Application>().getString(R.string.discarded_restore_overlaps))
+            }
         }
-        viewModelScope.launch { if (!repository.restoreTrack(trackId)) onOverlapping() }
     }
 
     fun purgeDiscarded(through: Long) {
@@ -1014,6 +1035,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun searchOnline(query: String, near: Coordinate?, withinM: Double? = null): List<OnlinePlaceSearch.Hit> =
         withContext(Dispatchers.IO) {
             OnlinePlaceSearch.search(getApplication(), query, near, withinM)
+        }
+
+    /** Null when the online routing is switched off or fails ([OnlineRouting]). */
+    suspend fun routeOnline(profile: OnlineRouting.Profile, from: Coordinate, to: Coordinate): OnlineRouting.Route? =
+        withContext(Dispatchers.IO) {
+            OnlineRouting.route(getApplication(), profile, from, to)
         }
 
     private companion object {

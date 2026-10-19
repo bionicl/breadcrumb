@@ -19,6 +19,12 @@
     <!-- ODbL's credit, at the results it applies to. -->
     <string name="addtrip_no_matches">No matches</string>
 
+    <!-- Asking the online router for the trip's path: the chip's offer, the chip once it has one
+         (the length, then the time it takes), and the one message a failure gets. -->
+    <string name="addtrip_follow_roads">Follow roads</string>
+    <string name="addtrip_along_roads">Along roads · %1$s · %2$s</string>
+    <string name="addtrip_no_roads">No road path found between these points</string>
+
     <!-- The two ends. Each phrase is whole: the same word is a card title, a prefix and a
          dialog heading, and only English lets one string play all three. -->
     <string name="addtrip_origin">Origin</string>

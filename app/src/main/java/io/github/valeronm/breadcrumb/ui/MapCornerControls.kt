@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -208,16 +207,17 @@ internal class MyLocationState(
 }
 
 @Composable
-internal fun rememberMyLocation(): MyLocationState {
+internal fun rememberMyLocation(say: (String) -> Unit): MyLocationState {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val noLocation = stringResource(R.string.places_no_location)
     val location = remember {
         MyLocationState(
             granted = { DeviceLocation.granted(context) },
             blocked = { context.anyPermanentlyDenied(LOCATION_PERMISSIONS, AppSettings.askedPermissions(context)) },
             fetch = { DeviceLocation.current(context) },
             launch = { block -> scope.launch { block() } },
-            onUnavailable = { Toast.makeText(context, R.string.places_no_location, Toast.LENGTH_SHORT).show() },
+            onUnavailable = { say(noLocation) },
         )
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {

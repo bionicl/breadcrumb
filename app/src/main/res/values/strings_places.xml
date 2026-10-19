@@ -104,6 +104,15 @@
     <string name="places_first_visit">First visit %1$s</string>
     <!-- A visit still open: the start time with no end to pair it with. -->
     <string name="places_visit_since">since %1$s</string>
+    <!-- A gap with one end at this place, listed among its visits as the recorded event that end
+         is: the last recorded trip arrived here, or the next one left from here. -->
+    <string name="places_gap_arrived">Arrived at %1$s</string>
+    <string name="places_gap_left">Left at %1$s</string>
+    <!-- Under it, how long the recording was missing and the place at the other end — stated
+         after an arrival, before a departure — or the duration alone where that end had no fix. -->
+    <string name="places_gap_missing_to">missing recording · %1$s to %2$s</string>
+    <string name="places_gap_missing_from">missing recording · %1$s from %2$s</string>
+    <string name="places_gap_missing">missing recording · %1$s</string>
     <!-- The place's clock against the reader's, where the two differ. -->
     <string name="places_shift_now">%1$s now</string>
     <!-- The undo snackbar after a place is removed; %1$s is the name the user gave it. -->
@@ -115,6 +124,9 @@
     <string name="place_detected_stop">Detected stay</string>
     <!-- A place an import brought in and nobody has named. -->
     <string name="place_imported">Imported place</string>
+    <!-- The two above, worded for the middle of a sentence — a far place a gap line names. -->
+    <string name="place_detected_stop_inline">detected stay</string>
+    <string name="place_imported_inline">imported place</string>
     <string name="place_no_visits">No visits yet</string>
     <!-- The row subtitle's count, apart from the timeline's `timeline_visits`: a language may
          count a row's visits with a different word than a stay's (Russian says "раз" here). -->

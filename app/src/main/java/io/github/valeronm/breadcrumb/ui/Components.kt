@@ -23,6 +23,9 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -49,8 +52,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -103,12 +108,20 @@ internal fun BoxScope.MapFilterChips(content: @Composable ColumnScope.() -> Unit
     )
 }
 
+/** A legend in a [MapFilterChips] stack: the stack spaces its items for a chip's touch halo, and a
+ *  surface has none. */
+@Composable
+internal fun ColumnScope.MapStackLegend(content: @Composable ColumnScope.() -> Unit) {
+    LegendSurface(Modifier.padding(top = touchHalo(FilterChipDefaults.Height)), content)
+}
+
 /** Elevated on an opaque surface: the default chip tones all but vanish against a basemap. */
 @Composable
-internal fun MapFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
+internal fun MapFilterChip(selected: Boolean, label: String, enabled: Boolean = true, onClick: () -> Unit) {
     ElevatedFilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label) },
         leadingIcon = selectedCheck(selected),
         colors = FilterChipDefaults.elevatedFilterChipColors(
@@ -134,11 +147,11 @@ private fun selectedCheck(selected: Boolean): (@Composable () -> Unit)? =
  */
 @Composable
 internal fun SearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
+    state: TextFieldState,
     placeholder: String,
     modifier: Modifier = Modifier,
 ) {
+    val empty by remember(state) { derivedStateOf { state.text.isEmpty() } }
     Surface(
         modifier = modifier.height(40.dp),
         shape = CircleShape,
@@ -157,15 +170,14 @@ internal fun SearchField(
             Spacer(Modifier.width(8.dp))
             Box(Modifier.weight(1f)) {
                 BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
+                    state = state,
+                    lineLimits = TextFieldLineLimits.SingleLine,
                     textStyle = MaterialTheme.typography.bodyMedium
                         .copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (query.isEmpty()) {
+                if (empty) {
                     Text(
                         placeholder,
                         style = MaterialTheme.typography.bodyMedium,
@@ -176,8 +188,8 @@ internal fun SearchField(
             // Present only with something to clear — an always-there X on an empty field invites a
             // tap that does nothing. Sized down like the day header's share action, for the same
             // reason: a full 48dp target would outweigh the 40dp control holding it.
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(32.dp)) {
+            if (!empty) {
+                IconButton(onClick = { state.clearText() }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Filled.Close,
                         contentDescription = stringResource(R.string.places_clear_search),

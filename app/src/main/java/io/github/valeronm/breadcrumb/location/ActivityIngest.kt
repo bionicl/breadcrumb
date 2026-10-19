@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.domain.ActivityGate
+import io.github.valeronm.breadcrumb.domain.ActivityGate.Hold
 import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.ArrivalWatch
@@ -130,14 +131,25 @@ class ActivityIngest(
 
     /**
      * Land a reading the ground never vouched for, once it has waited long enough that a fair
-     * chance to vouch has passed. The deadline is computed when the hold begins rather than
-     * compared per call: this runs on the ~1 Hz satellite tick for the whole length of every hold.
-     * A [ActivityGate.Hold.CONTRADICTED] hold is refused by the gate, which is where that rule lives.
+     * chance to vouch has passed. The deadline is stamped ([syncHoldCap]) rather than derived per
+     * call: this runs on the ~1 Hz satellite tick for the whole length of every hold.
+     * A [Hold.CONTRADICTED] hold is refused by the gate, which is where that rule lives.
      */
     private fun releaseExpiredHold(nowMs: Long): ActivityType? {
         val deadline = holdExpiresAtMs ?: return null
         if (nowMs < deadline) return null
         return gate.releaseHeld()
+    }
+
+    // The cap starts at the hold's last fresh reading or contradicting verdict, not at the revisit
+    // that first finds the ground silent.
+    private fun syncHoldCap(nowMs: Long, settings: ActivitySettings, fresh: Boolean) {
+        val kind = gate.held?.kind
+        holdExpiresAtMs = when {
+            kind == null -> null
+            fresh || kind == Hold.CONTRADICTED -> nowMs + settings.uncorroboratedHoldMs
+            else -> holdExpiresAtMs
+        }
     }
 
     /**
@@ -157,7 +169,7 @@ class ActivityIngest(
         intake(eventTimeMs, nowMs, registration, out)
         // While the no-fix guard has GPS off, no fix arrives to vouch for a stop.
         val changed = gate.onReading(raw, motionVerdict(nowMs), requireCorroboration = !noFixGuard.suspended)
-        holdExpiresAtMs = if (gate.held == null) null else nowMs + settings.uncorroboratedHoldMs
+        syncHoldCap(nowMs, settings, fresh = true)
         if (changed == null) return out
         applyConfirmed(changed, nowMs, settings, out)
         return out
@@ -183,12 +195,14 @@ class ActivityIngest(
      * Reconsider a held reading against a fresh verdict, and apply it once the ground vouches for it
      * — or once an uncorroborated hold has run its cap. Empty when nothing is held or it still stands.
      */
-    fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> =
-        applyReleased(gate.onMotion(motion) ?: releaseExpiredHold(nowMs), nowMs, settings)
+    fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
+        val released = gate.onMotion(motion)
+        syncHoldCap(nowMs, settings, fresh = false)
+        return applyReleased(released ?: releaseExpiredHold(nowMs), nowMs, settings)
+    }
 
     private fun applyReleased(released: ActivityType?, nowMs: Long, settings: ActivitySettings): List<Effect> {
         released ?: return emptyList()
-        holdExpiresAtMs = null
         val out = ArrayList<Effect>()
         applyConfirmed(released, nowMs, settings, out)
         return out
@@ -225,7 +239,6 @@ class ActivityIngest(
         out: MutableList<Effect>,
     ) {
         gate.adopt(activity)
-        holdExpiresAtMs = null
         applyConfirmed(activity, nowMs, settings, out)
     }
 
@@ -444,7 +457,6 @@ class ActivityIngest(
 
     private fun reset() {
         gate.onArmed()
-        holdExpiresAtMs = null
     }
 
     /** Forget the deafness episode. The alert itself is the caller's to withdraw. */

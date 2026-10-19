@@ -19,11 +19,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,10 +96,11 @@ internal fun NavRow(
 
 /** Marked apart from [NavRow] so a link out of the app is not mistaken for a screen. */
 @Composable
-internal fun LinkRow(label: String, url: String, subtitle: String? = null) {
+internal fun LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
     val context = LocalContext.current
+    val noBrowser = stringResource(R.string.browser_no_app)
     TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
-        context.openInBrowser(url)
+        context.openInBrowser(url) { say(noBrowser) }
     }
 }
 
@@ -280,11 +283,9 @@ private fun LabeledSlider(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = range,
-        )
+        val state = remember(range) { SliderState(value, trackRange = range) }
+        SideEffect { state.value = value }
+        Slider(state = state, onValueChange = onChange)
     }
 }
 

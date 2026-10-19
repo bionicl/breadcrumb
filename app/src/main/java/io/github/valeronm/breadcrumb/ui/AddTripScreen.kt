@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Place
@@ -28,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -37,6 +38,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -60,10 +63,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
+import io.github.valeronm.breadcrumb.data.OnlineRouting
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
 import io.github.valeronm.breadcrumb.domain.isNamed
@@ -75,6 +80,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /** What the add-trip form offers: every movement type, carried transport first — a trip goes
  *  missing because nothing recorded it, and that happens to walks as readily as to flights. */
@@ -126,7 +132,12 @@ internal class TripDraft(
  * carries an answer, and offering it as unset would ask the user to re-state what they are not here
  * to change.
  */
-internal class EditedTrip(val trackId: Long, val activity: ActivityType?)
+internal class EditedTrip(
+    val trackId: Long,
+    val activity: ActivityType?,
+    /** The road shape stored between the trip's ends, or empty for a trip of its ends alone. */
+    val path: List<Coordinate>,
+)
 
 /**
  * One end a caller can already fill in.
@@ -175,11 +186,39 @@ private class TripEnd(drafted: TripDraftEnd?) {
         epochIn(zone)?.let { Instant.ofEpochMilli(it).atZone(zone) } ?: fallback
 }
 
-/** One end's time being edited: which end the pickers write to, under which name, on whose clock,
- *  and where they open when the end holds nothing yet ([fallback]). Carried as values so the
- *  dialog never has to recover an end's role by identity. */
+/**
+ * A road path with the pins and profile it was asked for, drawn only while those are what the form
+ * says; switching away from a type and back brings it back.
+ */
+private class RoutedLeg(
+    val profile: OnlineRouting.Profile,
+    val from: Coordinate,
+    val to: Coordinate,
+    val shape: List<Coordinate>,
+    val durationMs: Long,
+) {
+    /** The length of the line the trip will be stored along — the saved row's figure, not the
+     *  router's, which measures between road-snapped ends. */
+    val lengthM: Double by lazy { ManualPath.lengthM(ManualPath.line(from, to, shape), AndroidDistance) }
+}
+
+/**
+ * The path a trip being edited was saved with, as the leg it would be asked for again; its
+ * duration is the row's span, which is what the saved times were coupled by.
+ */
+private fun TripDraft.storedRoute(): RoutedLeg? {
+    val edited = editing ?: return null
+    if (edited.path.isEmpty()) return null
+    val profile = edited.activity?.let(OnlineRouting.Profile::of) ?: return null
+    val from = origin ?: return null
+    val to = destination ?: return null
+    return RoutedLeg(profile, from.at ?: return null, to.at ?: return null, edited.path, to.timeMs - from.timeMs)
+}
+
+/** One end's time being edited: which, under which name, on whose clock, and where the pickers
+ *  open when the end holds nothing yet ([fallback]). */
 private class TimeEdit(
-    val end: TripEnd,
+    val which: ManualPath.End,
     /** The picker's heading, whole rather than a noun the dialog appends "time" to. */
     @StringRes val titleRes: Int,
     val zone: ZoneId,
@@ -188,22 +227,21 @@ private class TimeEdit(
 
 /**
  * Enter a trip nothing recorded — a flight, a leg with the phone dead — as two pins and two times,
- * inserted as a two-point manual track. Each end's typed time is read in the IANA zone of the city
- * the atlas resolves its pin to (shown on the end's card, never silently applied), so a past
- * flight's times can be entered as the boarding pass states them; with no pin placed yet the time
- * row stays disabled rather than guessing a zone. Everything is local until the check mark commits,
- * so backing out discards by construction — the [PlaceEditScreen] pattern.
- *
- * What the form opens holding is [draft]'s — the ends a gap row could already fill in, or nothing
- * but the day the Timeline was showing. **It is also how a manual trip is edited**
- * ([TripDraft.editing]): the same two pins and two times, rewritten onto the row they came from,
- * since what a hand-entered trip *is* and what the form asks for are the same thing.
+ * inserted as a manual track, with a router's road shape between them where one was asked for. Each
+ * end's typed time is read in the IANA zone of the city the atlas resolves its pin to (shown on the
+ * end's card, never silently applied), so a past flight's times can be entered as the boarding pass
+ * states them; with no pin placed yet the time row stays disabled rather than guessing a zone.
+ * Everything is local until the check mark commits, so backing out discards by construction — the
+ * [PlaceEditScreen] pattern.  What the form opens holding is [draft]'s — the ends a gap row could
+ * already fill in, or nothing but the day the Timeline was showing. **It is also how a manual trip
+ * is edited** ([TripDraft.editing]): the same two pins, two times and road shape, rewritten onto the
+ * row they came from, since what a hand-entered trip *is* and what the form asks for are the same
+ * thing.
  */
 @Composable
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
     draft: TripDraft,
-    snackbarHostState: SnackbarHostState,
     onClose: () -> Unit,
 ) {
     // Keyed on the draft: a second gap's form can open while the first is still animating out, and
@@ -227,6 +265,12 @@ internal fun AddTripScreen(
     // like the ends beside it: a second form opening while the first animates out gets a map of its
     // own, and would otherwise sort around wherever that one was left.
     var mapCenter by remember(draft) { mutableStateOf<Coordinate?>(null) }
+    var routed by remember(draft) { mutableStateOf(draft.storedRoute()) }
+    var fetchingRoute by remember(draft) { mutableStateOf(false) }
+    val profile = activity?.let(OnlineRouting.Profile::of)
+    val leg = routed?.takeIf { it.profile == profile && it.from == origin.pin && it.to == destination.pin }
+    val context = LocalContext.current
+    val routingOn = remember { AppSettings.isOnlineRouting(context) }
     val scope = rememberCoroutineScope()
 
     val originCity by produceState<CityAtlas.City?>(null, origin.pin) {
@@ -239,6 +283,44 @@ internal fun AddTripScreen(
     val destinationZone = zoneOrDevice(destinationCity?.zoneId)
     val departMs = origin.epochIn(originZone)
     val arriveMs = destination.epochIn(destinationZone)
+
+    // With a road path attached the two times are one fact and its duration: the end at [from]
+    // keeps its time and the other is moved ([ManualPath.coupledEnd]), on that end's own clock.
+    fun coupleTimes(from: ManualPath.End, durationMs: Long) {
+        val forward = from == ManualPath.End.ORIGIN
+        val at = (if (forward) origin.epochIn(originZone) else destination.epochIn(destinationZone)) ?: return
+        val other = if (forward) destination else origin
+        val target = Instant.ofEpochMilli(ManualPath.coupledEnd(at, durationMs, forward))
+            .atZone(if (forward) destinationZone else originZone)
+        other.date = target.toLocalDate()
+        other.time = target.toLocalTime()
+    }
+
+    // Resolved here: the result lands outside the composition.
+    val noRoadsMessage = stringResource(R.string.addtrip_no_roads)
+
+    fun followRoads() {
+        val by = profile ?: return
+        val from = origin.pin ?: return
+        val to = destination.pin ?: return
+        fetchingRoute = true
+        scope.launch {
+            val found = viewModel.routeOnline(by, from, to)
+            fetchingRoute = false
+            if (found == null) {
+                viewModel.say(noRoadsMessage)
+            } else {
+                routed = RoutedLeg(by, from, to, found.shape, found.durationMs)
+                ManualPath.anchor(
+                    originTimed = origin.epochIn(originZone) != null,
+                    destinationTimed = destination.epochIn(destinationZone) != null,
+                    originNamed = origin.placeName != null,
+                    destinationNamed = destination.placeName != null,
+                )?.let { coupleTimes(it, found.durationMs) }
+            }
+        }
+    }
+
     val error = when {
         departMs != null && arriveMs != null && arriveMs <= departMs ->
             stringResource(R.string.addtrip_error_order)
@@ -307,14 +389,17 @@ internal fun AddTripScreen(
                         if (departMs == null || arriveMs == null) return@SaveAction
                         viewModel.saveManualTrack(
                             draft.editing?.trackId,
-                            type,
-                            TrackListViewModel.ManualTripEnd(
-                                TrackRepository.ManualEnd(from, departMs),
-                                origin.placeName,
-                            ),
-                            TrackListViewModel.ManualTripEnd(
-                                TrackRepository.ManualEnd(to, arriveMs),
-                                destination.placeName,
+                            TrackListViewModel.ManualTrip(
+                                type,
+                                TrackListViewModel.ManualTripEnd(
+                                    TrackRepository.ManualEnd(from, departMs),
+                                    origin.placeName,
+                                ),
+                                TrackListViewModel.ManualTripEnd(
+                                    TrackRepository.ManualEnd(to, arriveMs),
+                                    destination.placeName,
+                                ),
+                                leg?.shape.orEmpty(),
                             ),
                         ) { result ->
                             val refusal = when (result) {
@@ -325,7 +410,7 @@ internal fun AddTripScreen(
                             if (refusal == null) {
                                 onClose()
                             } else {
-                                scope.launch { snackbarHostState.showSnackbar(refusal) }
+                                viewModel.say(refusal)
                             }
                         }
                     }
@@ -356,7 +441,8 @@ internal fun AddTripScreen(
                     )
                 }
             }
-            var query by remember { mutableStateOf("") }
+            val queryState = remember { TextFieldState() }
+            val query by remember(queryState) { derivedStateOf { queryState.text.toString() } }
             val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
             // An unnamed row reads as the unnamed cluster it seeds, which this form neither draws
             // nor offers.
@@ -422,8 +508,7 @@ internal fun AddTripScreen(
                 open = query.isNotBlank(),
                 field = { anchor ->
                     SearchField(
-                        query = query,
-                        onQueryChange = { query = it },
+                        state = queryState,
                         placeholder = stringResource(R.string.addtrip_search_placeholder),
                         modifier = Modifier.fillMaxWidth().then(anchor),
                     )
@@ -437,7 +522,7 @@ internal fun AddTripScreen(
                         detail = placeCities[place.id]?.let { localityLabel(it) },
                     ) {
                         placePin(place.pin, label)
-                        query = ""
+                        queryState.clearText()
                     }
                 }
                 for (hit in cityHits) {
@@ -447,7 +532,7 @@ internal fun AddTripScreen(
                         detail = countryDisplayName(hit.country),
                     ) {
                         placePin(Coordinate(hit.lat, hit.lon))
-                        query = ""
+                        queryState.clearText()
                     }
                 }
                 // Below the local sections, minus what they already show — the
@@ -468,7 +553,7 @@ internal fun AddTripScreen(
                         // The one pick that knows its own name — carried so the
                         // commit can create the place this end will have stayed at.
                         placePin(Coordinate(hit.lat, hit.lon), hit.name)
-                        query = ""
+                        queryState.clearText()
                     }
                 }
                 if (online.isNotEmpty()) OsmCredit()
@@ -487,26 +572,51 @@ internal fun AddTripScreen(
                         origin = origin.pin,
                         destination = destination.pin,
                         places = placeField,
+                        shape = leg?.shape.orEmpty(),
+                        activity = activity,
                         onLongPress = ::placePin,
                         onPlaceTap = ::placePin,
                         center = centerRequest,
                         onCenterSettled = { mapCenter = it },
                         modifier = Modifier.fillMaxSize(),
                     )
-                    LegendSurface(Modifier.align(Alignment.TopStart).padding(MapInset)) {
-                        Text(
-                            stringResource(
-                                if (placingDestination) {
-                                    R.string.addtrip_tap_destination
+                    MapFilterChips {
+                        // The switch on the Privacy page takes the offer away entirely rather than
+                        // leaving a chip that does nothing. On, the chip is the path's own
+                        // description.
+                        val roadTrip = profile != null && origin.pin != null && destination.pin != null
+                        if (routingOn && roadTrip) {
+                            MapFilterChip(
+                                selected = leg != null,
+                                enabled = !fetchingRoute,
+                                label = if (leg == null) {
+                                    stringResource(R.string.addtrip_follow_roads)
                                 } else {
-                                    R.string.addtrip_tap_origin
+                                    stringResource(
+                                        R.string.addtrip_along_roads,
+                                        distanceText(leg.lengthM),
+                                        durationText(leg.durationMs),
+                                    )
                                 },
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
+                            ) { if (leg == null) followRoads() else routed = null }
+                        }
+                        MapStackLegend {
+                            Text(
+                                stringResource(
+                                    if (placingDestination) {
+                                        R.string.addtrip_tap_destination
+                                    } else {
+                                        R.string.addtrip_tap_origin
+                                    },
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
                     }
                 }
             }
+            // Owed while a road the servers drew is on the map above.
+            if (leg != null) OsmDataCredit(Modifier.padding(horizontal = 4.dp))
             TripEndCard(
                 titleRes = R.string.addtrip_origin,
                 atRes = R.string.addtrip_departure_at,
@@ -518,7 +628,7 @@ internal fun AddTripScreen(
                 onActivate = { activate(origin) },
                 onEditTime = {
                     editing = TimeEdit(
-                        origin, R.string.addtrip_departure_time_title, originZone,
+                        ManualPath.End.ORIGIN, R.string.addtrip_departure_time_title, originZone,
                         origin.pickerStart(originZone, noonOf(draft.day, originZone)),
                     )
                 },
@@ -536,7 +646,7 @@ internal fun AddTripScreen(
                     // An hour past the departure, on the arrival's own clock: the pickers open a
                     // short scroll from any real arrival instead of at an arbitrary noon.
                     editing = TimeEdit(
-                        destination, R.string.addtrip_arrival_time_title, destinationZone,
+                        ManualPath.End.DESTINATION, R.string.addtrip_arrival_time_title, destinationZone,
                         destination.pickerStart(
                             destinationZone,
                             departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
@@ -556,7 +666,7 @@ internal fun AddTripScreen(
     }
 
     editing?.let { edit ->
-        val end = edit.end
+        val end = if (edit.which == ManualPath.End.ORIGIN) origin else destination
         val closeDialogs = {
             editing = null
             editingDate = null
@@ -586,6 +696,7 @@ internal fun AddTripScreen(
                             onClick = {
                                 end.date = chosenDate
                                 end.time = LocalTime.of(timeState.hour, timeState.minute)
+                                leg?.let { coupleTimes(edit.which, it.durationMs) }
                                 closeDialogs()
                             },
                         ) { Text(stringResource(R.string.common_ok)) }

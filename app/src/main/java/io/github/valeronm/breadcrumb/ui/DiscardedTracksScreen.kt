@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -83,7 +82,6 @@ internal fun DiscardedTracksScreen(
     onOpenTrack: (Long) -> Unit,
 ) {
     val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
-    val appContext = LocalContext.current.applicationContext
     val nowMs = remember { System.currentTimeMillis() }
     var showClearDialog by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableStateOf(DiscardFilter.ALL) }
@@ -147,11 +145,7 @@ internal fun DiscardedTracksScreen(
                         rows = shown,
                         nowMs = nowMs,
                         onOpenTrack = onOpenTrack,
-                        onRestore = { id ->
-                            viewModel.restoreTrack(id, onBusy = { busyToast(appContext) }) {
-                                Toast.makeText(appContext, R.string.discarded_restore_overlaps, Toast.LENGTH_LONG).show()
-                            }
-                        },
+                        onRestore = viewModel::restoreTrack,
                     )
                 }
             }

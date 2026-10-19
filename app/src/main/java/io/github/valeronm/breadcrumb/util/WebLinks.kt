@@ -3,7 +3,6 @@ package io.github.valeronm.breadcrumb.util
 import android.content.Context
 import androidx.core.net.toUri
 import io.github.valeronm.breadcrumb.BuildConfig
-import io.github.valeronm.breadcrumb.R
 
 internal object WebLinks {
     const val SITE = "https://breadcrumb.place/"
@@ -13,6 +12,11 @@ internal object WebLinks {
     const val VIEWER = "https://breadcrumb.place/viewer/"
     const val SOURCE = "https://github.com/valeronm/breadcrumb"
     const val PLAY = "https://play.google.com/store/apps/details?id=${BuildConfig.PLAY_PACKAGE}"
+
+    // The three the OpenStreetMap data credit links, in the form FOSSGIS's terms ask for.
+    const val OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright"
+    const val ODBL = "https://opendatacommons.org/licenses/odbl/"
+    const val OSM_FIX_THE_MAP = "https://www.openstreetmap.org/fixthemap"
 }
 
-internal fun Context.openInBrowser(url: String) = viewUri(url.toUri(), R.string.browser_no_app)
+internal fun Context.openInBrowser(url: String, onNoApp: () -> Unit) = viewUri(url.toUri(), onNoApp)

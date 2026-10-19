@@ -216,6 +216,11 @@ object PlaceResolver {
         val endpointCentroid: Coordinate?,
         /** This place's individual visits (unsliced), newest first — the detail screen's history. */
         val stays: List<StayDeriver.Stay> = emptyList(),
+        /**
+         * The gaps with one end at this place, newest first by that end. Counted toward none of
+         * the figures above: how much of a gap was spent here is unmeasured.
+         */
+        val gaps: List<PlaceGap> = emptyList(),
         /** Where on earth this place sits, as the atlas has it — see [ResolvedStay.locality]. */
         val locality: CityAtlas.City? = null,
         /**
@@ -275,6 +280,21 @@ object PlaceResolver {
             } else {
                 copy(place = named, anchor = named.pin, radiusM = named.radiusM, keptKey = key)
             }
+    }
+
+    /**
+     * A gap with one end at a place: the recording left off here ([fromHere]) or picked up again
+     * here. [farKey] is the [PlaceSummary.key] of the place at the other side, or null where the
+     * recorder had no fix for that side — a key rather than a copy of the summary, which naming
+     * the far place would leave stale.
+     */
+    data class PlaceGap(
+        val gap: StayDeriver.Gap,
+        val fromHere: Boolean,
+        val farKey: String?,
+    ) {
+        /** The gap's bound at this place. */
+        val atMs: Long get() = if (fromHere) gap.start else gap.end
     }
 
     /**
@@ -355,17 +375,20 @@ object PlaceResolver {
      * that screen's presentation filter, not this layer's. Runs over unsliced stays so counts and
      * durations are exact; order: named (input order) then unnamed (chronological), the UI sorting.
      *
+     * The derivation's gaps land on the summary at each known side as its [PlaceSummary.gaps].
+     *
      * [cities] is the atlas, keyed and applied exactly as [resolveClusters] describes — so a
      * cluster reads the same on the Places list as it does on a timeline row.
      */
     fun summarize(
-        stays: List<StayDeriver.Stay>,
-        clusters: List<PlaceClusterer.Cluster>,
+        derivation: StayDeriver.Derivation,
         places: List<Place>,
         nowMs: Long,
         cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
     ): List<PlaceSummary> {
-        val staysByCluster = visitsAmong(stays).groupBy { it.clusterId }
+        val clusters = derivation.clusters
+        val staysByCluster = visitsAmong(derivation.intervals.filterIsInstance<StayDeriver.Stay>())
+            .groupBy { it.clusterId }
         val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
         val unnamed = mutableListOf<PlaceSummary>()
         clusters.forEachIndexed { clusterId, cluster ->
@@ -421,7 +444,32 @@ object PlaceResolver {
                 locality = cluster?.let { cities[it.centroid] },
             )
         }
-        return named + unnamed
+        return withGaps(named + unnamed, derivation.intervals.filterIsInstance<StayDeriver.Gap>(), clusters, places)
+    }
+
+    /** Two sides at one cluster is a stay, so no gap lands twice on one summary. */
+    private fun withGaps(
+        summaries: List<PlaceSummary>,
+        gaps: List<StayDeriver.Gap>,
+        clusters: List<PlaceClusterer.Cluster>,
+        places: List<Place>,
+    ): List<PlaceSummary> {
+        if (gaps.isEmpty()) return summaries
+        // Must be the key the cluster's summary carries: a named cluster's is its place's id, and
+        // an organic cluster's summary puts its pin at the centroid.
+        val keyOfCluster = clusters.map { placeKey(matchedPlace(it, places)?.id, it.centroid) }
+        val byKey = HashMap<String, MutableList<PlaceGap>>()
+        fun file(gap: StayDeriver.Gap, here: Int?, far: Int?, fromHere: Boolean) {
+            val key = here?.let(keyOfCluster::get) ?: return
+            byKey.getOrPut(key) { mutableListOf() } += PlaceGap(gap, fromHere, farKey = far?.let(keyOfCluster::get))
+        }
+        for (gap in gaps) {
+            file(gap, here = gap.fromClusterId, far = gap.toClusterId, fromHere = true)
+            file(gap, here = gap.toClusterId, far = gap.fromClusterId, fromHere = false)
+        }
+        return summaries.map { summary ->
+            byKey[summary.key]?.let { summary.copy(gaps = it.sortedByDescending { g -> g.atMs }) } ?: summary
+        }
     }
 
     /**

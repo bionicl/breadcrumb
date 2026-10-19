@@ -184,7 +184,11 @@ class FixIngest(internal val distance: DistanceFn) {
                 confirmer.onFix(candidate.timestamp, candidate.latitude, candidate.longitude)
             }
             // The same verdict, folded into the carrier evidence the track is judged by at finish.
-            carrierEvidence.onSample(candidate.timestamp, quality.motion, gate.stillParked)
+            carrierEvidence.onSample(
+                candidate.timestamp,
+                quality.motion,
+                parkedUnder = if (gate.stillParked) TrackQuality.labelCeiling(gate.confirmed) else null,
+            )
             motion = quality.motion
             val bad = reason != null
             lastFixAccuracyM = candidate.accuracy
@@ -217,8 +221,7 @@ class FixIngest(internal val distance: DistanceFn) {
     /** A track opened under [activity]: fresh aggregates, and a fresh case against its label. */
     fun onTrackOpened(activity: ActivityType) {
         accumulator = TrackStats.Accumulator(distance)
-        openTrackLabel = activity
-        carrierEvidence.restart(TrackQuality.groupCeiling(activity))
+        onTrackRelabelled(activity)
         pendingSegmentStart = false
         lastFixAccuracyM = null
         lastFixRejectedByAccuracy = false
@@ -231,7 +234,7 @@ class FixIngest(internal val distance: DistanceFn) {
      */
     fun onTrackRelabelled(activity: ActivityType) {
         openTrackLabel = activity
-        carrierEvidence.restart(TrackQuality.groupCeiling(activity))
+        carrierEvidence.restart(TrackQuality.labelCeiling(activity), TrackQuality.groupCeiling(activity))
     }
 
     /**

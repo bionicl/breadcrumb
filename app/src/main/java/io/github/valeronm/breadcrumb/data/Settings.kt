@@ -41,6 +41,7 @@ object Settings {
     private const val KEY_APP_LOCK_TRUSTS_KEYGUARD = "app_lock_trusts_keyguard"
     private const val KEY_BLOCK_SCREENSHOTS = "block_screenshots"
     private const val KEY_ONLINE_PLACE_SEARCH = "online_place_search"
+    private const val KEY_ONLINE_ROUTING = "online_routing"
     private const val KEY_DEPARTURE_FENCE = "departure_fence"
     private const val KEY_DEPARTURE_MOTION = "departure_motion"
     private const val KEY_DEPARTURE_CONTINUOUS = "departure_continuous"
@@ -112,12 +113,21 @@ object Settings {
     }
 
     /** Whether the add-trip search may send typed queries to the online geocoder
-     *  ([OnlinePlaceSearch]) — the one feature that puts anything but tile fetches on the wire. */
+     *  ([OnlinePlaceSearch]). */
     fun isOnlinePlaceSearch(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ONLINE_PLACE_SEARCH, true)
 
     fun setOnlinePlaceSearch(context: Context, enabled: Boolean) {
         prefs(context).edit { putBoolean(KEY_ONLINE_PLACE_SEARCH, enabled) }
+    }
+
+    /** Whether the add-trip form may send a trip's two points to the online router
+     *  ([OnlineRouting]). */
+    fun isOnlineRouting(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ONLINE_ROUTING, true)
+
+    fun setOnlineRouting(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_ONLINE_ROUTING, enabled) }
     }
 
     /**

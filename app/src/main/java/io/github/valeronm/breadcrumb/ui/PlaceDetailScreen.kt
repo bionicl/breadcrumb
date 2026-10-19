@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -26,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -119,12 +122,31 @@ private val placeViewLabels = PlaceView.entries.map { it.labelRes }
 internal val PlaceResolver.PlaceSummary.unnamedTitleRes: Int
     @StringRes get() = if (place != null) R.string.place_imported else R.string.place_detected_stop
 
+/** [unnamedTitleRes] worded for the middle of a sentence. */
+internal val PlaceResolver.PlaceSummary.unnamedInlineRes: Int
+    @StringRes get() = if (place != null) R.string.place_imported_inline else R.string.place_detected_stop_inline
+
 /** The offer to name a place nobody named: a row that exists only lacks a name, a stop has no row. */
 internal val PlaceResolver.PlaceSummary.namingActionRes: Int
     @StringRes get() = if (place != null) R.string.places_name else R.string.places_create
 
+/** One row of a place's history, a visit or a gap with one end here, ordered by [atMs]. */
+private sealed interface PlaceEvent {
+    val atMs: Long
+
+    data class Visit(val stay: StayDeriver.Stay) : PlaceEvent {
+        override val atMs: Long get() = stay.start
+    }
+
+    /** [far] is [PlaceResolver.PlaceGap.farKey] resolved. */
+    data class Gap(val listed: PlaceResolver.PlaceGap, val far: PlaceResolver.PlaceSummary?) : PlaceEvent {
+        override val atMs: Long get() = listed.atMs
+    }
+}
+
 /**
- * Full-screen detail for one place: its name and category, its stats, and its visits. **It reads and
+ * Full-screen detail for one place: its name and category, its stats, and its visits — with the
+ * gaps that begin or end here among them, which the stats leave out. **It reads and
  * does not edit** — bar the category, whose one-tap chips are read off the name and belong beside the
  * suggestions that produced them. Name, area and pin are [PlaceEditScreen]'s, reached through
  * [onAdjustArea]: one screen changes what the user said about a place, and the title is a heading
@@ -149,6 +171,9 @@ internal fun PlaceDetailScreen(
     onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onDeleteVisit: (StayDeriver.Stay) -> Unit,
+    onOpenGap: (PlaceResolver.PlaceGap) -> Unit,
+    /** The place at the far end of a gap listed here, by its key. */
+    onOpenPlace: (String) -> Unit,
     onAdjustArea: () -> Unit,
     /** Removes an unnamed row and leaves this screen. */
     onRemove: (Place) -> Unit,
@@ -169,19 +194,27 @@ internal fun PlaceDetailScreen(
     // title already says which country's clock this is.
     val zone = zoneOrDevice(summary.zoneId)
     val nowMs = remember { System.currentTimeMillis() }
-    // Stays arrive newest first, so groupBy preserves month order and in-month order.
-    val visitGroups = remember(summary.stays) {
-        summary.stays.groupBy { YearMonth.from(it.start.toLocalDate(zone)) }
+    // Looked up in the dressed summaries, so a far place being named reads as named the moment the
+    // write lands. A key the list no longer holds, which a snapshot kept through a re-derivation
+    // can carry, draws as no far place until the summary is replaced.
+    val summaries by viewModel.places.collectAsStateWithLifecycle()
+    // Sorted before grouping, so groupBy keeps month order and in-month order.
+    val eventGroups = remember(summary.stays, summary.gaps, summaries) {
+        val byKey = summaries.orEmpty().associateBy { it.key }
+        val gaps = summary.gaps.map { PlaceEvent.Gap(it, it.farKey?.let(byKey::get)) }
+        (summary.stays.map { PlaceEvent.Visit(it) } + gaps)
+            .sortedByDescending { it.atMs }
+            .groupBy { YearMonth.from(it.atMs.toLocalDate(zone)) }
     }
     val visitsState = rememberLazyListState()
     var view by rememberSaveable { mutableStateOf(PlaceView.VISITS) }
     // One value for the headings and for the scrubber's labels alike: a month names itself against
     // the current year, and two readings of "now" could disagree across a midnight.
     val today = remember(zone) { LocalDate.now(zone) }
-    // A stop per visit, so the drag reaches inside a month a place was visited daily for, banded by
+    // A stop per row, so the drag reaches inside a month a place was visited daily for, banded by
     // the month so the tick still marks the crossing rather than every row.
-    val visitStops = remember(visitGroups) {
-        groupedScrollStops(visitGroups.map { (month, visits) -> month to visits.size })
+    val eventStops = remember(eventGroups) {
+        groupedScrollStops(eventGroups.map { (month, events) -> month to events.size })
     }
     val title = place?.label ?: stringResource(summary.unnamedTitleRes)
     // A bar that expands is only worth having when there is something to expand *to*. Most names fit
@@ -233,10 +266,15 @@ internal fun PlaceDetailScreen(
                 )
             }
             val barActions: @Composable RowScope.() -> Unit = {
+                val noMapsApp = stringResource(R.string.maps_no_app)
                 // Handing the pin to a maps app is offered for unnamed clusters too — the
                 // point is there to look up whether or not it has a name.
                 IconButton(
-                    onClick = { context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) },
+                    onClick = {
+                        context.openInMaps(summary.anchor.lat, summary.anchor.lon, place?.label) {
+                            viewModel.say(noMapsApp)
+                        }
+                    },
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.OpenInNew,
@@ -334,7 +372,7 @@ internal fun PlaceDetailScreen(
                 onSelect = { view = PlaceView.entries[it] },
             )
             when (view) {
-                PlaceView.VISITS -> if (summary.stays.isEmpty()) {
+                PlaceView.VISITS -> if (eventGroups.isEmpty()) {
                     EmptyState(
                         stringResource(R.string.places_no_visits_detail),
                         Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp),
@@ -349,11 +387,21 @@ internal fun PlaceDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             contentPadding = PaddingValues(bottom = 16.dp),
                         ) {
-                            placeVisits(visitGroups, zone, today, nowMs, onOpenVisit, onDeleteVisit)
+                            placeHistory(
+                                eventGroups,
+                                zone,
+                                today,
+                                nowMs,
+                                onOpenVisit,
+                                onDeleteVisit,
+                                onOpenGap,
+                                onOpenPlace,
+                            )
+                            firstVisitMarker(summary.stays)
                         }
                         FastScroller(
                             state = visitsState,
-                            stops = visitStops,
+                            stops = eventStops,
                             contentDescription = stringResource(R.string.places_scroll_visits),
                             label = { monthLabel(it, today) },
                         )
@@ -463,19 +511,23 @@ private fun PlaceStatsHeader(summary: PlaceResolver.PlaceSummary) {
 }
 
 /**
- * The place's visit history, newest first, grouped under month headers — emitted *into* the screen's
+ * The place's history, newest first, grouped under month headers — emitted *into* the screen's
  * list rather than owning one. The whole page is one scroller, which is what lets the title collapse
  * against it; a list of its own would scroll under a bar that never moved.
  */
-private fun LazyListScope.placeVisits(
-    groups: Map<YearMonth, List<StayDeriver.Stay>>,
+// A list emitter taking its composable's callbacks, which the rule exempts composables for.
+@Suppress("LongParameterList")
+private fun LazyListScope.placeHistory(
+    groups: Map<YearMonth, List<PlaceEvent>>,
     zone: ZoneId,
     today: LocalDate,
     nowMs: Long,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onDeleteVisit: (StayDeriver.Stay) -> Unit,
+    onOpenGap: (PlaceResolver.PlaceGap) -> Unit,
+    onOpenPlace: (String) -> Unit,
 ) {
-    groups.forEach { (month, visits) ->
+    groups.forEach { (month, events) ->
         item(key = "month:$month") {
             Text(
                 monthLabel(month, today),
@@ -484,33 +536,116 @@ private fun LazyListScope.placeVisits(
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 6.dp),
             )
         }
-        itemsIndexed(visits, key = { _, s -> "visit:${s.afterTrackId}:${s.start}" }) { index, stay ->
-            // Tap → the Timeline, scrolled to this stay in its day's context.
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = groupedRowShape(index, visits.size),
-                onClick = { onOpenVisit(stay) },
-            ) {
-                VisitRowContent(stay, zone, nowMs, onDelete = { onDeleteVisit(stay) })
+        itemsIndexed(events, key = { _, e -> e.rowKey() }) { index, event ->
+            val shape = groupedRowShape(index, events.size)
+            // Tap → the Timeline, scrolled to this row in its day's context.
+            when (event) {
+                is PlaceEvent.Visit -> Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = shape,
+                    onClick = { onOpenVisit(event.stay) },
+                ) {
+                    VisitRowContent(event.stay, zone, nowMs, onDelete = { onDeleteVisit(event.stay) })
+                }
+
+                // Hollow, an outline where a visit is filled: what the row holds is what the
+                // recording missed.
+                is PlaceEvent.Gap -> OutlinedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = shape,
+                    onClick = { onOpenGap(event.listed) },
+                ) {
+                    GapRowContent(event.listed, event.far, zone, onOpenPlace)
+                }
             }
         }
     }
-    // The history ends where it began — a quiet marker instead of a stat-card factoid. Withheld
-    // on a single visit, where the header's "Last visit" already names that day and the one row
-    // above spells it out: a marker saying the history started where it plainly starts is noise.
-    groups.values.takeIf { months -> months.sumOf { it.size } > 1 }
-        ?.lastOrNull()?.lastOrNull()?.let { first ->
-            item(key = "first-visit") {
-                Text(
-                    stringResource(R.string.places_first_visit, relativeDay(first.start)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+}
+
+/**
+ * The history ends where it began — a quiet marker instead of a stat-card factoid. Withheld on a
+ * single visit, where the header's "Last visit" already names that day and the one row above spells
+ * it out: a marker saying the history started where it plainly starts is noise. Over [stays], newest
+ * first, rather than the rows: a gap is not a visit.
+ */
+private fun LazyListScope.firstVisitMarker(stays: List<StayDeriver.Stay>) {
+    val first = stays.takeIf { it.size > 1 }?.last() ?: return
+    item(key = "first-visit") {
+        Text(
+            stringResource(R.string.places_first_visit, relativeDay(first.start)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+        )
+    }
+}
+
+private fun PlaceEvent.rowKey(): String = when (this) {
+    is PlaceEvent.Visit -> "visit:${stay.afterTrackId}:${stay.start}"
+    is PlaceEvent.Gap -> "gap:${listed.gap.afterTrackId}"
+}
+
+/**
+ * The far place is named inside the sentence rather than on a line of its own, since a preposition
+ * left hanging before a line of its own freezes a word order not every language shares. No duration
+ * spent here, none of the gap being known to have been, and no offer to fill it, which the timeline
+ * row the card lands on carries.
+ */
+@Composable
+private fun GapRowContent(
+    gap: PlaceResolver.PlaceGap,
+    far: PlaceResolver.PlaceSummary?,
+    zone: ZoneId,
+    onOpenPlace: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(visitDayHeading(gap.atMs, zone), style = MaterialTheme.typography.titleMedium)
+            // The recording left off here because the last recorded trip arrived here, and picked
+            // up again here because the next one left from here.
+            Text(
+                stringResource(
+                    if (gap.fromHere) R.string.places_gap_arrived else R.string.places_gap_left,
+                    timeText(gap.atMs, zone),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            val lasting = durationText(gap.gap.end - gap.gap.start)
+            val line = if (far == null) {
+                AnnotatedString(stringResource(R.string.places_gap_missing, lasting))
+            } else {
+                // Worded before the builder, which is not a composable scope.
+                val farName = far.name ?: stringResource(far.unnamedInlineRes)
+                val farColor = placeTitleColor(named = far.isNamed)
+                annotatedStringResource(
+                    if (gap.fromHere) R.string.places_gap_missing_to else R.string.places_gap_missing_from,
+                    lasting,
+                    buildAnnotatedString { withStyle(SpanStyle(color = farColor)) { append(farName) } },
                 )
             }
+            Text(
+                line,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = if (far != null) Modifier.clickable { onOpenPlace(far.key) } else Modifier,
+            )
         }
+        // In the slot a visit's duration takes; the sentence beside it already says what it marks.
+        Icon(
+            Icons.Filled.LocationOff,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
+
+/** A row's own heading, so it takes a capital like the timeline's day headers do. */
+private fun visitDayHeading(epochMs: Long, zone: ZoneId): String =
+    visitDayFormat.format(Instant.ofEpochMilli(epochMs).atZone(zone)).standaloneCase()
 
 @Composable
 private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long, onDelete: () -> Unit) {
@@ -519,11 +654,7 @@ private fun VisitRowContent(stay: StayDeriver.Stay, zone: ZoneId, nowMs: Long, o
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                // The row's own heading, so it takes a capital like the timeline's day headers do.
-                visitDayFormat.format(Instant.ofEpochMilli(stay.start).atZone(zone)).standaloneCase(),
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Text(visitDayHeading(stay.start, zone), style = MaterialTheme.typography.titleMedium)
             Text(
                 visitTimeRange(stay, zone),
                 style = MaterialTheme.typography.bodyMedium,

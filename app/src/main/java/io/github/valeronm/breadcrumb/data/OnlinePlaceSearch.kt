@@ -4,15 +4,8 @@ import android.content.Context
 import io.github.valeronm.breadcrumb.data.export.JsonPullReader
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
-import io.github.valeronm.breadcrumb.util.DebugLog
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.job
-import java.io.IOException
 import java.io.Reader
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.cos
 
 /**
@@ -40,7 +33,6 @@ object OnlinePlaceSearch {
     fun distinctRows(hits: List<Hit>): List<Hit> =
         hits.distinctBy { PlaceSearch.fold(it.name) to PlaceSearch.fold(it.locality.orEmpty()) }
 
-    private const val TAG = "Breadcrumb"
     private const val LIMIT = 8
     private const val TIMEOUT_MS = 4_000
     private const val METERS_PER_DEGREE = 111_320.0
@@ -56,31 +48,7 @@ object OnlinePlaceSearch {
      */
     suspend fun search(context: Context, query: String, near: Coordinate?, withinM: Double? = null): List<Hit> {
         if (!Settings.isOnlinePlaceSearch(context)) return emptyList()
-        val url = url(query, near, withinM)
-        return try {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
-            // A superseded query aborts its transfer: disconnect from another thread is the one
-            // cancellation hook HttpURLConnection offers. Only cancellation disconnects — a
-            // completed request keeps its socket pooled for the next keystroke's, which is what
-            // search-as-you-type lives on (there is deliberately no disconnect on success).
-            val aborter = currentCoroutineContext().job.invokeOnCompletion { cause ->
-                if (cause is CancellationException) connection.disconnect()
-            }
-            try {
-                connection.inputStream.bufferedReader().use(::parse)
-            } finally {
-                aborter.dispose()
-            }
-        } catch (e: IOException) {
-            DebugLog.i(TAG, "online place search failed: ${e.message}")
-            emptyList()
-        } catch (e: IllegalStateException) {
-            // The parser's own checks — a body that isn't the GeoJSON Photon promises.
-            DebugLog.i(TAG, "online place search unparseable: ${e.message}")
-            emptyList()
-        }
+        return fetchJson(url(query, near, withinM), TIMEOUT_MS, "online place search", ::parse).orEmpty()
     }
 
     internal fun url(query: String, near: Coordinate?, withinM: Double?): String = buildString {
@@ -125,7 +93,7 @@ object OnlinePlaceSearch {
 
     private fun parseFeature(json: JsonPullReader): Hit? {
         var props: Properties? = null
-        var point: Pair<Double, Double>? = null
+        var point: Coordinate? = null
         json.beginObject()
         while (json.hasNext()) {
             when (json.nextName()) {
@@ -136,26 +104,17 @@ object OnlinePlaceSearch {
         }
         json.endObject()
         val named = props?.name ?: return null
-        val (lat, lon) = point ?: return null
+        val at = point ?: return null
         val locality = listOfNotNull(props.city, props.country).joinToString(", ").ifEmpty { null }
-        return Hit(name = named, locality = locality, lat = lat, lon = lon)
+        return Hit(name = named, locality = locality, lat = at.lat, lon = at.lon)
     }
 
-    /** The geometry's (lat, lon) — GeoJSON stores longitude first. */
-    private fun parsePoint(json: JsonPullReader): Pair<Double, Double>? {
-        var point: Pair<Double, Double>? = null
+    private fun parsePoint(json: JsonPullReader): Coordinate? {
+        var point: Coordinate? = null
         json.beginObject()
         while (json.hasNext()) {
             when (json.nextName()) {
-                "coordinates" -> {
-                    // hasNext() is what consumes the separators, so even a fixed-size pair is
-                    // walked as a sequence; a third element (altitude) is read and dropped.
-                    json.beginArray()
-                    val values = mutableListOf<Double>()
-                    while (json.hasNext()) values += json.nextNumber().toDouble()
-                    json.endArray()
-                    if (values.size >= 2) point = values[1] to values[0]
-                }
+                "coordinates" -> point = json.nextPosition()
                 else -> json.skipValue()
             }
         }

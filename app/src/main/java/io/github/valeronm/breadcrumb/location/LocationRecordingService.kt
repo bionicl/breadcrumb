@@ -561,7 +561,7 @@ class LocationRecordingService : Service() {
      */
     private fun checkParkedReading() {
         if (core.parked == null) return
-        // A *contradicted* hold has no cap by design — a fresh verdict tells a stale hold from a
+        // No cap runs while a hold is *contradicted* — a fresh verdict tells a stale hold from a
         // crossing still under way and a deadline cannot — so this runs every GNSS tick for as
         // long as one lasts.
         groundPass(

@@ -490,7 +490,7 @@ private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArra
     )
     style.addLayer(
         LineLayer(TRACK_LAYER, TRACK_SOURCE).withProperties(
-            PropertyFactory.lineWidth(3f),
+            PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
             // Round is load-bearing, not cosmetic: it joins runs drawn as separate features, and
             // it gives a near-zero-length run the width of the line to be seen in.
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),

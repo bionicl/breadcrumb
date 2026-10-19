@@ -344,9 +344,11 @@ class EdgeStayDetectorTest {
     }
 
     @Test
-    fun `a Google Timeline track has no overrun rule, whatever its activity`() {
-        ActivityType.entries.forEach {
-            assertEquals(it.name, null, EdgeStayDetector.paramsFor(it.name, TrackOrigin.GOOGLE_TIMELINE.code))
+    fun `a track whose writer ended it at its stops has no overrun rule, whatever its activity`() {
+        for (origin in listOf(TrackOrigin.GOOGLE_TIMELINE, TrackOrigin.MANUAL)) {
+            ActivityType.entries.forEach {
+                assertEquals("${origin.code} ${it.name}", null, EdgeStayDetector.paramsFor(it.name, origin.code))
+            }
         }
         assertEquals(EdgeStayDetector.VEHICLE, EdgeStayDetector.paramsFor("DRIVING", TrackOrigin.IMPORTED.code))
     }

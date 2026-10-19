@@ -41,7 +41,6 @@
     <string name="settings_reset">Repor</string>
 
     <string name="credit_geonames">Nomes de locais do GeoNames, CC BY 4.0</string>
-    <string name="credit_osm">Pesquisa online © contribuidores do OpenStreetMap, ODbL</string>
 
     <string name="settings_about">Acerca da aplicação</string>
     <string name="about_version">Versão %1$s</string>
@@ -93,6 +92,8 @@
     <string name="privacy_online_maps_always_on">Sempre ativos</string>
     <string name="privacy_online_search">Pesquisa de locais online</string>
     <string name="privacy_online_search_sub">Encontra sítios e moradas pelo nome</string>
+    <string name="privacy_online_routing">Trajetos por estrada</string>
+    <string name="privacy_online_routing_sub">Desenha uma viagem adicionada pelas estradas e calcula a sua duração</string>
     <string name="lock_require_unlock">Exigir desbloqueio</string>
     <string name="lock_require_unlock_sub">Pede a impressão digital ou o PIN do dispositivo</string>
     <string name="lock_no_screen_lock">Defina primeiro um bloqueio de ecrã neste dispositivo</string>
@@ -280,4 +281,9 @@
     <string name="review_title_pending">Revisão pendente</string>
     <string name="review_title_later">Rever depois</string>
     <string name="review_title_resolved">Revisão resolvida</string>
+    <string name="review_delete_stop">Remover paragem</string>
+    <string name="review_undo_delete_stop">Desfazer remoção da paragem</string>
+    <string name="review_different_place">Outro local</string>
+    <string name="review_show_timeline">Mostrar cronologia</string>
+    <string name="review_hide_timeline">Ocultar cronologia</string>
 </resources>

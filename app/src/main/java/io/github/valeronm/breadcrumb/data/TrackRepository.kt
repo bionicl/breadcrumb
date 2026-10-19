@@ -29,6 +29,7 @@ import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
@@ -287,14 +288,16 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /**
-     * Inserts a track the user typed in: two points, two times, nothing between. Keep thresholds
-     * deliberately do NOT apply, like [importTracks] — an explicit entry is kept as-is, and the
-     * two-point purge floor ([KeepRule]) would otherwise delete every manual track on arrival.
+     * Inserts a track the user typed in: two ends, two times, and between them [path], a router's
+     * road shape or nothing. Keep thresholds deliberately do NOT apply, like [importTracks] — an
+     * explicit entry is kept as-is, and the two-point purge floor ([KeepRule]) would otherwise
+     * delete every manual track on arrival.
      */
     suspend fun insertManualTrack(
         activityType: ActivityType,
         origin: ManualEnd,
         destination: ManualEnd,
+        path: List<Coordinate> = emptyList(),
     ): ManualTrackResult {
         refusedSpan(origin, destination, exceptTrackId = NO_TRACK)?.let { return it }
         val trackId = db.withTransaction {
@@ -307,7 +310,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
                     activityConfirmedByUser = true,
                 ),
             )
-            dao.insertPoints(manualPoints(id, origin, destination))
+            dao.insertPoints(manualPoints(id, origin, destination, path))
             finalizeManualTrack(id)
             id
         }
@@ -330,6 +333,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         activityType: ActivityType,
         origin: ManualEnd,
         destination: ManualEnd,
+        path: List<Coordinate> = emptyList(),
     ): ManualTrackResult {
         val existing = dao.track(trackId)
         if (existing == null || TrackOrigin.fromCode(existing.source) != TrackOrigin.MANUAL) {
@@ -338,7 +342,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         refusedSpan(origin, destination, exceptTrackId = trackId)?.let { return it }
         db.withTransaction {
             dao.deletePointsFor(trackId)
-            dao.insertPoints(manualPoints(trackId, origin, destination))
+            dao.insertPoints(manualPoints(trackId, origin, destination, path))
             dao.setManualTrack(
                 trackId, activityType.name, origin.timestampMs, destination.timestampMs,
             )
@@ -374,21 +378,27 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             dao.countTracksOverlapping(from, to, exceptTrackId) > 0
 
     /**
-     * A manual track's two fixes. Stamped exactly at the row's own bounds, because [TrackBounds] then
-     * derives those same bounds back from them: a fix stamped anywhere else would move the clock away
-     * from what the user typed — which is why insert and rewrite build them in one place.
+     * A manual track's fixes: its two ends, with [path] timed between them ([ManualPath]). The ends
+     * are stamped exactly at the row's own bounds, because [TrackBounds] then derives those same
+     * bounds back from them: a fix stamped anywhere else would move the clock away from what the
+     * user typed — which is why insert and rewrite build them in one place.
      */
-    private fun manualPoints(trackId: Long, origin: ManualEnd, destination: ManualEnd) =
-        listOf(origin, destination).map { end ->
+    private fun manualPoints(trackId: Long, origin: ManualEnd, destination: ManualEnd, path: List<Coordinate>) =
+        ManualPath.fixes(
+            ManualPath.Fix(origin.at, origin.timestampMs),
+            ManualPath.Fix(destination.at, destination.timestampMs),
+            path,
+            AndroidDistance,
+        ).map { fix ->
             TrackPoint(
                 trackId = trackId,
-                latitude = end.at.lat,
-                longitude = end.at.lon,
+                latitude = fix.at.lat,
+                longitude = fix.at.lon,
                 altitude = null,
                 accuracy = null,
                 speed = null,
                 bearing = null,
-                timestamp = end.timestampMs,
+                timestamp = fix.timestampMs,
                 segmentStart = false,
             )
         }
@@ -2586,8 +2596,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * bypass live ingest filtering, so each stray leading point ([TrackQuality.leadingPointIsJump] —
      * the drive-start cold-start artifact) is flagged an ignored JUMP fix, looping while strays lead;
      * then the overrun comes off the edges and the missing aggregates are computed. Returns the dropped count.
-     * Manual tracks finalize through here too: on two points every stage is a no-op except the
-     * aggregates, which is exactly what they need.
+     * Manual tracks finalize through here too: their writer ends them at their stops, so the overrun
+     * stage skips them, and the aggregates are what they need.
      */
     suspend fun finalizeImportedTrack(trackId: Long): Int {
         var dropped = 0

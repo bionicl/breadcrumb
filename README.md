@@ -228,10 +228,11 @@ can also import a `.gpx` file to populate trips, places, and the map without mov
 ## Notes & limitations
 
 - Privacy: your history is local. Nothing is uploaded; there's no analytics or account. The network
-  carries map data — Protomaps tiles, glyphs and sprites — plus one thing you can switch off: the
+  carries map data — Protomaps tiles, glyphs and sprites — plus two things you can switch off: the
   add-trip form's online place search, which sends the words you typed to Photon and, once the
-  trip being entered has an end point, that one coordinate. Place names otherwise come from a
-  city atlas bundled in the APK, so naming a journey needs no network at all.
+  trip being entered has an end point, that one coordinate; and its road routing, which sends a
+  trip's two points to FOSSGIS's OSRM servers when you ask for the path between them. Place names
+  otherwise come from a city atlas bundled in the APK, so naming a journey needs no network at all.
 - Play Services dependency: activity recognition relies on Google Play Services, so this isn't a
   fully FOSS / F-Droid-friendly build.
 - Single device / single user: no multi-device sync (server upload to e.g. Dawarich/OwnTracks is a
@@ -244,7 +245,8 @@ can also import a `.gpx` file to populate trips, places, and the map without mov
   `tools/pack_cities.py` into `app/src/main/assets/cities.bin` and shipped in the APK — CC BY 4.0.
 - The basemap is [Protomaps](https://protomaps.com/) vector tiles built from OpenStreetMap data,
   fetched from their hosted API — © OpenStreetMap contributors, ODbL.
-- The optional online place search queries [Photon](https://photon.komoot.io/), also OpenStreetMap
+- The optional online place search queries [Photon](https://photon.komoot.io/), and the optional
+  road routing [FOSSGIS's OSRM servers](https://routing.openstreetmap.de/), both OpenStreetMap
   data — © OpenStreetMap contributors, ODbL.
 
 The app repeats these credits where a user can see them, in Settings and beside the search results,
