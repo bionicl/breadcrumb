@@ -135,7 +135,7 @@ class UnitsTest {
     fun `every committed imperial stop reads back as the same stop`() {
         // 50 ft → 15 m → back: the label must not drift to 49 ft.
         val scales = mapOf(
-            UnitSystem.IMPERIAL.sliderScale(SliderStops(1, 50, 1), SliderStops(5, 165, 5)) to (5..165 step 5),
+            UnitSystem.IMPERIAL.sliderScale(SliderStops(0, 50, 1), SliderStops(0, 165, 5)) to (0..165 step 5),
             UnitSystem.IMPERIAL.sliderScale(SliderStops(10, 150, 10), SliderStops(25, 500, 25)) to (25..500 step 25),
             UnitSystem.IMPERIAL.sliderScale(SliderStops(50, 500, 25), SliderStops(150, 1650, 75)) to (150..1650 step 75),
         )

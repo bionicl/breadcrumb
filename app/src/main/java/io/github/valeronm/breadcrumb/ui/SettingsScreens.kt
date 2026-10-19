@@ -212,7 +212,7 @@ private fun SamplingGroup() {
                 }
             },
             {
-                val scale = rememberDistanceScale(SliderStops(1, 50, 1), SliderStops(5, 165, 5))
+                val scale = rememberDistanceScale(SliderStops(0, 50, 1), SliderStops(0, 165, 5), zeroIsOff = true)
                 SliderSetting(stringResource(R.string.sampling_distance_between), distanceM.value, scale) {
                     distanceM.set(it)
                 }
