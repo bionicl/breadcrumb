@@ -98,8 +98,8 @@ internal fun ReviewTab(viewModel: TrackListViewModel, bucket: ReviewBucket) {
     }
     val previousLabel = stringResource(R.string.review_previous)
     val nextLabel = stringResource(R.string.review_next)
-    // Browse by swiping the header/timeline. The native map keeps all of its pan gestures.
-    val navigation = Modifier.pointerInput(item?.id, index, visible.size) {
+    // Historical cards retain browsing gestures; pending cards use swipe decisions.
+    val browseGestures = if (bucket == ReviewBucket.PENDING) Modifier else Modifier.pointerInput(item?.id, index, visible.size) {
         var distance = 0f
         detectHorizontalDragGestures(
             onDragStart = { distance = 0f },
@@ -116,7 +116,8 @@ internal fun ReviewTab(viewModel: TrackListViewModel, bucket: ReviewBucket) {
                 visible.getOrNull(target)?.let { selectedId = it.id }
             },
         )
-    }.semantics {
+    }
+    val navigation = browseGestures.semantics {
         customActions = buildList {
             if (index > 0) {
                 add(
@@ -170,58 +171,83 @@ private fun ReviewQuestion(
     navigation: Modifier,
 ) {
     var showReason by remember { mutableStateOf(false) }
+    var choosePlace by remember { mutableStateOf(false) }
     var timelineExpanded by rememberSaveable(item.id) { mutableStateOf(false) }
     var context by remember(item.id, item.inputRevision) { mutableStateOf<ReviewContext?>(null) }
     LaunchedEffect(item.id, item.inputRevision) { context = viewModel.reviewContext(item) }
     val nearest = places.firstOrNull { it.id == item.suggestedValue?.toLongOrNull() }
     val isTrip = item.kind == ReviewQueueEntity.TRANSPORT
     val focusLabel = stringResource(if (item.kind == ReviewQueueEntity.MISSING_RECORDING) R.string.review_event_gap else R.string.review_event_stop)
-    Card(modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
-        Column {
-            Row(
-                Modifier.fillMaxWidth().then(navigation).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    reviewTitle(item), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    relativeDay(item.startWallTimeMs).standaloneCase(),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-                IconButton(onClick = { showReason = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Filled.Info, stringResource(R.string.review_why), Modifier.size(17.dp))
-                }
-            }
-            val loaded = context
-            if (loaded == null) {
-                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(Modifier.size(28.dp))
-                }
-            } else {
-                key(loaded) {
-                    ReviewMap(
-                        loaded, isTrip, item.kind == ReviewQueueEntity.MISSING_RECORDING, focusLabel, nearest,
-                        Modifier.fillMaxWidth().weight(1f),
-                    )
-                }
-                TextButton(
-                    onClick = { timelineExpanded = !timelineExpanded },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+    val primaryAction = reviewPrimaryAction(item, nearest != null)
+    val primaryLabel = when (primaryAction) {
+        ReviewPrimaryAction.ASSIGN_PLACE -> nearest?.label.orEmpty()
+        ReviewPrimaryAction.CHOOSE_PLACE -> stringResource(R.string.review_different_place)
+        ReviewPrimaryAction.ACCEPT -> stringResource(
+            if (item.kind == ReviewQueueEntity.MISSING_RECORDING) R.string.review_action_trip else R.string.review_confirm,
+        )
+    }
+    val onPrimary: () -> Unit = {
+        when (primaryAction) {
+            ReviewPrimaryAction.ASSIGN_PLACE -> nearest?.let { viewModel.assignReviewPlace(item, placeId = it.id) }
+            ReviewPrimaryAction.CHOOSE_PLACE -> choosePlace = true
+            ReviewPrimaryAction.ACCEPT -> viewModel.answerReview(item, "ACCEPT")
+        }
+    }
+    ReviewSwipeCard(
+        enabled = item.state == ReviewQueueEntity.PENDING,
+        primaryLabel = primaryLabel,
+        primaryOpensPicker = primaryAction == ReviewPrimaryAction.CHOOSE_PLACE,
+        onPrimary = onPrimary,
+        onLater = { viewModel.answerReview(item, "SKIP") },
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Card(Modifier.fillMaxSize(), shape = RoundedCornerShape(24.dp)) {
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().then(navigation).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(stringResource(if (timelineExpanded) R.string.review_hide_timeline else R.string.review_show_timeline))
-                    Icon(
-                        if (timelineExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        null, Modifier.padding(start = 4.dp).size(18.dp),
+                    Text(
+                        reviewTitle(item), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Text(
+                        relativeDay(item.startWallTimeMs).standaloneCase(),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                    IconButton(onClick = { showReason = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Filled.Info, stringResource(R.string.review_why), Modifier.size(17.dp))
+                    }
                 }
-                if (timelineExpanded) ReviewMiniTimeline(item, loaded, navigation)
-            }
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                ReviewDecisions(item, viewModel, places)
+                val loaded = context
+                if (loaded == null) {
+                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(28.dp))
+                    }
+                } else {
+                    key(loaded) {
+                        ReviewMap(
+                            loaded, isTrip, item.kind == ReviewQueueEntity.MISSING_RECORDING, focusLabel, nearest,
+                            Modifier.fillMaxWidth().weight(1f),
+                        )
+                    }
+                    TextButton(
+                        onClick = { timelineExpanded = !timelineExpanded },
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                    ) {
+                        Text(stringResource(if (timelineExpanded) R.string.review_hide_timeline else R.string.review_show_timeline))
+                        Icon(
+                            if (timelineExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            null, Modifier.padding(start = 4.dp).size(18.dp),
+                        )
+                    }
+                    if (timelineExpanded) ReviewMiniTimeline(item, loaded, navigation)
+                }
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    ReviewDecisions(item, viewModel, places, choosePlace, { choosePlace = it }, onPrimary)
+                }
             }
         }
     }
@@ -322,10 +348,16 @@ private fun clock(time: Long?): String {
 private fun clockRange(start: Long?, end: Long?): String = "${clock(start)}–${clock(end)}"
 
 @Composable
-private fun ReviewDecisions(item: ReviewQueueEntity, viewModel: TrackListViewModel, places: List<Place>) {
+private fun ReviewDecisions(
+    item: ReviewQueueEntity,
+    viewModel: TrackListViewModel,
+    places: List<Place>,
+    choosePlace: Boolean,
+    onChoosePlace: (Boolean) -> Unit,
+    onPrimary: () -> Unit,
+) {
     val nearest = places.firstOrNull { it.id == item.suggestedValue?.toLongOrNull() }
     var createPlace by remember { mutableStateOf(false) }
-    var choosePlace by remember { mutableStateOf(false) }
     var chooseTransport by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     val pending = item.state == ReviewQueueEntity.PENDING
@@ -361,17 +393,17 @@ private fun ReviewDecisions(item: ReviewQueueEntity, viewModel: TrackListViewMod
                         val canPlace = item.kind == ReviewQueueEntity.PLACE_ASSIGNMENT || item.reasonCode.endsWith("_with_place_evidence")
                         if (canPlace && nearest != null) {
                             Decision(Icons.Filled.Check, nearest.label.orEmpty(), 0, Modifier.weight(1f)) {
-                                viewModel.assignReviewPlace(item, placeId = nearest.id)
+                                onPrimary()
                             }
                         }
                         if (canPlace) {
                             Decision(Icons.Filled.AddLocationAlt, stringResource(R.string.review_different_place), 1, Modifier.weight(1f)) {
-                                choosePlace = true
+                                if (nearest == null) onPrimary() else onChoosePlace(true)
                             }
                         }
                         if (item.kind == ReviewQueueEntity.MISSING_RECORDING) {
                             Decision(Icons.Filled.Route, stringResource(R.string.review_action_trip), 3, Modifier.weight(1f)) {
-                                viewModel.answerReview(item, "ACCEPT")
+                                if (canPlace) viewModel.answerReview(item, "ACCEPT") else onPrimary()
                             }
                         }
                         if (item.kind == ReviewQueueEntity.PLACE_ASSIGNMENT) {
@@ -386,7 +418,7 @@ private fun ReviewDecisions(item: ReviewQueueEntity, viewModel: TrackListViewMod
                     }
                     else -> {
                         Decision(Icons.Filled.Check, stringResource(R.string.review_confirm), 0, Modifier.weight(1f)) {
-                            viewModel.answerReview(item, "ACCEPT")
+                            onPrimary()
                         }
                         if (item.kind == ReviewQueueEntity.TRANSPORT) {
                             Decision(Icons.Filled.Tune, stringResource(R.string.review_other_type), 1, Modifier.weight(1f)) { chooseTransport = true }
@@ -441,12 +473,12 @@ private fun ReviewDecisions(item: ReviewQueueEntity, viewModel: TrackListViewMod
     }
     if (choosePlace) {
         AlertDialog(
-            onDismissRequest = { choosePlace = false },
+            onDismissRequest = { onChoosePlace(false) },
             title = { Text(stringResource(R.string.review_different_place)) },
             text = {
                 Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
                     TextButton(onClick = {
-                        choosePlace = false
+                        onChoosePlace(false)
                         createPlace = true
                     }) {
                         Icon(Icons.Filled.AddLocationAlt, null, Modifier.size(20.dp))
@@ -455,7 +487,7 @@ private fun ReviewDecisions(item: ReviewQueueEntity, viewModel: TrackListViewMod
                     places.filter { !it.label.isNullOrBlank() }.sortedBy { it.label.orEmpty().lowercase() }.forEach { place ->
                         TextButton(onClick = {
                             viewModel.assignReviewPlace(item, placeId = place.id)
-                            choosePlace = false
+                            onChoosePlace(false)
                         }, modifier = Modifier.fillMaxWidth()) {
                             Text(place.label.orEmpty(), Modifier.fillMaxWidth())
                         }
@@ -463,7 +495,7 @@ private fun ReviewDecisions(item: ReviewQueueEntity, viewModel: TrackListViewMod
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { choosePlace = false }) { Text(stringResource(R.string.review_cancel)) } },
+            dismissButton = { TextButton(onClick = { onChoosePlace(false) }) { Text(stringResource(R.string.review_cancel)) } },
         )
     }
     if (createPlace) {
