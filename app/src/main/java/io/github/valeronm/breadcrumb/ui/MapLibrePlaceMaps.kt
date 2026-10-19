@@ -874,6 +874,7 @@ private class AppliedTripInputs {
     var pins: Pair<Coordinate?, Coordinate?>? = null
     var places: List<OverviewPlace>? = null
     var center: MapCenterRequest? = null
+    var frameKey: Any? = null
     var line: List<Coordinate>? = null
 }
 
@@ -908,6 +909,8 @@ internal fun MapLibreTripMap(
     onPlaceTap: (Coordinate, String?) -> Unit,
     /** Where the screen wants the camera, if anywhere — see [MapCenterRequest]. */
     center: MapCenterRequest? = null,
+    /** Re-fits the camera to the whole trip when this differs from the value last applied. */
+    frameKey: Any,
     /**
      * What the map is looking at, reported once the camera stops — the ground the user has chosen to
      * be over, which is what a search of their places is a search *around*. On settling rather than
@@ -934,6 +937,9 @@ internal fun MapLibreTripMap(
         val stored = ManualPath.line(origin, destination, shape)
         if (GreatCircle.drawsPath(stored.size, activity)) greatCirclePositions(stored) else stored
     }
+    // What every frame takes in: the line as drawn, since a road or a great-circle arc bows outside
+    // the box its ends span.
+    val trip = line ?: listOfNotNull(origin, destination)
     val lineArgb = mapActivityArgb(activity, isMapDark())
     MapLibreStyledMap(
         modifier = modifier,
@@ -965,6 +971,7 @@ internal fun MapLibreTripMap(
             // Whatever the screen was asking for when the map arrived is already answered by the
             // framing below — a request outstanding at open would otherwise fire on top of it.
             applied.center = center
+            applied.frameKey = frameKey
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewLayers(ctx, style, places, dark)
@@ -986,7 +993,7 @@ internal fun MapLibreTripMap(
                 ),
             )
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
-            frameTripMap(map, origin, destination, places, opening = true)
+            frameTripMap(map, trip, places, force = true)
             // The opening frame lands before the idle listener is there to hear it, so where the map
             // came up is stated outright — otherwise nothing knows the centre until the first pan.
             map.cameraPosition.target?.let {
@@ -998,14 +1005,17 @@ internal fun MapLibreTripMap(
                 applied.places = places
                 updateOverviewSource(style, places)
             }
-            if (applied.pins != origin to destination) {
+            val pinsMoved = applied.pins != origin to destination
+            if (pinsMoved) {
                 applied.pins = origin to destination
                 style.getSourceAs<GeoJsonSource>(TRIP_MARKER_SOURCE)
                     ?.setGeoJson(
                         tripMarkerCollection(origin, destination, originLabel, destinationLabel),
                     )
-                frameTripMap(map, origin, destination, places, opening = false)
             }
+            val frameAsked = applied.frameKey != frameKey
+            applied.frameKey = frameKey
+            if (pinsMoved || frameAsked) frameTripMap(map, trip, places, force = frameAsked)
             if (applied.center !== center) {
                 applied.center = center
                 // The zoom is left where the user put it: they asked to go somewhere, not to see it
@@ -1048,28 +1058,20 @@ private fun tripMarkerCollection(
 }
 
 /**
- * Frames the trip pins only when one sits outside the view's central region: a long-pressed pin is
- * already under the user's eye and yanking the camera would fight the gesture, while a pin picked
- * by name can land anywhere on the globe. On opening with no pins yet the camera fits the place
- * field instead — the ground the user's history is on is where a trip's ends are picked from.
+ * Frames [trip] only when a position of it sits outside the view's central region, unless [force]d:
+ * a long-pressed pin is already under the user's eye and yanking the camera would fight the gesture,
+ * while a pin picked by name can land anywhere on the globe. A forced frame of an empty trip fits the
+ * place field — the ground the user's history is on is where a trip's ends are picked from.
  */
-private fun frameTripMap(
-    map: MapLibreMap,
-    origin: Coordinate?,
-    destination: Coordinate?,
-    places: List<OverviewPlace>,
-    opening: Boolean,
-) {
-    val pins = listOfNotNull(origin, destination).map { it.toLatLng() }
-    if (pins.isEmpty()) {
-        if (opening && places.isNotEmpty()) {
-            frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
-        }
+private fun frameTripMap(map: MapLibreMap, trip: List<Coordinate>, places: List<OverviewPlace>, force: Boolean) {
+    val positions = trip.map { it.toLatLng() }
+    if (positions.isEmpty()) {
+        if (force) frameAllPlaces(map, places)
         return
     }
-    if (!opening) {
+    if (!force) {
         val visible = map.projection.visibleRegion.latLngBounds
-        if (pins.all { visible.containsWithMargin(it.latitude, it.longitude) }) return
+        if (positions.all { visible.containsWithMargin(it.latitude, it.longitude) }) return
     }
-    frameTo(map, pins, singlePointZoom = 9.0)
+    frameTo(map, positions, singlePointZoom = 9.0)
 }

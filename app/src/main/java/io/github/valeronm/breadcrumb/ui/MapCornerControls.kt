@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -64,7 +65,7 @@ internal fun BoxScope.MapCornerControls(
                 horizontalArrangement = Arrangement.spacedBy(8.dp - touchHalo(SmallFabSize) * 2),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SmallFloatingActionButton(onClick = onCancelAim, containerColor = MaterialTheme.colorScheme.surface) {
+                CornerFab(onCancelAim) {
                     Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.common_cancel))
                 }
                 // A small FAB's height, touch target and shape, so it matches the one beside it.
@@ -77,9 +78,7 @@ internal fun BoxScope.MapCornerControls(
                 )
             }
         } else {
-            SmallFloatingActionButton(onClick = onAim, containerColor = MaterialTheme.colorScheme.surface) {
-                Icon(Icons.Filled.PushPin, contentDescription = aimDescription)
-            }
+            CornerFab(onAim) { Icon(Icons.Filled.PushPin, contentDescription = aimDescription) }
         }
     }
 }
@@ -100,7 +99,7 @@ internal fun BoxScope.MyLocationControl(location: MyLocationState) {
         )
     }
     CornerSlot {
-        SmallFloatingActionButton(onClick = location::goThere, containerColor = MaterialTheme.colorScheme.surface) {
+        CornerFab(location::goThere) {
             if (location.locating) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             } else {
@@ -108,6 +107,19 @@ internal fun BoxScope.MyLocationControl(location: MyLocationState) {
             }
         }
     }
+}
+
+/** Takes the same corner as [MapCornerControls]. */
+@Composable
+internal fun BoxScope.FrameControl(description: String, onClick: () -> Unit) {
+    CornerSlot {
+        CornerFab(onClick) { Icon(Icons.Filled.ZoomOutMap, contentDescription = description) }
+    }
+}
+
+@Composable
+private fun CornerFab(onClick: () -> Unit, content: @Composable () -> Unit) {
+    SmallFloatingActionButton(onClick = onClick, containerColor = MaterialTheme.colorScheme.surface, content = content)
 }
 
 /**

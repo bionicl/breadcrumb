@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -255,6 +256,7 @@ internal fun AddTripScreen(
     var editing by remember { mutableStateOf<TimeEdit?>(null) }
     var editingDate by remember { mutableStateOf<LocalDate?>(null) }
     var centerRequest by remember(draft) { mutableStateOf<MapCenterRequest?>(null) }
+    var frameKey by remember(draft) { mutableIntStateOf(0) }
     // Where the map is looking, as of its last settle — what the place search sorts around. Keyed
     // like the ends beside it: a second form opening while the first animates out gets a map of its
     // own, and would otherwise sort around wherever that one was left.
@@ -305,6 +307,7 @@ internal fun AddTripScreen(
                 viewModel.say(noRoadsMessage)
             } else {
                 routed = RoutedLeg(by, from, to, found.shape, found.durationMs)
+                frameKey++
                 ManualPath.anchor(
                     originTimed = origin.epochIn(originZone) != null,
                     destinationTimed = destination.epochIn(destinationZone) != null,
@@ -496,6 +499,13 @@ internal fun AddTripScreen(
                     viewModel.searchCities(query, limit = 6)
                 }
             }
+            fun pickResult(at: Coordinate, placeName: String? = null) {
+                placePin(at, placeName)
+                queryState.clearText()
+                // A pin picked by name can land anywhere relative to the other, at a zoom that
+                // shows neither; one placed on the map is already where the user is looking.
+                if (origin.pin != null && destination.pin != null) frameKey++
+            }
             val onlineHits by rememberOnlineHits(query, near = origin.pin ?: destination.pin, viewModel)
             SearchDropdown(
                 query = query,
@@ -515,8 +525,7 @@ internal fun AddTripScreen(
                         label = label,
                         detail = placeCities[place.id]?.let { localityLabel(it) },
                     ) {
-                        placePin(place.pin, label)
-                        queryState.clearText()
+                        pickResult(place.pin, label)
                     }
                 }
                 for (hit in cityHits) {
@@ -525,8 +534,7 @@ internal fun AddTripScreen(
                         label = hit.name,
                         detail = countryDisplayName(hit.country),
                     ) {
-                        placePin(Coordinate(hit.lat, hit.lon))
-                        queryState.clearText()
+                        pickResult(Coordinate(hit.lat, hit.lon))
                     }
                 }
                 // Below the local sections, minus what they already show — the
@@ -546,8 +554,7 @@ internal fun AddTripScreen(
                     ) {
                         // The one pick that knows its own name — carried so the
                         // commit can create the place this end will have stayed at.
-                        placePin(Coordinate(hit.lat, hit.lon), hit.name)
-                        queryState.clearText()
+                        pickResult(Coordinate(hit.lat, hit.lon), hit.name)
                     }
                 }
                 if (online.isNotEmpty()) OsmCredit()
@@ -571,9 +578,13 @@ internal fun AddTripScreen(
                         onLongPress = ::placePin,
                         onPlaceTap = ::placePin,
                         center = centerRequest,
+                        frameKey = frameKey,
                         onCenterSettled = { mapCenter = it },
                         modifier = Modifier.fillMaxSize(),
                     )
+                    FrameControl(stringResource(R.string.addtrip_show_whole_trip)) {
+                        frameKey++
+                    }
                     MapFilterChips {
                         // The switch on the Privacy page takes the offer away entirely rather than
                         // leaving a chip that does nothing. On, the chip is the path's own
@@ -592,7 +603,14 @@ internal fun AddTripScreen(
                                         durationText(leg.durationMs),
                                     )
                                 },
-                            ) { if (leg == null) followRoads() else routed = null }
+                            ) {
+                                if (leg == null) {
+                                    followRoads()
+                                } else {
+                                    routed = null
+                                    frameKey++
+                                }
+                            }
                         }
                         MapStackLegend {
                             Text(
