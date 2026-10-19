@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.Speed
@@ -132,7 +133,10 @@ object TrackQuality {
      * Not a data class on purpose: an array field would give it identity equality wearing value
      * clothes, and its one use as a Compose `remember` key wants identity anyway.
      */
-    class Seams(val points: List<TrackPoint>, val meters: DoubleArray)
+    class Seams(val points: List<TrackPoint>, val meters: DoubleArray) {
+        val stopsBefore: BooleanArray by lazy { GraphBreaks.stopsBefore(points, meters) }
+        val graphBreaks: BooleanArray by lazy { GraphBreaks.of(points, stopsBefore) }
+    }
 
     /** Walks [points] into [Seams]; [distance] is injectable so the derivation is host-testable. */
     fun seams(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): Seams {

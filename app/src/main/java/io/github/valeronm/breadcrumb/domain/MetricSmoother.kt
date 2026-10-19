@@ -13,6 +13,10 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * fixed count of neighbours would smooth a dense stretch far harder than a sparse one and neither
  * predictably. The window is short beside anything worth seeing — a stop lasting less than it is
  * not a stop the graph was showing anyway.
+ *
+ * The window is **balanced**: it reaches each way only as far as the fixes on its shorter side do.
+ * A fix beside a break otherwise averages one side alone, and the last fix before a stop reads as
+ * the braking behind it rather than its own speed.
  */
 object MetricSmoother {
 
@@ -20,43 +24,45 @@ object MetricSmoother {
     const val WINDOW_MS = 15_000L
 
     /**
-     * [values] averaged over [windowMs] of surrounding time, index for index with [points].
+     * [values] averaged over at most [windowMs] of surrounding time, index for index with [points].
      *
      * A null value is not a small one — it is a fix that never carried this metric — so nulls come
      * back null and are never averaged in. Averaging also stops at the boundaries the drawn line
-     * already breaks at: a missing value, and a segment start, which is a gap in the recording
-     * where the far side may be minutes and a mile away. Every run of consecutive values is
-     * therefore smoothed on its own, and a run's edges pull only from within it.
+     * breaks at: a missing value, and an index [breaksBefore] marks. Every run of consecutive
+     * values is therefore smoothed on its own, and a run's first and last fixes keep their own
+     * values.
      */
     fun timeAveraged(
         points: List<TrackPoint>,
         values: List<Float?>,
+        breaksBefore: BooleanArray,
         windowMs: Long = WINDOW_MS,
     ): List<Float?> {
         val out = arrayOfNulls<Float>(values.size)
+        val half = windowMs / 2
 
         /**
-         * One run averaged in a single pass: both window edges only ever move forward, so the sum
-         * between them is carried rather than recomputed, and a track of any length costs one walk
-         * rather than one per point. A run holds no nulls by construction, so every value in the
-         * window is a real one.
+         * One run averaged off prefix sums: a balanced window's near edge moves both ways as the
+         * shorter side changes, so a carried sum cannot follow it. A run holds no nulls by
+         * construction.
          */
         fun averageRun(from: Int, to: Int) {
-            val half = windowMs / 2
-            var lo = from
-            var hi = from
-            var sum = (values[from] ?: 0f).toDouble()
+            val prefix = DoubleArray(to - from + 2)
+            for (i in from..to) prefix[i - from + 1] = prefix[i - from] + checkNotNull(values[i])
+            fun time(i: Int) = points[i].timestamp
+            var earliest = from
+            var latest = from
             for (i in from..to) {
-                val t = points[i].timestamp
-                while (points[lo].timestamp < t - half) {
-                    sum -= values[lo] ?: 0f
-                    lo++
-                }
-                while (hi + 1 <= to && points[hi + 1].timestamp <= t + half) {
-                    hi++
-                    sum += values[hi] ?: 0f
-                }
-                out[i] = (sum / (hi - lo + 1)).toFloat()
+                val t = time(i)
+                while (time(earliest) < t - half) earliest++
+                while (latest < to && time(latest + 1) <= t + half) latest++
+                val back = t - time(earliest)
+                val ahead = time(latest) - t
+                var lo = earliest
+                var hi = latest
+                while (time(lo) < t - ahead) lo++
+                while (time(hi) > t + back) hi--
+                out[i] = ((prefix[hi - from + 1] - prefix[lo - from]) / (hi - lo + 1)).toFloat()
             }
         }
 
@@ -67,10 +73,7 @@ object MetricSmoother {
                 continue
             }
             var runEnd = runStart
-            while (runEnd + 1 < values.size &&
-                values[runEnd + 1] != null &&
-                !points[runEnd + 1].segmentStart
-            ) {
+            while (runEnd + 1 < values.size && values[runEnd + 1] != null && !breaksBefore[runEnd + 1]) {
                 runEnd++
             }
             averageRun(runStart, runEnd)

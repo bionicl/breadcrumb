@@ -89,9 +89,7 @@ internal fun MapLibreTrackMap(
     }
     val measures = LocalMeasures.current
     val coloring = remember(precomputedColoring, seams, colorMode, activity, mapDark, measures) {
-        precomputedColoring?.inShade(mapDark) ?: trackColoring(
-            points, TrackQuality.pointSpeedsKmh(seams), colorMode, activity, mapDark, measures,
-        )
+        precomputedColoring?.inShade(mapDark) ?: trackColoring(seams, colorMode, activity, mapDark, measures)
     }
     val colors = coloring.colors
     val applied = remember { AppliedTrackInputs() }
@@ -247,11 +245,6 @@ private const val END_PLACE_AREA_LINE = "end-place-area-line"
 private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
 
-// Grays the colored line underneath rather than adding a color of its own: the dark basemap needs
-// a darker gray than the track to read as receding, the light basemap a lighter one.
-private const val EDGE_STAY_DIM_DARK = 0xD9424242.toInt()
-private const val EDGE_STAY_DIM_LIGHT = 0xD9BDBDBD.toInt()
-
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
  * drawn from the good fix it hangs off so the gray meets the colored line. Its own dim color rather
@@ -272,7 +265,7 @@ private fun addEdgeStayLayer(
             PropertyFactory.lineWidth(4f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            PropertyFactory.lineColor(if (dark) EDGE_STAY_DIM_DARK else EDGE_STAY_DIM_LIGHT),
+            PropertyFactory.lineColor(offPathArgb(dark)),
         ),
     )
 }

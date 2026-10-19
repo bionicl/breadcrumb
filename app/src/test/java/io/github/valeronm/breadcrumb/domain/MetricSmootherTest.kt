@@ -12,7 +12,7 @@ import org.junit.Test
  */
 class MetricSmootherTest {
 
-    private fun pt(t: Long, segmentStart: Boolean = false) = TrackPoint(
+    private fun pt(t: Long) = TrackPoint(
         trackId = 1,
         latitude = 1.0,
         longitude = 0.0,
@@ -21,8 +21,14 @@ class MetricSmootherTest {
         speed = null,
         bearing = null,
         timestamp = t,
-        segmentStart = segmentStart,
     )
+
+    private fun smooth(points: List<TrackPoint>, values: List<Float?>, breaks: Set<Int> = emptySet()) =
+        MetricSmoother.timeAveraged(
+            points,
+            values,
+            BooleanArray(points.size) { it in breaks },
+        )
 
     /** Points every [everyMs] from 0, one per value. */
     private fun series(vararg values: Float?, everyMs: Long = 5_000L): Pair<List<TrackPoint>, List<Float?>> =
@@ -31,9 +37,8 @@ class MetricSmootherTest {
     @Test
     fun `a spike is pulled toward the pace around it`() {
         val (points, values) = series(50f, 50f, 90f, 50f, 50f)
-        val out = MetricSmoother.timeAveraged(points, values)
-        // The window reaches 7.5 s each way, so at 5 s spacing it holds one neighbour either
-        // side: (50+90+50)/3.
+        val out = smooth(points, values)
+        // At 5 s spacing the window holds one neighbour either side: (50+90+50)/3.
         // Down from the 90 it was recorded at, and not flattened into the 50 around it.
         assertEquals(63.33f, out[2]!!, 0.01f)
     }
@@ -41,7 +46,7 @@ class MetricSmootherTest {
     @Test
     fun `a steady pace comes back unchanged`() {
         val (points, values) = series(40f, 40f, 40f, 40f, 40f)
-        MetricSmoother.timeAveraged(points, values).forEach { assertEquals(40f, it!!, 0.001f) }
+        smooth(points, values).forEach { assertEquals(40f, it!!, 0.001f) }
     }
 
     @Test
@@ -51,30 +56,45 @@ class MetricSmootherTest {
         assertEquals(
             "a fix a second apart has every neighbour in the window",
             58f,
-            MetricSmoother.timeAveraged(densePoints, denseValues)[2]!!,
+            smooth(densePoints, denseValues)[2]!!,
             0.01f,
         )
         assertEquals(
             "a fix a minute apart has none, so the spike stands",
             90f,
-            MetricSmoother.timeAveraged(sparsePoints, sparseValues)[2]!!,
+            smooth(sparsePoints, sparseValues)[2]!!,
             0.01f,
         )
     }
 
     @Test
-    fun `a gap in the recording is not averaged across`() {
-        val points = listOf(pt(0), pt(5_000), pt(10_000, segmentStart = true), pt(15_000))
-        val values = listOf(10f, 10f, 90f, 90f)
-        val out = MetricSmoother.timeAveraged(points, values)
-        assertEquals("the pace before the gap can't be pulled up by what follows it", 10f, out[1]!!, 0.01f)
+    fun `a break is not averaged across`() {
+        val (points, values) = series(10f, 10f, 90f, 90f)
+        val out = smooth(points, values, breaks = setOf(2))
+        assertEquals(10f, out[1]!!, 0.01f)
         assertEquals(90f, out[2]!!, 0.01f)
+    }
+
+    @Test
+    fun `a fix beside a break keeps its own value rather than the side behind it`() {
+        val (points, values) = series(40f, 30f, 20f, 10f, 5f, everyMs = 1_000L)
+        val out = smooth(points, values)
+        assertEquals(5f, out[4]!!, 0.01f)
+        assertEquals((20f + 10f + 5f) / 3, out[3]!!, 0.01f)
+        assertEquals(40f, out[0]!!, 0.01f)
+    }
+
+    @Test
+    fun `the window reaches only as far as its shorter side`() {
+        val points = listOf(pt(0), pt(6_000), pt(7_000), pt(9_000), pt(13_000))
+        val values = listOf(100f, 100f, 10f, 20f, 100f)
+        assertEquals((100f + 10f + 20f + 100f) / 4, smooth(points, values)[2]!!, 0.01f)
     }
 
     @Test
     fun `a fix without the metric stays without it, and is not averaged in`() {
         val (points, values) = series(10f, null, 30f)
-        val out = MetricSmoother.timeAveraged(points, values)
+        val out = smooth(points, values)
         assertNull(out[1])
         assertEquals("a null neighbour is absent, not a zero", 10f, out[0]!!, 0.01f)
         assertEquals(30f, out[2]!!, 0.01f)
@@ -82,6 +102,6 @@ class MetricSmootherTest {
 
     @Test
     fun `an empty series is answered in kind`() {
-        assertEquals(emptyList<Float?>(), MetricSmoother.timeAveraged(emptyList(), emptyList()))
+        assertEquals(emptyList<Float?>(), smooth(emptyList(), emptyList()))
     }
 }

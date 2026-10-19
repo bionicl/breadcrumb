@@ -29,8 +29,10 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.util.FixUnit
@@ -139,6 +141,16 @@ internal fun mapActivityArgb(activity: ActivityType?, dark: Boolean): Int =
 
 private fun noDataArgb(dark: Boolean) = mapNeutral(dark).toArgb()
 
+/**
+ * A stretch drawn beside the measured path rather than on it — a track's overrun on the map, a stop
+ * with no fixes on the graph. The dark basemap needs a darker gray than the track to read as
+ * receding, the light basemap a lighter one.
+ */
+internal fun offPathArgb(dark: Boolean): Int = if (dark) OFF_PATH_DARK else OFF_PATH_LIGHT
+
+private const val OFF_PATH_DARK = 0xD9424242.toInt()
+private const val OFF_PATH_LIGHT = 0xD9BDBDBD.toInt()
+
 /** Legend content for the current color mode. */
 internal sealed interface Legend {
     /** Continuous red→green→blue ramp with anchor labels. */
@@ -175,6 +187,11 @@ internal class TrackColoring(
     val unit: String,
     private val paint: RampPaint? = null,
 ) {
+    /** The ramp's color for [value]; null on a solid coloring, which has no ramp. */
+    fun colorOf(value: Float): Int? = paint?.let {
+        rampColor(value, it.redAt, it.blueAt, rampPalette(rampLuminance(it.dark)), noDataArgb(it.dark))
+    }
+
     /** A solid coloring comes back unchanged, having no ramp to repaint. */
     fun inShade(dark: Boolean): TrackColoring =
         if (paint == null || paint.dark == dark) {
@@ -250,16 +267,18 @@ private fun UnitSystem.plotSpeed(kmh: Float): Float = speedFrom(kmh.toDouble()).
 private fun UnitSystem.plotShort(meters: Double): Float = shortFrom(meters).toFloat()
 
 private fun metricSeries(
-    points: List<TrackPoint>,
+    seams: TrackQuality.Seams,
     mode: ColorMode,
-    speedsKmh: FloatArray,
     measures: Measures,
 ): Pair<List<Float?>, String> {
+    val points = seams.points
     val units = measures.system
     val symbols = measures.symbols
     return when (mode) {
-        ColorMode.SPEED ->
+        ColorMode.SPEED -> {
+            val speedsKmh = TrackQuality.pointSpeedsKmh(seams)
             List(points.size) { units.plotSpeed(speedsKmh[it]) } to symbols.of(units.speedUnitId)
+        }
         ColorMode.ELEVATION ->
             points.map { it.altitude?.let(units::plotShort) } to symbols.of(units.shortUnitId)
         ColorMode.ACCURACY ->
@@ -282,12 +301,21 @@ private fun metricSeries(
  * its ramp and its label.
  */
 private fun plottedSeries(
-    points: List<TrackPoint>,
+    seams: TrackQuality.Seams,
     mode: ColorMode,
     values: List<Float?>,
 ): List<Float?> = when (mode) {
-    ColorMode.SPEED -> MetricSmoother.timeAveraged(points, values)
+    ColorMode.SPEED -> MetricSmoother.timeAveraged(seams.points, values, seams.graphBreaks)
     ColorMode.ELEVATION, ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> values
+}
+
+/**
+ * What [GraphBreaks.stopsBefore] gaps read as on the graph: a stop is a speed of zero, and says
+ * nothing about the receiver's other readings. Exhaustive for the same reason as [plottedSeries].
+ */
+internal fun ColorMode.stopReading(): Float? = when (this) {
+    ColorMode.SPEED -> 0f
+    ColorMode.ELEVATION, ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> null
 }
 
 /**
@@ -301,8 +329,7 @@ private fun plottedSeries(
  * showing a jitter the graph says isn't there.
  */
 internal fun trackColoring(
-    points: List<TrackPoint>,
-    speedsKmh: FloatArray,
+    seams: TrackQuality.Seams,
     mode: ColorMode,
     activity: ActivityType?,
     dark: Boolean,
@@ -311,8 +338,8 @@ internal fun trackColoring(
     val units = measures.system
     // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
     // numbers in every system; the colors may sit a hair apart between systems as a result.
-    val (raw, unit) = metricSeries(points, mode, speedsKmh, measures)
-    val values = plottedSeries(points, mode, raw)
+    val (raw, unit) = metricSeries(seams, mode, measures)
+    val values = plottedSeries(seams, mode, raw)
     return when (mode) {
         ColorMode.SPEED -> {
             val s = speedScaleFor(activity ?: ActivityType.UNKNOWN, units)

@@ -16,9 +16,9 @@ class PlotColumnTest {
 
         assertEquals(
             listOf(
-                PlotColumn(x = 0f, min = 3f, max = 3f, mean = 3f, nearestMean = 0, startsSegment = true),
-                PlotColumn(x = 2.5f, min = 5f, max = 5f, mean = 5f, nearestMean = 1, startsSegment = false),
-                PlotColumn(x = 5f, min = 4f, max = 4f, mean = 4f, nearestMean = 2, startsSegment = false),
+                PlotColumn(first = 0, x = 0f, min = 3f, max = 3f, mean = 3f, nearestMean = 0, startsSegment = true),
+                PlotColumn(first = 1, x = 2.5f, min = 5f, max = 5f, mean = 5f, nearestMean = 1, startsSegment = false),
+                PlotColumn(first = 2, x = 5f, min = 4f, max = 4f, mean = 4f, nearestMean = 2, startsSegment = false),
             ),
             got,
         )

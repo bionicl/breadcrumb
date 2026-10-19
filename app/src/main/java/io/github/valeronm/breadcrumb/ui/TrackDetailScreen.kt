@@ -71,6 +71,7 @@ import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
+import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
@@ -507,10 +508,19 @@ private fun SplitConfirmation(
  */
 @Immutable
 internal class MetricGraphData(
-    val points: List<TrackPoint>,
+    val seams: TrackQuality.Seams,
     /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
     val coloring: TrackColoring,
+    /** What a stop with no fixes is drawn at ([stopReading]); null leaves it blank. */
+    val stopValue: Float?,
+    /** Drawn across a stop's [stopValue]: the shade of the overrun the map grays off a track's ends. */
+    val offPathColor: Int,
 ) {
+    val points: List<TrackPoint> get() = seams.points
+
+    /** Whether the line is drawn across a stop at [stopValue] rather than left blank there. */
+    val drawsStops: Boolean = stopValue != null && seams.stopsBefore.any { it }
+    val stopColor: Int? = stopValue?.let(coloring::colorOf)
     val values: List<Float?> get() = coloring.values
     val colors: IntArray get() = coloring.colors
 
@@ -526,12 +536,10 @@ internal fun metricGraphData(
     dark: Boolean,
     measures: Measures,
 ): MetricGraphData? {
-    val coloring = trackColoring(
-        seams.points, TrackQuality.pointSpeedsKmh(seams), mode, activity, dark, measures,
-    )
+    val coloring = trackColoring(seams, mode, activity, dark, measures)
     // The ramp already reached this verdict when it found nothing to scale.
     if (coloring.legend is Legend.None) return null
-    return MetricGraphData(seams.points, coloring)
+    return MetricGraphData(seams, coloring, mode.stopReading(), offPathArgb(dark))
 }
 
 private const val PLOT_RANGE_ALPHA = 0.35f
@@ -562,7 +570,7 @@ private fun MetricPlot(
                 val columns = plotColumns(
                     graph.values,
                     xOf = { (graph.points[it].timestamp - t0) / tSpan * size.width },
-                    breaksBefore = { graph.points[it].segmentStart },
+                    breaksBefore = { graph.seams.graphBreaks[it] },
                 )
                 // The axis labels and the scrub readout state raw values, which a line through the
                 // means alone never reaches.
@@ -579,13 +587,18 @@ private fun MetricPlot(
                 fun at(column: PlotColumn) = Offset(column.x, yOf(column.mean))
                 for (k in 1 until columns.size) {
                     val column = columns[k]
-                    if (column.startsSegment) continue
-                    drawLine(
-                        Color(graph.colors[column.nearestMean]),
-                        at(columns[k - 1]),
-                        at(column),
-                        strokeWidth = strokePx,
-                    )
+                    val arrival = Color(graph.colors[column.nearestMean])
+                    if (!column.startsSegment) {
+                        drawLine(arrival, at(columns[k - 1]), at(column), strokeWidth = strokePx)
+                    } else if (graph.drawsStops && graph.seams.stopsBefore[column.first]) {
+                        val stopY = yOf(checkNotNull(graph.stopValue))
+                        val stop = Color(checkNotNull(graph.stopColor))
+                        val left = Offset(columns[k - 1].x, stopY)
+                        val right = Offset(column.x, stopY)
+                        drawLine(stop, at(columns[k - 1]), left, strokeWidth = strokePx)
+                        drawLine(Color(graph.offPathColor), left, right, strokeWidth = strokePx)
+                        drawLine(arrival, right, at(column), strokeWidth = strokePx)
+                    }
                 }
             }
             onDrawBehind { drawImage(bitmap) }
@@ -635,7 +648,7 @@ private fun CutOffer(reading: AnnotatedString, canCut: Boolean, onCut: () -> Uni
 
 /**
  * The selected color metric over the track's time span, stroked in the map line's colors one pixel
- * column at a time, with a time axis; missing values and segment starts break the line. Tap/drag picks the
+ * column at a time, with a time axis; missing values and [GraphBreaks] break the line. Tap/drag picks the
  * nearest point ([onSelect]), drawn as a cursor with a value/time readout; the caller highlights
  * the same point on the map.
  */
@@ -662,7 +675,8 @@ private fun MetricGraph(
     // is O(points) — the series is immutable per graph instance.
     val (minV, maxV) = remember(graph) {
         val present = graph.values.filterNotNull()
-        present.min() to present.max()
+        val drawnStop = graph.stopValue?.takeIf { graph.drawsStops } ?: present.min()
+        minOf(present.min(), drawnStop) to maxOf(present.max(), drawnStop)
     }
     val maxLabel = remember(graph) { graph.label(maxV) }
     val minLabel = remember(graph) { graph.label(minV) }

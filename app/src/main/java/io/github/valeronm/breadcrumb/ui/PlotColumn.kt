@@ -5,6 +5,8 @@ import kotlin.math.floor
 
 /** The plotted values that share one pixel column of a graph. */
 internal data class PlotColumn(
+    /** Index of the column's first member. */
+    val first: Int,
     /** Mean of the members' own x: a column of one sits exactly where its point does. */
     val x: Float,
     val min: Float,
@@ -73,5 +75,5 @@ private fun plotColumn(
             nearest = i
         }
     }
-    return PlotColumn((xSum / count).toFloat(), min, max, mean, nearest, startsSegment)
+    return PlotColumn(first, (xSum / count).toFloat(), min, max, mean, nearest, startsSegment)
 }
