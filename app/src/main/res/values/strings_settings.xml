@@ -34,9 +34,8 @@
     <string name="settings_logs">Logs</string>
     <string name="settings_reset">Reset</string>
 
-    <!-- Attribution. Both are licence requirements, not decoration. -->
+    <!-- Attribution, a licence requirement rather than decoration. -->
     <string name="credit_geonames">Place names from GeoNames, CC BY 4.0</string>
-    <string name="credit_osm">Online search © OpenStreetMap contributors, ODbL</string>
 
     <!-- About -->
     <string name="settings_about">About</string>
@@ -100,6 +99,8 @@
     <string name="privacy_online_maps_always_on">Always on</string>
     <string name="privacy_online_search">Online place search</string>
     <string name="privacy_online_search_sub">Finds places and addresses by name</string>
+    <string name="privacy_online_routing">Road routing</string>
+    <string name="privacy_online_routing_sub">Draws a trip you add along the roads and times it</string>
     <string name="lock_require_unlock">Require unlock</string>
     <string name="lock_require_unlock_sub">Asks for your fingerprint or device PIN</string>
     <string name="lock_no_screen_lock">Set a screen lock on this device first</string>

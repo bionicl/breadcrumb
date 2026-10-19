@@ -132,6 +132,11 @@ private fun ColorMode.carriedBy(points: List<TrackPoint>): Boolean = when (this)
 /** The gray for what a map draws with no color of its own. */
 internal fun mapNeutral(dark: Boolean): Color = Color.hsl(0f, 0f, if (dark) 0.6f else 0.45f)
 
+/** An activity's line on a map, [mapNeutral] where the type is unknown. [dark] is [isMapDark], read
+ *  by the caller since a batch of lines reads it once. */
+internal fun mapActivityArgb(activity: ActivityType?, dark: Boolean): Int =
+    activityColorOr(activity, mapNeutral(dark)).toArgb()
+
 private fun noDataArgb(dark: Boolean) = mapNeutral(dark).toArgb()
 
 /** Legend content for the current color mode. */

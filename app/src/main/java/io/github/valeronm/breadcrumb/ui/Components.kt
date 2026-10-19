@@ -108,12 +108,20 @@ internal fun BoxScope.MapFilterChips(content: @Composable ColumnScope.() -> Unit
     )
 }
 
+/** A legend in a [MapFilterChips] stack: the stack spaces its items for a chip's touch halo, and a
+ *  surface has none. */
+@Composable
+internal fun ColumnScope.MapStackLegend(content: @Composable ColumnScope.() -> Unit) {
+    LegendSurface(Modifier.padding(top = touchHalo(FilterChipDefaults.Height)), content)
+}
+
 /** Elevated on an opaque surface: the default chip tones all but vanish against a basemap. */
 @Composable
-internal fun MapFilterChip(selected: Boolean, label: String, onClick: () -> Unit) {
+internal fun MapFilterChip(selected: Boolean, label: String, enabled: Boolean = true, onClick: () -> Unit) {
     ElevatedFilterChip(
         selected = selected,
         onClick = onClick,
+        enabled = enabled,
         label = { Text(label) },
         leadingIcon = selectedCheck(selected),
         colors = FilterChipDefaults.elevatedFilterChipColors(

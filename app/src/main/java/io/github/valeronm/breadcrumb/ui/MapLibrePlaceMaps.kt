@@ -12,7 +12,10 @@ import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GreatCircle
+import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -27,10 +30,12 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 /**
@@ -861,12 +866,15 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
 
 private const val TRIP_MARKER_SOURCE = "trip-marker-src"
 private const val TRIP_MARKER_LAYER = "trip-marker-layer"
+private const val TRIP_LINE_SOURCE = "trip-line-src"
+private const val TRIP_LINE_LAYER = "trip-line-layer"
 
 /** Last-applied inputs of the trip map; the two pins are one pair, always redrawn together. */
 private class AppliedTripInputs {
     var pins: Pair<Coordinate?, Coordinate?>? = null
     var places: List<OverviewPlace>? = null
     var center: MapCenterRequest? = null
+    var line: List<Coordinate>? = null
 }
 
 /**
@@ -890,6 +898,10 @@ internal fun MapLibreTripMap(
     origin: Coordinate?,
     destination: Coordinate?,
     places: List<OverviewPlace>,
+    /** The road shape the trip will be stored along, empty while it is its two ends alone. */
+    shape: List<Coordinate>,
+    /** The trip's type: its line's color, and whether it is drawn along great circles. */
+    activity: ActivityType?,
     onLongPress: (Coordinate) -> Unit,
     /** A tap on a place's pin, reported at the pin's own spot rather than the finger's, with the
      *  place's label where the feature carries one — what the pick was picked *by*. */
@@ -915,6 +927,14 @@ internal fun MapLibreTripMap(
     // and one of them has no Context to reach for either.
     val originLabel = stringResource(R.string.addtrip_origin)
     val destinationLabel = stringResource(R.string.addtrip_destination)
+    // The trip as it will be stored and then drawn: the store's own line, through the track map's
+    // own rule for arcing it.
+    val line = remember(shape, origin, destination, activity) {
+        if (origin == null || destination == null) return@remember null
+        val stored = ManualPath.line(origin, destination, shape)
+        if (GreatCircle.drawsPath(stored.size, activity)) greatCirclePositions(stored) else stored
+    }
+    val lineArgb = mapActivityArgb(activity, isMapDark())
     MapLibreStyledMap(
         modifier = modifier,
         onMapReady = { map ->
@@ -948,6 +968,17 @@ internal fun MapLibreTripMap(
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewLayers(ctx, style, places, dark)
+            applied.line = line
+            // Under the pins, so the ends stay readable where the line meets them.
+            style.addSource(GeoJsonSource(TRIP_LINE_SOURCE, lineCollection(line)))
+            style.addLayer(
+                LineLayer(TRIP_LINE_LAYER, TRIP_LINE_SOURCE).withProperties(
+                    PropertyFactory.lineColor(lineArgb),
+                    PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                ),
+            )
             style.addSource(
                 GeoJsonSource(
                     TRIP_MARKER_SOURCE,
@@ -982,9 +1013,24 @@ internal fun MapLibreTripMap(
                 // that framed it.
                 center?.let { map.moveCamera(CameraUpdateFactory.newLatLng(it.at.toLatLng())) }
             }
+            // The type is a key of the line, so a color change arrives as a new line; the shade
+            // rebuilds the map.
+            if (applied.line !== line) {
+                applied.line = line
+                style.getSourceAs<GeoJsonSource>(TRIP_LINE_SOURCE)?.setGeoJson(lineCollection(line))
+                style.getLayerAs<LineLayer>(TRIP_LINE_LAYER)?.setProperties(PropertyFactory.lineColor(lineArgb))
+            }
         },
     )
 }
+
+private fun lineCollection(line: List<Coordinate>?): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        listOfNotNull(
+            line?.takeIf { it.size >= 2 }
+                ?.let { Feature.fromGeometry(LineString.fromLngLats(it.map(Coordinate::toPoint))) },
+        ),
+    )
 
 private fun tripMarkerCollection(
     origin: Coordinate?,

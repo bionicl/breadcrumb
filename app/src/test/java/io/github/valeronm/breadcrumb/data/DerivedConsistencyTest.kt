@@ -120,6 +120,7 @@ class DerivedConsistencyTest {
             // Both ends moved, so its endpoints leave the clusters they were in and join others.
             TrackRepository.ManualEnd(Coordinate(1.03, -2.0), hours(31)),
             TrackRepository.ManualEnd(Coordinate(1.05, -1.95), hours(33)),
+            path = emptyList(),
         ) as TrackRepository.ManualTrackResult.Saved
         assertExact()
     }

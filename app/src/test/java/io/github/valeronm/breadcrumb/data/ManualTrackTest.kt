@@ -97,6 +97,7 @@ class ManualTrackTest {
             ActivityType.FERRY,
             TrackRepository.ManualEnd(Coordinate(1.2, -2.2), movedStart),
             TrackRepository.ManualEnd(Coordinate(1.4, -1.4), movedStart + 3_600_000L),
+            path = emptyList(),
         )
 
         assertEquals(id, (result as TrackRepository.ManualTrackResult.Saved).trackId)
@@ -124,6 +125,7 @@ class ManualTrackTest {
             ActivityType.FLIGHT,
             TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START + 60_000L),
             TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 3 * 3_600_000L),
+            path = emptyList(),
         )
 
         assertTrue(result is TrackRepository.ManualTrackResult.Saved)
@@ -140,6 +142,7 @@ class ManualTrackTest {
             ActivityType.FLIGHT,
             TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START + 30_000L),
             TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 4 * 3_600_000L),
+            path = emptyList(),
         )
 
         assertTrue(result is TrackRepository.ManualTrackResult.Overlapping)
@@ -156,11 +159,38 @@ class ManualTrackTest {
             ActivityType.FLIGHT,
             TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START),
             TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 60_000),
+            path = emptyList(),
         )
 
         assertTrue(result is TrackRepository.ManualTrackResult.NotEditable)
         assertEquals(6, dao.allPointsFor(walk).size)
         assertEquals(ActivityType.WALKING.name, dao.track(walk)!!.activityType)
+    }
+
+    @Test fun `a trip along a road path stores the path between its typed ends`() = runTest {
+        val shape = listOf(Coordinate(1.001, -1.9), Coordinate(1.2, -1.5), Coordinate(1.499, -1.001))
+        val result = repository.insertManualTrack(
+            ActivityType.DRIVING,
+            TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START),
+            TrackRepository.ManualEnd(Coordinate(1.5, -1.0), TEST_START + 3_600_000L),
+            path = shape,
+        )
+        val id = trackIdOf(result)
+        val points = dao.allPointsFor(id)
+        assertEquals(shape.size + 2, points.size)
+        assertEquals(TEST_START, points.first().timestamp)
+        assertEquals(TEST_START + 3_600_000L, points.last().timestamp)
+        assertEquals(1.0, points.first().latitude, 0.0)
+        assertEquals(1.5, points.last().latitude, 0.0)
+        assertTrue(points.zipWithNext().all { (a, b) -> a.timestamp < b.timestamp })
+
+        repository.sweeps.edgeStays()
+        repository.sweeps.stats()
+        val after = dao.track(id)!!
+        assertEquals(TEST_START, after.startedAt)
+        assertEquals(TEST_START + 3_600_000L, after.endedAt)
+        assertEquals(0, after.ignoredCount)
+        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `the sweeps hand a manual trip back exactly as entered`() = runTest {

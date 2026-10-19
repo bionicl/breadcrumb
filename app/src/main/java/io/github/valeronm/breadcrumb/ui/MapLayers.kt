@@ -260,3 +260,6 @@ internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
         .build()
     map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
 }
+
+/** One width for every line drawn as a trip's path, so a preview and the saved track match. */
+internal const val TRACK_LINE_WIDTH = 3f

@@ -19,18 +19,25 @@ enum class TrackOrigin(
      *  implies one constant speed, an assumption no metric should be drawn from — where even a
      *  GPX with no speed field still carries real positions over real times. */
     val measuresMotion: Boolean,
-    /** Whether the writer ended each trip at its stop itself. */
-    val endsAtStops: Boolean = false,
+    /**
+     * Whether the writer ended each trip at its stop itself, which is what the overrun rule reads.
+     * A flag of its own beside [measuresMotion] though the two coincide on every writer: one asks
+     * whether speed metrics apply and the other whether the overrun rule runs, and a writer's
+     * reason for the second — Google ending a trip at the visit, a typed end being the stop — is
+     * no fact about its motion.
+     */
+    val endsAtStops: Boolean,
 ) {
     /** The recorder's own fixes, each with what the receiver said about its own measurement. */
-    RECORDED("recorded", measuresFixQuality = true, measuresMotion = true),
+    RECORDED("recorded", measuresFixQuality = true, measuresMotion = true, endsAtStops = false),
 
     /** Parsed from a GPX file the user shared into the app: a path, not a measurement of one. */
-    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true),
+    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true, endsAtStops = false),
 
-    /** Two endpoints the user typed into the add-trip form — a leg nothing recorded, held as a
-     *  track so the timeline and journeys read it like any other. */
-    MANUAL("manual", measuresFixQuality = false, measuresMotion = false),
+    /** Two endpoints the user typed into the add-trip form, with a router's path between them
+     *  where they asked for one — a leg nothing recorded, held as a track so the timeline and
+     *  journeys read it like any other. The typed ends are the trip's stops. */
+    MANUAL("manual", measuresFixQuality = false, measuresMotion = false, endsAtStops = true),
 
     /** Read from a Google Timeline export: the phone's own fixes over the export's last month, and
      *  before it Google's reconstruction, whose samples are restamped to the minute and so imply

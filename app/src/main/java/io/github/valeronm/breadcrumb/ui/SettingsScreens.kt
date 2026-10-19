@@ -499,10 +499,14 @@ private fun OnlineServicesGroup() {
         true,
         { AppSettings.isOnlinePlaceSearch(context) },
     ) { AppSettings.setOnlinePlaceSearch(context, it) }
+    val onlineRouting = rememberPref(
+        true,
+        { AppSettings.isOnlineRouting(context) },
+    ) { AppSettings.setOnlineRouting(context, it) }
     SettingsGroup(
         stringResource(R.string.settings_online_services),
         stringResource(R.string.online_services_description),
-        listOf(onlineSearch),
+        listOf(onlineSearch, onlineRouting),
     ) {
         GroupedRows(
             {
@@ -518,6 +522,14 @@ private fun OnlineServicesGroup() {
                     subtitle = stringResource(R.string.privacy_online_search_sub),
                     checked = onlineSearch.value,
                     onCheckedChange = { onlineSearch.set(it) },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.privacy_online_routing),
+                    subtitle = stringResource(R.string.privacy_online_routing_sub),
+                    checked = onlineRouting.value,
+                    onCheckedChange = { onlineRouting.set(it) },
                 )
             },
         )
@@ -756,8 +768,9 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
         // CC BY 4.0 asks for the credit wherever the work is used, and the timeline's place names
         // are that use.
         FootnoteText(stringResource(R.string.credit_geonames))
-        // ODbL asks for the credit wherever OSM-derived results show.
-        FootnoteText(stringResource(R.string.credit_osm))
+        // ODbL asks for the credit wherever OSM-derived results show, and FOSSGIS's terms for the
+        // links beside it.
+        OsmDataCredit(Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
     }
 }
 

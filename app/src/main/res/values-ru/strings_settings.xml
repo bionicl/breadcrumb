@@ -33,7 +33,6 @@
     <string name="settings_reset">Сброс</string>
 
     <string name="credit_geonames">Названия мест — GeoNames, CC BY 4.0</string>
-    <string name="credit_osm">Онлайн-поиск © участники OpenStreetMap, ODbL</string>
 
     <string name="settings_about">О приложении</string>
     <string name="about_version">Версия %1$s</string>
@@ -85,6 +84,8 @@
     <string name="privacy_online_maps_always_on">Всегда включены</string>
     <string name="privacy_online_search">Онлайн-поиск мест</string>
     <string name="privacy_online_search_sub">Находит места и адреса по названию</string>
+    <string name="privacy_online_routing">Маршруты по дорогам</string>
+    <string name="privacy_online_routing_sub">Прокладывает добавленную поездку по дорогам и считает её длительность</string>
     <string name="lock_require_unlock">Требовать разблокировку</string>
     <string name="lock_require_unlock_sub">Отпечаток пальца или PIN-код при входе</string>
     <string name="lock_no_screen_lock">Сначала настройте блокировку экрана на устройстве</string>
