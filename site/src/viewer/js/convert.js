@@ -27,6 +27,8 @@ export const REASON_ACCURACY = 1;
 export const REASON_JUMP = 2;
 export const REASON_NO_GNSS = 3;
 export const REASON_EDGE_STAY = 4;
+// A good fix inside a stop whose first and last fixes stay on the path: drawn nowhere.
+export const REASON_STATIONARY = 5;
 
 // The export carries the app's code string. Anything unrecognised — including the null on points
 // recorded before reasons were tracked — reads as low accuracy, which is how the app labels it too.
@@ -35,6 +37,7 @@ const REASON_BY_CODE = {
   jump: REASON_JUMP,
   no_gnss: REASON_NO_GNSS,
   edge_stay: REASON_EDGE_STAY,
+  stationary: REASON_STATIONARY,
 };
 
 /**

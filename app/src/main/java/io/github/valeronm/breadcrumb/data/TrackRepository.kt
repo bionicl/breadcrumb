@@ -15,7 +15,6 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
@@ -25,6 +24,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -41,10 +41,12 @@ const val DISCARDED_RETENTION_DAYS = 14
 private const val MAX_LEADING_STRAYS_DROPPED = 5
 
 /**
- * A track's points split the three ways the track screen draws them — see
+ * A track's points, and the slices the track screen draws them in — see
  * [TrackRepository.trackPointsFor], which is the only thing that builds one.
  */
 class TrackPoints(
+    /** Every point, good and ignored, in order. */
+    val all: List<TrackPoint>,
     /** The path itself: the fixes that are part of the journey. */
     val good: List<TrackPoint>,
     /** Bad fixes the recorder rejected ([TrackQuality]), drawn as markers with a legend. */
@@ -796,16 +798,20 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         dao.pointsAfter(trackId, afterId)
 
     /**
-     * One load of a track's points, split rather than queried three times: the slices are disjoint
+     * One load of a track's points, split rather than queried once per slice: the slices are disjoint
      * parts of one ordered list, and separate reads would let a re-derivation land between two — the
      * new path drawn against the old overrun. Which slice a reason belongs to is decided here, not in
-     * the screen; [EdgeStayIgnore] owns the one that isn't a rejection.
+     * the screen; [TrackSettle] owns the ones that aren't a rejection, and only the overrun among them is
+     * drawn.
      */
     suspend fun trackPointsFor(trackId: Long): TrackPoints {
         val all = dao.allPointsFor(trackId)
         val ignored = all.filter { it.ignored }
-        val (edgeStay, noisy) = ignored.partition(EdgeStayIgnore::isEdgeStay)
+        // A reason this build doesn't know, or none at all, is shown as a rejection.
+        val noisy = ignored.filter { IgnoreReason.fromCode(it.ignoreReason)?.isRejection != false }
+        val edgeStay = ignored.filter { it.ignoreReason == IgnoreReason.EDGE_STAY.code }
         return TrackPoints(
+            all = all,
             good = SegmentBreaks.goodWithCarriedBreaks(all),
             noisy = noisy,
             edgeStay = edgeStay,

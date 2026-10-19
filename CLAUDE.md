@@ -346,7 +346,8 @@ intervals cut at local midnights and interleaved with the tracks into the day li
 detection — a read-only track-detail overlay, and stage 1 of the edge-stay rule below, which passes
 its own tuning; splitting tracks at a *detected* stop is designed but not
 built — the user's own cut ships), `EdgeStayDetector` (the recorder's overrun at a track's edges, where Activity
-Recognition lagged the real stop) + `EdgeStayIgnore` (what that verdict does to the points),
+Recognition lagged the real stop) + `StationaryRuns` (the inside of a stop) + `TrackSettle` (what
+both verdicts do to the points), `GraphBreaks` (where the metric graph's line is not joined),
 `RecordCard`, `StaleReadingOracle` (spot a registration that has gone deaf) +
 `DeafnessWarning` (decide when to tell the user about it), `MovementConfirmer` (the recording
 pipeline's second witness — see below), `DepartureWatch` + `ArrivalWatch` (the two edges of a
@@ -396,7 +397,7 @@ stitch window, the GPS give-up timeout, and keep-track
 thresholds (min duration/length/extent). It also holds recorder bookkeeping that isn't a user
 setting at all: when the recorder was last disarmed (the instant the timeline's trailing stay
 closes at), which permissions this install has ever put a dialog up for,
-and the versions `App.onCreate` records (edge stays, track stats, derived logic)
+and the versions `App.onCreate` records (the settle rules, track stats, derived logic)
 that are what make it re-derive the whole history. Sampling is read by the service when
 each track's GPS request starts; keep thresholds by the repository when a track finishes.
 `ActivityType` therefore only carries a label, a `recording` boolean, and a `TrackGroup`; sampling
@@ -580,15 +581,18 @@ place's likely categories as one-tap chips on its detail screen, beside the row 
 picker; `TrackListViewModel.categorySuggester` retrains it off `placeRows` rather than the
 derivation.
 
-**An ignored point is one that isn't part of the path — for either of two reasons**: the recorder's
-bad-fix rule, and `EdgeStayIgnore`'s `IgnoreReason.EDGE_STAY` for good fixes recorded past the stop
-at a track's edges (`IgnoreReason` holds the distinction). The second is applied automatically
-wherever a track's points change — finished, imported, merged, split, restored, or retyped across
-the foot/vehicle line — and `HistorySweeps.edgeStays` re-derives the whole history when
-`EdgeStayDetector.RULE_VERSION` moves. A writer that ends its trips at their stops
-(`TrackOrigin.endsAtStops`) is the exception, the rule having no tuning for it
-(`EdgeStayDetector.paramsFor`): Google ends a trip at the instant its visit begins, and a manual
-trip's typed ends are its stops, so the stop is already placed.
+**An ignored point is one that isn't part of the path**: a fix the recorder's bad-fix rule rejected,
+or a good fix the settle pass takes off it — `IgnoreReason.EDGE_STAY` for fixes recorded past the
+stop at a track's edges, and `IgnoreReason.STATIONARY` for the inside of a stop, whose first and last
+fixes already say where it was and how long it lasted (`StationaryRuns`). `IgnoreReason` holds the
+distinction. The settle flags are applied automatically wherever a track's points change — finished,
+imported, merged, split, restored, or retyped across the foot/vehicle line — and
+`HistorySweeps.resettle` re-derives the whole history when `TrackSettle.RULE_VERSION` moves. The
+overrun is decided first, so a stop at a track's edge is the overrun's. A writer that ends its trips
+at their stops (`TrackOrigin.endsAtStops`) is exempt from the overrun, the rule having no tuning for
+it (`EdgeStayDetector.paramsFor`): Google ends a trip at the instant its visit begins, and a manual
+trip's typed ends are its stops, so the stop is already placed. A manual trip is exempt from
+thinning too, its fixes being typed ends and a router's shape rather than a receiver's record.
 
 **A track's clock is then set from the fixes that survive** (`TrackBounds`, applied in the same pass):
 its bounds are the first and last *good* point, never the transition that opened or closed the row.
@@ -598,7 +602,7 @@ speed collapse at; held, those minutes claim a whereabouts nothing measured and 
 stay beside them, since every minute the track holds is one the interval around it doesn't. Because
 an edge-stay flag makes a fix ignored, this lands on the boundary fix by itself wherever an overrun
 *was* found — so the bounds are one rule with one author rather than two that agree by convention.
-`EdgeStayIgnore.plan` speaks for the flags alone; `EdgeStayIgnore.settle` is the order the two run
+`TrackSettle.plan` speaks for the flags alone; `TrackSettle.settle` is the order the rules run
 in, and every writer enters through it.
 
 **The track row carries its points' aggregates, and the recorder must never write it.** Distance,
@@ -647,8 +651,8 @@ opening. Make the pass idempotent — a crash between the work and the flag writ
 Delete the pass, its flag, and any DAO queries only it used once the installed base has run it;
 `git log --grep=backfill` holds worked examples to copy from (the ignore-reason backfill, the
 drive-start leading-stray repair, the point-starved-track purge). **No backfill is live right
-now**: `App.onCreate` runs the discarded-track retention purge, the two versioned sweeps (edge
-stays, then track stats) and then the derivation — seeds reconciled, and the history re-derived if
+now**: `App.onCreate` runs the discarded-track retention purge, the two versioned sweeps (the
+settle, then track stats) and then the derivation — seeds reconciled, and the history re-derived if
 those seeds moved, if a sweep ran, or if `DerivationStore.LOGIC_VERSION` outran what the rows were
 derived by. That last order is load-bearing: the sweeps rewrite the very coordinates the derivation
 reads, and every version is recorded only after the derivation has consumed them, so a launch that

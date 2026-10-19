@@ -62,7 +62,7 @@ interface TrackDao {
      * Restate a typed-in track: what it was and when it ran, in one write. Its points are replaced
      * in the same transaction ([deletePointsFor]) — the bounds and the two fixes are one statement
      * about a manual track, and a row whose bounds outran its points would be widened back by the
-     * next edge-stay sweep.
+     * next settle sweep.
      */
     @Query(
         "UPDATE tracks SET activityType = :activityType, startedAt = :startedAt, endedAt = :endedAt " +

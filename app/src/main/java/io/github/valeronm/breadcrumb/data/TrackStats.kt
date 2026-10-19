@@ -34,7 +34,7 @@ object TrackStats {
     /**
      * Bumped whenever this walk would produce different numbers for the same points: the aggregates
      * on a track row are this code's output, so a moved rule leaves every stored track behind it,
-     * and nothing re-walks a track whose points haven't changed (the edge-stay sweep skips it; only
+     * and nothing re-walks a track whose points haven't changed (the settle sweep skips it; only
      * finish, merge, import or retype re-walks otherwise). [HistorySweeps.stats] re-walks the
      * history when the version it last swept is behind this one, so bumping is part of changing the
      * rule, not a follow-up chore.
@@ -47,8 +47,7 @@ object TrackStats {
         val distanceMeters: Double,
         /** Usable (non-ignored) points. */
         val pointCount: Int,
-        /** Ignored points: bad fixes — a signal that the track is questionable — plus the
-         *  recorder's overrun at the edges, which is not. The reason on each row separates them. */
+        /** [io.github.valeronm.breadcrumb.data.db.Track.ignoredCount]. */
         val ignoredCount: Int,
         val startLat: Double?,
         val startLon: Double?,

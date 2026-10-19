@@ -102,25 +102,6 @@ object EdgeStayDetector {
         }
     }
 
-    /**
-     * Bumped whenever the sweep this drives would settle a track differently — a new stage, a moved
-     * threshold, a different boundary, or a change to the clock [TrackBounds] reads off the flags.
-     * The [IgnoreReason.EDGE_STAY][io.github.valeronm.breadcrumb.data.IgnoreReason.EDGE_STAY] flags
-     * on stored points and the bounds over them are this pass's verdicts, so a moved rule leaves them
-     * stale in both directions; the app re-sweeps its history when the version it last swept is
-     * behind this one, making the bump part of changing the rule, not a follow-up chore. One version
-     * for the one pass: a second keyed to the same sweep would only be a second thing to forget.
-     * 1 — the original half-minute edge-stay sweep.
-     * 2 — displacement vetoes Doppler, real-fix boundary, dwell retraction, per-bin voting, vehicle standstill floor.
-     * 3 — no rule change (a bump taken to watch the sweep run).
-     * 4 — the per-bin vote floor scales with the track's own cadence, so bin-scale sampling is detectable at all.
-     * 5 — no rule change: the verdict moved from a review mark onto the points ([EdgeStayIgnore]); history re-swept to acquire it.
-     * 6 — no rule change: every flag is now reconsidered wherever it sits, so a merge-buried overrun is handed back.
-     * 7 — no detection change: the clock follows the good fixes ([TrackBounds]), covering the edge
-     *     this rule declines — an arrival GPS went blind for leaves nothing to place a boundary in.
-     */
-    const val RULE_VERSION = 7
-
     enum class Side { START, END }
 
     /**

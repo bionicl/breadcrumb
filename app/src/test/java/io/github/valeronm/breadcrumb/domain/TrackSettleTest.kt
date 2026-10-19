@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -8,15 +9,19 @@ import org.junit.Test
 /**
  * The rules that make automatic, repeatable application safe: a plan derived from the raw recording
  * (so re-running it converges instead of eating the track), flags that come back when the rule
- * withdraws, and edges as the only part of the track this rule may touch. Same fixture shape as
- * [EdgeStayDetectorTest] — flat-earth distances (0.001° ≈ 100 m), a fix every 15 s carrying its Doppler speed.
+ * withdraws, edges as the only part of the track the overrun rule may touch, and stops inside it as
+ * the stop rule's.
  */
-class EdgeStayIgnoreTest {
+class TrackSettleTest {
 
     /** The params the recorder actually runs, as in [EdgeStayDetectorTest]: the detector's own
      *  defaults ship nowhere, so a plan derived through them is a plan of a rule the app doesn't
      *  apply — and whether a steady walk plans *nothing* is exactly a question of the numbers. */
     private val params = EdgeStayDetector.BRIEF_STOP
+
+    /** The track row [TrackSettle.settle] picks [params] for. */
+    private fun walkRow(startedAt: Long, source: TrackOrigin = TrackOrigin.RECORDED) =
+        Track(activityType = ActivityType.WALKING.name, startedAt = startedAt, source = source.code)
 
     private var nextId = 1L
 
@@ -35,9 +40,9 @@ class EdgeStayIgnoreTest {
     private fun walk(fromM: Double, startT: Long, minutes: Int): List<TrackPoint> =
         (0 until minutes * 4).map { i -> pt(fromM + 80.0 * i / 4.0, startT + i * 15_000L, 1.33f) }
 
-    private fun linger(centerM: Double, startT: Long, minutes: Int): List<TrackPoint> =
+    private fun linger(centerM: Double, startT: Long, minutes: Int, swingM: Double = 8.0, speed: Float = 0.1f) =
         (0 until minutes * 4).map { i ->
-            pt(centerM + if (i % 2 == 0) 8.0 else -8.0, startT + i * 15_000L, 0.1f)
+            pt(centerM + if (i % 2 == 0) swingM else -swingM, startT + i * 15_000L, speed)
         }
 
     /** 10 min of walking, then 5 min stationary where it ended — the arrival-lag shape. */
@@ -50,11 +55,11 @@ class EdgeStayIgnoreTest {
     private fun TrackPoint.asEdgeStay() =
         copy(ignored = true, ignoreReason = IgnoreReason.EDGE_STAY.code)
 
-    private fun plan(points: List<TrackPoint>) = EdgeStayIgnore.plan(points, params, flatDistance)
+    private fun plan(points: List<TrackPoint>) = TrackSettle.plan(points, params, thinsStops = true, flatDistance)
 
     /** Both rules over one track, as every writer runs them. */
     private fun settle(points: List<TrackPoint>, startedAt: Long, endedAt: Long) =
-        EdgeStayIgnore.settle(points, startedAt, endedAt, params, flatDistance)
+        TrackSettle.settle(points, walkRow(startedAt), endedAt, flatDistance)
 
     @Test
     fun `the arrival tail is flagged and the clock stops at the boundary`() {
@@ -77,7 +82,7 @@ class EdgeStayIgnoreTest {
         val points = walkThenLinger()
         val flagged = settle(points, 0L, points.last().timestamp + 5_000L).points
 
-        val settled = EdgeStayIgnore.settle(flagged, 0L, points.last().timestamp, params = null, flatDistance)
+        val settled = TrackSettle.settle(flagged, walkRow(0L, TrackOrigin.MANUAL), points.last().timestamp, flatDistance)
 
         assertTrue(settled.plan.ignore.isEmpty())
         assertEquals(flagged.count { it.ignored }, settled.plan.restore.size)
@@ -119,6 +124,63 @@ class EdgeStayIgnoreTest {
         assertTrue(settled.points.none { it.ignored })
     }
 
+    /** Tight enough for [StationaryRuns], where [linger]'s default swing is not. */
+    private fun standstill(centerM: Double, startT: Long, minutes: Int) =
+        linger(centerM, startT, minutes, swingM = 2.0, speed = 0.0f)
+
+    /** 10 min walking, 3 min standing, 10 min walking on from the same spot. */
+    private fun walkStandWalk(): List<TrackPoint> {
+        val first = walk(0.0, 0L, 10)
+        val at = first.last().longitudeM() + 20.0
+        return first + standstill(at, 10 * MIN, 3) + walk(at + 20.0, 13 * MIN, 10)
+    }
+
+    @Test
+    fun `a stop inside the track is thinned and its ends stay on the path`() {
+        val points = walkStandWalk()
+        val stand = 40 until 52
+
+        val settled = settle(points, 0L, points.last().timestamp)
+
+        assertEquals((41..50).toSet(), settled.plan.ignore.keys)
+        assertTrue(settled.plan.ignore.values.all { it == IgnoreReason.STATIONARY })
+        assertTrue(stand.first in settled.points.indices.filter { !settled.points[it].ignored })
+        assertEquals(0L, settled.bounds.startedAt)
+        assertEquals(points.last().timestamp, settled.bounds.endedAt)
+    }
+
+    @Test
+    fun `a stop at the track's edge is the overrun's, not thinned`() {
+        val points = walk(0.0, 0L, 10).let { it + standstill(it.last().longitudeM() + 20.0, 10 * MIN, 5) }
+
+        val settled = settle(points, 0L, points.last().timestamp + 5_000L)
+
+        assertTrue(settled.plan.ignore.isNotEmpty())
+        assertTrue(settled.plan.ignore.values.all { it == IgnoreReason.EDGE_STAY })
+    }
+
+    @Test
+    fun `re-planning a thinned track changes nothing`() {
+        val points = walkStandWalk()
+        val first = settle(points, 0L, points.last().timestamp)
+
+        val again = settle(first.points, first.bounds.startedAt, first.bounds.endedAt)
+
+        assertTrue(again.plan.ignore.isEmpty())
+        assertTrue(again.plan.restore.isEmpty())
+    }
+
+    @Test
+    fun `a track that is not thinned hands its stop back`() {
+        val points = walkStandWalk()
+        val thinned = settle(points, 0L, points.last().timestamp).points
+
+        val settled = TrackSettle.settle(thinned, walkRow(0L, TrackOrigin.MANUAL), points.last().timestamp, flatDistance)
+
+        assertEquals(thinned.count { it.ignored }, settled.plan.restore.size)
+        assertTrue(settled.points.none { it.ignored })
+    }
+
     @Test
     fun `flags in the middle of a track are handed back`() {
         // What a merge leaves behind: the earlier track's overrun, now buried mid-track. No edge
@@ -134,7 +196,7 @@ class EdgeStayIgnoreTest {
 
         assertEquals(middle, plan.restore)
         assertTrue(plan.ignore.isEmpty())
-        assertTrue(EdgeStayIgnore.applied(flagged, plan).none { it.ignored })
+        assertTrue(TrackSettle.applied(flagged, plan).none { it.ignored })
     }
 
     @Test
@@ -144,13 +206,13 @@ class EdgeStayIgnoreTest {
         val points = walkThenLinger().map { it.copy(id = 0) }
 
         val plan = plan(points)
-        val applied = EdgeStayIgnore.applied(points, plan)
+        val applied = TrackSettle.applied(points, plan)
 
         val kept = applied.filter { !it.ignored }
         assertTrue("the walk must survive", kept.size > points.size / 2)
         assertEquals(points.size, kept.size + plan.ignore.size)
         // Only the tail, and contiguously so.
-        assertEquals(applied.indices.toList().takeLast(plan.ignore.size).toSet(), plan.ignore)
+        assertEquals(applied.indices.toList().takeLast(plan.ignore.size).toSet(), plan.ignore.keys)
     }
 
     // --- overruns ------------------------------------------------------------
@@ -166,7 +228,7 @@ class EdgeStayIgnoreTest {
         val lead = linger(0.0, 0L, 3)
         val good = walk(0.0, 3 * 60_000L, 10)
 
-        val overrun = EdgeStayIgnore.overruns(good, lead).single()
+        val overrun = TrackSettle.overruns(good, lead).single()
 
         assertEquals(EdgeStayDetector.Side.START, overrun.side)
         assertEquals(good.first().timestamp - lead.first().timestamp, overrun.stayMs)
@@ -180,7 +242,7 @@ class EdgeStayIgnoreTest {
         val good = walk(0.0, 3 * 60_000L, 10)
         val tail = linger(good.last().longitudeM(), 13 * 60_000L, 3)
 
-        val overruns = EdgeStayIgnore.overruns(good, lead + tail)
+        val overruns = TrackSettle.overruns(good, lead + tail)
 
         assertEquals(
             listOf(EdgeStayDetector.Side.START, EdgeStayDetector.Side.END),
@@ -198,15 +260,15 @@ class EdgeStayIgnoreTest {
         val good = walk(0.0, 0L, 10)
         val buried = listOf(good[20], good[21])
 
-        assertTrue(EdgeStayIgnore.overruns(good, buried).isEmpty())
+        assertTrue(TrackSettle.overruns(good, buried).isEmpty())
     }
 
     @Test
     fun `nothing to hang off and nothing to hang are both empty`() {
         val walk = walk(0.0, 0L, 10)
         // A bad-points-only track: every fix rejected, so there is no good fix to join.
-        assertTrue(EdgeStayIgnore.overruns(emptyList(), walk).isEmpty())
-        assertTrue(EdgeStayIgnore.overruns(walk, emptyList()).isEmpty())
+        assertTrue(TrackSettle.overruns(emptyList(), walk).isEmpty())
+        assertTrue(TrackSettle.overruns(walk, emptyList()).isEmpty())
     }
 
     @Test
@@ -219,20 +281,20 @@ class EdgeStayIgnoreTest {
         val plan = plan(points)
 
         assertTrue("a steady walk plans nothing", !plan.movesPoints)
-        assertTrue(EdgeStayIgnore.applied(points, plan) === points)
+        assertTrue(TrackSettle.applied(points, plan) === points)
     }
 
     @Test
     fun `the stored overrun reads back with its side, length and joining fix`() {
         val points = walkThenLinger()
-        val applied = EdgeStayIgnore.applied(
+        val applied = TrackSettle.applied(
             points,
             plan(points),
         )
         val good = applied.filter { !it.ignored }
-        val stay = applied.filter { EdgeStayIgnore.isEdgeStay(it) }
+        val stay = applied.filter { it.ignoreReason == IgnoreReason.EDGE_STAY.code }
 
-        val overrun = EdgeStayIgnore.overruns(good, stay).single()
+        val overrun = TrackSettle.overruns(good, stay).single()
 
         assertEquals(EdgeStayDetector.Side.END, overrun.side)
         assertEquals(points.last().timestamp - good.last().timestamp, overrun.stayMs)

@@ -304,7 +304,7 @@ object TrackQuality {
     /**
      * Which [IgnoreReason.JUMP] flags in [points] the [activity] ceiling accepts — the indices a
      * retype hands back to the path, by position in the list given (the
-     * [EdgeStayIgnore][io.github.valeronm.breadcrumb.domain.EdgeStayIgnore] convention).
+     * [TrackSettle][io.github.valeronm.breadcrumb.domain.TrackSettle] convention).
      * Withdraws flags, never adds them: a misdetected activity judged fixes by the wrong ceiling
      * (a drive taken for walking is measured against a pedestrian's) and correcting it says the
      * ceiling was wrong, but retyping *down* would flag a real journey as noise on a label alone,
@@ -330,7 +330,7 @@ object TrackQuality {
         val restores = mutableSetOf<Int>()
         var lastGood: TrackPoint? = null
         for ((i, point) in points.withIndex()) {
-            if (!point.ignored || point.ignoreReason == IgnoreReason.EDGE_STAY.code) {
+            if (!point.ignored || IgnoreReason.fromCode(point.ignoreReason)?.isRejection == false) {
                 lastGood = point
                 continue
             }

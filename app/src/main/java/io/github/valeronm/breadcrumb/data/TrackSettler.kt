@@ -6,16 +6,15 @@ import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"
 
 /**
- * What a track whose points changed owes its row: the recorder's overrun settled off the path and
- * the clock onto the fixes that survive ([EdgeStayIgnore.settle]), then the aggregates those points
- * add up to. Every writer of a stored track's points enters through [settleAndRefresh], and a
+ * What a track whose points changed owes its row: the recorder's overrun and the inside of its
+ * stops settled off the path and the clock onto the fixes that survive ([TrackSettle.settle]),
+ * then the aggregates those points add up to. Every writer of a stored track's points enters through [settleAndRefresh], and a
  * track with no row yet through [settleForInsert]; what stays with the writer is only whether it
  * owes the derivation a repair. Runs inside the caller's transaction throughout.
  */
@@ -24,7 +23,7 @@ internal class TrackSettler(private val dao: TrackDao) {
     /** A track as [settleTrack] left it: the domain's verdict, plus what of it the row didn't
      *  already say. */
     class Applied(
-        val settled: EdgeStayIgnore.Settled,
+        val settled: TrackSettle.Settled,
         /** Whether the rules moved anything — a flag or either bound. False on the re-runs that
          *  agree with the stored rows, which is what lets a re-sweep cost no writes. */
         val changed: Boolean,
@@ -78,7 +77,7 @@ internal class TrackSettler(private val dao: TrackDao) {
      * back for the caller to insert with. A track carrying no end — a file's, never one the app
      * finished — settles over an empty window, which moves nothing.
      */
-    fun settleForInsert(track: Track, points: List<TrackPoint>): EdgeStayIgnore.Settled =
+    fun settleForInsert(track: Track, points: List<TrackPoint>): TrackSettle.Settled =
         settleOf(track, track.endedAt ?: track.startedAt, points)
 
     /** Whether retyping [track] to [to] changes the tuning the overrun rule runs under. */
@@ -86,16 +85,9 @@ internal class TrackSettler(private val dao: TrackDao) {
         EdgeStayDetector.paramsFor(to.name, track.source) !=
             EdgeStayDetector.paramsFor(track.activityType, track.source)
 
-    /** The rules over a track's points — the one place that says which tuning and which distance
-     *  they run under. */
-    private fun settleOf(track: Track, endedAt: Long, points: List<TrackPoint>): EdgeStayIgnore.Settled =
-        EdgeStayIgnore.settle(
-            points = points,
-            startedAt = track.startedAt,
-            endedAt = endedAt,
-            params = EdgeStayDetector.paramsFor(track.activityType, track.source),
-            distance = AndroidDistance,
-        )
+    /** The rules over a track's points — the one place that says which distance they run under. */
+    private fun settleOf(track: Track, endedAt: Long, points: List<TrackPoint>): TrackSettle.Settled =
+        TrackSettle.settle(points, track, endedAt, AndroidDistance)
 
     /**
      * Hand back the jump-flagged fixes the retyped activity's ceiling accepts ([TrackQuality.jumpRestores]),
@@ -121,8 +113,9 @@ internal class TrackSettler(private val dao: TrackDao) {
     }
 
     /**
-     * Write what [EdgeStayIgnore.settle] says a stored track's points and clock should read — the
-     * recorder's overrun off the path and the bounds on the fixes that survive. Nothing is destroyed
+     * Write what [TrackSettle.settle] says a stored track's points and clock should read — the
+     * recorder's overrun and the inside of its stops off the path, and the bounds on the fixes that
+     * survive. Nothing is destroyed
      * — the points stay, and a rule that later withdraws a stay hands them straight back, the clock
      * reopening onto them — and it is idempotent, which lets every path that changes a track's
      * points end here. The point flags and both bounds are written, except on a still-open row
@@ -134,8 +127,9 @@ internal class TrackSettler(private val dao: TrackDao) {
         val plan = settled.plan
         // The plan names points by position; these ones came out of the database, so each has a
         // row id to write against.
-        plan.ignore.map { points[it].id }.chunked(IDS_PER_STATEMENT)
-            .forEach { dao.setIgnored(it, IgnoreReason.EDGE_STAY.code) }
+        for ((reason, indices) in plan.ignore.entries.groupBy({ it.value }, { it.key })) {
+            indices.map { points[it].id }.chunked(IDS_PER_STATEMENT).forEach { dao.setIgnored(it, reason.code) }
+        }
         plan.restore.map { points[it].id }.chunked(IDS_PER_STATEMENT).forEach { dao.clearIgnored(it) }
         val movedStart = settled.bounds.startedAt != track.startedAt
         val movedEnd = settled.bounds.endedAt != endedAt
@@ -143,13 +137,11 @@ internal class TrackSettler(private val dao: TrackDao) {
         // An open row's end is the caller's to write; [endedAt] was only its proposal.
         if (movedEnd && track.endedAt != null) dao.closeTrack(track.id, settled.bounds.endedAt)
         if (plan.movesPoints) {
-            val what = plan.stays
-                .joinToString { "${it.side.name.lowercase()} overrun of ${it.stayMs / 1000}s" }
-                .ifEmpty { "no overrun" }
+            val overruns = plan.stays.joinToString { "${it.side.name.lowercase()} overrun of ${it.stayMs / 1000}s" }
+            val ignored = plan.ignore.values.groupingBy { it.code }.eachCount()
             DebugLog.i(
                 TAG,
-                "track ${track.id}: $what " +
-                    "(${plan.ignore.size} points ignored, ${plan.restore.size} restored)",
+                "track ${track.id}: ${overruns.ifEmpty { "no overrun" }}; ignored $ignored, ${plan.restore.size} restored",
             )
         }
         return Applied(settled, changed = plan.movesPoints || movedStart || movedEnd)

@@ -7,7 +7,7 @@
 
 import {
   FLAG_SEGMENT_START,
-  REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY,
+  REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY, REASON_STATIONARY,
 } from "./convert.js";
 import { greatCircleArc, metersBetween } from "./geo.js";
 import { activityColor } from "./discs.js";
@@ -519,6 +519,8 @@ export function splitForDrawing(lonlat, reasons, flags, n) {
         paths.push(current);
       }
       current.push(c);
+    } else if (reason === REASON_STATIONARY) {
+      continue;
     } else if (reason === REASON_EDGE_STAY) {
       // A rejected fix inside a stay doesn't end it — the phone was still parked.
       if (!run) run = current?.length ? [current.at(-1)] : [];

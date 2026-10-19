@@ -78,11 +78,12 @@ cd site && npm run dev
   something to point at.
 
   **Off-path fixes follow the app's conventions**, because the same fix reading two ways in two
-  places is worse than either reading. An ignored point is off the path for one of two unrelated
-  reasons, and they are drawn differently: fixes the recorder *rejected* (accuracy, speed jump, no
-  satellite fix) are markers in the app's own legend colors, while the recorder's *overrun* — good
-  fixes of a phone that had already arrived — is a grayed leg hanging off the path, anchored to the
-  fix either side so it meets the line. A corner legend names whichever of those a selected track
+  places is worse than either reading. An ignored point is off the path for unrelated reasons, and
+  they are drawn differently: fixes the recorder *rejected* (accuracy, speed jump, no satellite fix)
+  are markers in the app's own legend colors, the recorder's *overrun* — good fixes of a phone that
+  had already arrived — is a grayed leg hanging off the path, anchored to the fix either side so it
+  meets the line, and the inside of a *stop*, whose first and last fixes stay on the path, is drawn
+  nowhere. A corner legend names whichever of those a selected track
   actually has. The path is cut wherever a segment break records that the recorder stopped watching:
   the ground across one was covered — distance counts it, here as in the app — but nobody traced it,
   and a line drawn through it claims a route that was never observed. Both maps are cut the same way:

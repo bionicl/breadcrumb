@@ -13,7 +13,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * road outside it.
  *
  * An **ignored** fix is not usable, and that is what makes this one rule rather than two. The
- * quality gate's rejects and [EdgeStayIgnore]'s flagged overrun are both already off the path, so
+ * quality gate's rejects and [TrackSettle]'s flagged overrun are both already off the path, so
  * pulling the clock to the outermost *good* fix lands it exactly on the cut wherever an overrun was
  * found — [EdgeStayDetector.EdgeStay.boundaryTs] is by construction the last good fix the track
  * keeps — while also covering the case that rule must decline: no fixes at all, which is starvation
@@ -24,7 +24,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * the ones whose coordinates [io.github.valeronm.breadcrumb.data.TrackStats] stores beside these
  * timestamps; the row's clock and its endpoints are meant to describe the same pair.
  *
- * A change here is swept into stored history by `EdgeStayDetector.RULE_VERSION`, which versions the
+ * A change here is swept into stored history by `TrackSettle.RULE_VERSION`, which versions the
  * verdicts of the one pass that settles flags and clock together. Pure and Android-free.
  */
 object TrackBounds {

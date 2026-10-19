@@ -4,12 +4,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.data.export.GoogleTimelineImporter
-import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import io.github.valeronm.breadcrumb.domain.placeOrigin
 import kotlinx.coroutines.test.runTest
@@ -293,8 +292,8 @@ class GoogleTimelineImportTest {
         val points = target.dao.allPointsFor(track.id)
         assertTrue(points.none { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
         assertEquals(points.last().timestamp, track.endedAt)
-        val recorderPlan = EdgeStayIgnore.settle(
-            points, track.startedAt, track.endedAt!!, EdgeStayDetector.BRIEF_STOP, AndroidDistance,
+        val recorderPlan = TrackSettle.settle(
+            points, track.copy(source = TrackOrigin.RECORDED.code), track.endedAt!!, AndroidDistance,
         ).plan
         assertTrue(recorderPlan.ignore.isNotEmpty())
     }

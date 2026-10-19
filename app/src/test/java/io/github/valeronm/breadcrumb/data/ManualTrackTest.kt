@@ -184,7 +184,7 @@ class ManualTrackTest {
         assertEquals(1.5, points.last().latitude, 0.0)
         assertTrue(points.zipWithNext().all { (a, b) -> a.timestamp < b.timestamp })
 
-        repository.sweeps.edgeStays()
+        repository.sweeps.resettle()
         repository.sweeps.stats()
         val after = dao.track(id)!!
         assertEquals(TEST_START, after.startedAt)
@@ -199,7 +199,7 @@ class ManualTrackTest {
         val id = trackIdOf(manualTrip())
         val before = dao.track(id)!!
 
-        repository.sweeps.edgeStays()
+        repository.sweeps.resettle()
         repository.sweeps.stats()
 
         val after = dao.track(id)!!

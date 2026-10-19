@@ -7,7 +7,7 @@ import io.github.valeronm.breadcrumb.data.DerivationStore
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.TrackStats
-import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -58,15 +58,14 @@ class App : Application() {
             repository.purgeOldDiscarded()
             // Crash-cleanup of dangling tracks happens in the service's arm path. One-time
             // data backfills also go here when needed — see "Backfills" in CLAUDE.md.
-            val edgeStayRuleMoved = Settings.edgeStayRuleVersion(this@App) < EdgeStayDetector.RULE_VERSION
+            val settleRuleMoved = Settings.settleRuleVersion(this@App) < TrackSettle.RULE_VERSION
             val statsRuleMoved = Settings.statsRuleVersion(this@App) < TrackStats.RULE_VERSION
             val derivedLogicMoved = Settings.derivedLogicVersion(this@App) < DerivationStore.LOGIC_VERSION
-            // The ignored edge stays are verdicts of a rule that keeps moving, so they are
-            // re-derived whenever the detector's version outruns the one they were computed
-            // with — not once.
-            if (edgeStayRuleMoved) repository.sweeps.edgeStays()
+            // The settle flags are verdicts of rules that keep moving, so they are re-derived
+            // whenever the settle's version outruns the one they were computed with — not once.
+            if (settleRuleMoved) repository.sweeps.resettle()
             // The aggregates on a track row are the output of a walk that keeps moving too, and
-            // they are re-derived the same way. It runs second: the edge-stay sweep decides which
+            // they are re-derived the same way. It runs second: the settle sweep decides which
             // fixes are on the path, and this one totals whatever that leaves.
             if (statsRuleMoved) repository.sweeps.stats()
             // Last, and the order is load-bearing: both sweeps above rewrite a track's bounds and
@@ -78,8 +77,8 @@ class App : Application() {
             // which is why the versions are recorded only below, once the derivation has consumed
             // them. A seed moved while the app was closed (none can be today, but a future importer
             // could) is the reconcile's own business.
-            DerivationStore(this@App).reconcile(stale = edgeStayRuleMoved || statsRuleMoved || derivedLogicMoved)
-            if (edgeStayRuleMoved) Settings.setEdgeStayRuleVersion(this@App, EdgeStayDetector.RULE_VERSION)
+            DerivationStore(this@App).reconcile(stale = settleRuleMoved || statsRuleMoved || derivedLogicMoved)
+            if (settleRuleMoved) Settings.setSettleRuleVersion(this@App, TrackSettle.RULE_VERSION)
             if (statsRuleMoved) Settings.setStatsRuleVersion(this@App, TrackStats.RULE_VERSION)
             if (derivedLogicMoved) Settings.setDerivedLogicVersion(this@App, DerivationStore.LOGIC_VERSION)
         }

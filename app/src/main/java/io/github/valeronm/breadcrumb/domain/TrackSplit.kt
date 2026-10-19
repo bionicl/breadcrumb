@@ -28,7 +28,7 @@ object TrackSplit {
         val cutTs: Long,
         /**
          * The halves' inner bounds — the outermost fix each keeps, ignored fixes included: that is
-         * the raw extent the overrun rule then pulls in ([EdgeStayIgnore]); the last *good* fix
+         * the raw extent the overrun rule then pulls in ([TrackSettle]); the last *good* fix
          * would report an end the stored row disagrees with when a rejected fix sits against the cut.
          */
         val firstEndTs: Long,
@@ -39,8 +39,7 @@ object TrackSplit {
 
     /**
      * [points] is a track's fixes, good and ignored alike, in any order — every value here is a
-     * count or an extreme, so a caller holding its points in separate lists can concatenate them
-     * unsorted. Null when [isLegalCut] refuses; nothing about the halves is then worth reporting.
+     * count or an extreme. Null when [isLegalCut] refuses; nothing about the halves is then worth reporting.
      */
     fun plan(points: List<TrackPoint>, cutTs: Long): Plan? {
         var firstGood = 0

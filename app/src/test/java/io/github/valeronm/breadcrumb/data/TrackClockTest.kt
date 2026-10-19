@@ -56,7 +56,7 @@ class TrackClockTest {
         // case where the sweep moves a bound and no flag.
         dao.closeTrack(id, lastFix + 6 * 60_000L)
 
-        repository.sweeps.edgeStays()
+        repository.sweeps.resettle()
 
         assertEquals(lastFix, dao.track(id)!!.endedAt)
     }

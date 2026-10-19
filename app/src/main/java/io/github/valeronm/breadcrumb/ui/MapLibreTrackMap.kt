@@ -17,10 +17,10 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import org.maplibre.android.geometry.LatLng
@@ -62,7 +62,7 @@ internal fun MapLibreTrackMap(
     dwells: List<DwellDetector.Dwell> = emptyList(),
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
     // drawn grayed off the end of the track line.
-    overruns: List<EdgeStayIgnore.Overrun> = emptyList(),
+    overruns: List<TrackSettle.Overrun> = emptyList(),
     // The named places at the path's two ends (see RoutePlaces) — a labeled pin over the capture
     // area that claimed that end. One entry where a round trip began and ended in the same place.
     endPlaces: List<Place> = emptyList(),
@@ -204,7 +204,7 @@ private class AppliedTrackInputs {
     var colors: IntArray? = null
     var selection: TrackPoint? = null
     var dwells: List<DwellDetector.Dwell>? = null
-    var overruns: List<EdgeStayIgnore.Overrun>? = null
+    var overruns: List<TrackSettle.Overrun>? = null
 
     /** The named places at the path's ends — identity, the resolution handing back a fresh list only
      *  when the path or the places table changed. */
@@ -250,12 +250,12 @@ private const val END_PLACE_LAYER = "end-place-layer"
  * drawn from the good fix it hangs off so the gray meets the colored line. Its own dim color rather
  * than dimming the track underneath: the fixes left the track line, so there is nothing to recolor.
  */
-private fun edgeStayFeature(overruns: List<EdgeStayIgnore.Overrun>): FeatureCollection =
+private fun edgeStayFeature(overruns: List<TrackSettle.Overrun>): FeatureCollection =
     FeatureCollection.fromFeatures(overruns.mapNotNull { lineFeature(it.points) })
 
 private fun addEdgeStayLayer(
     style: Style,
-    overruns: List<EdgeStayIgnore.Overrun>,
+    overruns: List<TrackSettle.Overrun>,
     dark: Boolean,
 ) {
     style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(overruns)))
@@ -461,12 +461,12 @@ private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArra
 }
 
 // Noisy markers are color-coded by why the fix was rejected; points recorded before reasons
-// were tracked (null) fall back to the generic accuracy color. EDGE_STAY fixes are not rejects
-// and never reach this layer — they are drawn as the grayed overrun line.
+// were tracked (null) fall back to the generic accuracy color. A reason that isn't a rejection never
+// reaches this layer.
 private fun noisyIcon(p: TrackPoint): String = when (IgnoreReason.fromCode(p.ignoreReason)) {
     IgnoreReason.JUMP -> IMG_NOISY_JUMP
     IgnoreReason.NO_GNSS -> IMG_NOISY_GNSS
-    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> IMG_NOISY
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, IgnoreReason.STATIONARY, null -> IMG_NOISY
 }
 
 private fun markerCollection(

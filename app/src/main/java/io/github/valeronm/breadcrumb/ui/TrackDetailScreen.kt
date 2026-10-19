@@ -70,13 +70,13 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
-import io.github.valeronm.breadcrumb.domain.EdgeStayIgnore
 import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
@@ -141,7 +141,7 @@ internal fun TrackDetailScreen(
     // Recording that ran on past the stop at either edge, grayed on the map: the stored fixes
     // grouped back into one run per edge, each hanging off the good fix that ends the track.
     val overruns = remember(points, stayPoints) {
-        EdgeStayIgnore.overruns(points.orEmpty(), stayPoints)
+        TrackSettle.overruns(points.orEmpty(), stayPoints)
     }
     // The named places this journey set out from and arrived at. Off the stored rows rather than the
     // derived summaries: a pin and its reach are all the rule and the map read, and neither has
@@ -439,11 +439,10 @@ private fun SplitConfirmation(
     if (load == null || cutIndex == null || onSplit == null) return
     if (summary == null) return
     val trackEnd = summary.endedAt ?: return
-    // The plan runs once per dialog open rather than once per scrub tick. The load holds the points
-    // in three lists and the plan reads only counts and extremes, so concatenating needs no sort.
+    // The plan runs once per dialog open rather than once per scrub tick.
     val plan = remember(load, cutIndex) {
         val cutTs = load.good.getOrNull(cutIndex)?.timestamp ?: return@remember null
-        TrackSplit.plan(load.good + load.noisy + load.edgeStay, cutTs)
+        TrackSplit.plan(load.all, cutTs)
     } ?: return
     // The legs either side of the cut, off the walk the screen already did. The leg *across* the cut
     // is in neither, because after the split it stops being a leg at all — it is the gap between two
@@ -874,9 +873,9 @@ private fun MetricGraph(
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (reason) {
     IgnoreReason.JUMP -> R.string.ignore_reason_jump to Color(0xFFE53935)
     IgnoreReason.NO_GNSS -> R.string.ignore_reason_no_gnss to Color(0xFFAB47BC)
-    // EDGE_STAY never reaches here (it is loaded separately and drawn as the grayed overrun);
-    // it shares the default marker rather than adding a legend row for an impossible case.
-    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null ->
+    // A reason that isn't a rejection never reaches here (`TrackRepository.trackPointsFor`); it shares
+    // the default marker rather than adding a legend row for an impossible case.
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, IgnoreReason.STATIONARY, null ->
         R.string.ignore_reason_accuracy to Color(0xFFFF8F00)
 }
 

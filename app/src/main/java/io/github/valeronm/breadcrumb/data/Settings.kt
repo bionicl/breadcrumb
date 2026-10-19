@@ -45,9 +45,9 @@ object Settings {
     private const val KEY_DEPARTURE_WIFI = "departure_wifi"
     private const val KEY_ASKED_PERMISSIONS = "asked_permissions"
 
-    // The key string doesn't match the edge-stay name and must stay that way: a renamed key reads
+    // The key string doesn't match the constant's name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
-    private const val KEY_EDGE_STAY_RULE_VERSION = "review_mark_rule_version"
+    private const val KEY_SETTLE_RULE_VERSION = "review_mark_rule_version"
 
     private const val KEY_STATS_RULE_VERSION = "stats_rule_version"
     private const val KEY_DERIVED_LOGIC_VERSION = "derived_logic_version"
@@ -406,13 +406,13 @@ object Settings {
         prefs(context).edit { putString(KEY_PLACES_SORT, name) }
     }
 
-    /** Which [io.github.valeronm.breadcrumb.domain.EdgeStayDetector.RULE_VERSION] the stored
-     *  edge-stay ignores were computed with; 0 = never swept. */
-    fun edgeStayRuleVersion(context: Context): Int =
-        prefs(context).getInt(KEY_EDGE_STAY_RULE_VERSION, 0)
+    /** Which [io.github.valeronm.breadcrumb.domain.TrackSettle.RULE_VERSION] the stored
+     *  settle flags were computed with; 0 = never swept. */
+    fun settleRuleVersion(context: Context): Int =
+        prefs(context).getInt(KEY_SETTLE_RULE_VERSION, 0)
 
-    fun setEdgeStayRuleVersion(context: Context, version: Int) {
-        prefs(context).edit { putInt(KEY_EDGE_STAY_RULE_VERSION, version) }
+    fun setSettleRuleVersion(context: Context, version: Int) {
+        prefs(context).edit { putInt(KEY_SETTLE_RULE_VERSION, version) }
     }
 
     /** Which [TrackStats.RULE_VERSION] the stored track aggregates were computed with;

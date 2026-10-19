@@ -338,7 +338,7 @@ class TrackRepositoryTest {
         tail.forEach { dao.setIgnored(it.id, IgnoreReason.EDGE_STAY.code) }
         dao.closeTrack(id, tail.first().timestamp)
 
-        repository.sweeps.edgeStays()
+        repository.sweeps.resettle()
 
         val restored = dao.track(id)!!
         assertEquals(90, restored.pointCount)
@@ -366,7 +366,7 @@ class TrackRepositoryTest {
         val drive = drivePoints(id, 0, 30, fromLat = 1.0)
         repository.addPoints(drive + parkedDriftPoints(id, 30, 90, lat = drive.last().latitude))
         repository.finishTrack(id, TEST_START + 120 * 10_000L)
-        assertEquals("nothing to trim under the foot rule", 0, dao.track(id)!!.ignoredCount)
+        assertEquals("nothing to trim under the foot rule", 0, dao.allPointsFor(id).count { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
 
         repository.setActivityType(id, ActivityType.TAXI)
 

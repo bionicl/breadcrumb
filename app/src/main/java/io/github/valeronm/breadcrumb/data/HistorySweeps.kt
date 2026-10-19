@@ -4,12 +4,12 @@ import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackDao
-import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"
 
-/** Tracks per transaction in a sweep — see [HistorySweeps.edgeStays]. */
+/** Tracks per transaction in a sweep — see [HistorySweeps.resettle]. */
 private const val SWEEP_BATCH_TRACKS = 100
 
 /**
@@ -26,8 +26,8 @@ internal class HistorySweeps(
 ) {
 
     /**
-     * Re-derive every kept track's overrun and clock against the current rules
-     * ([EdgeStayDetector.RULE_VERSION] says which produced the stored ones). Self-correcting in
+     * Re-derive every kept track's settle flags and clock against the current rules
+     * ([TrackSettle.RULE_VERSION] says which produced the stored ones). Self-correcting in
      * both directions, since the plan comes from the raw recording: a rule that now finds less
      * hands the points back, one that finds more takes them, and a crash mid-pass costs only a
      * re-run (the version is stored after, once the derivation has consumed what the sweep moved —
@@ -38,29 +38,29 @@ internal class HistorySweeps(
      * times, while one transaction for the lot would hold every rewritten point row in the journal
      * at once.
      */
-    suspend fun edgeStays() {
+    suspend fun resettle() {
         val tracks = dao.exportTracks()
         val changed = sweep(tracks) { resettleTrack(it) }
         DebugLog.i(
             TAG,
-            "edge-stay sweep (rule v${EdgeStayDetector.RULE_VERSION}) over ${tracks.size} " +
+            "settle sweep (rule v${TrackSettle.RULE_VERSION}) over ${tracks.size} " +
                 "tracks: $changed rewritten",
         )
     }
 
     /**
      * Re-walk every finished track's points and rewrite its aggregates — the standing answer to
-     * [TrackStats.RULE_VERSION] moving, in the shape [edgeStays] uses for its own rule. A stored
+     * [TrackStats.RULE_VERSION] moving, in the shape [resettle] uses for its own rule. A stored
      * total is the output of a walk that has since changed, and nothing re-walks a track whose points
-     * sat still: the edge-stay sweep skips it, and a track is otherwise re-walked only when finished,
+     * sat still: the settle sweep skips it, and a track is otherwise re-walked only when finished,
      * merged, imported or retyped. Every track is swept, not just the ones a particular change
      * touched — which tracks a *future* change reaches isn't knowable here, and a walk that skipped
-     * some would quietly leave them behind. Discarded tracks are included, unlike the edge-stay
+     * some would quietly leave them behind. Discarded tracks are included, unlike the settle
      * sweep's set (Recently deleted shows a distance, and restoring brings the row back as it
      * stands); open tracks are skipped — the recorder owns those columns until it finishes, where
      * the same walk runs anyway. Idempotent: it recomputes from the points, and the version is
-     * stored after, as [edgeStays]'s is, so an interrupted sweep costs a re-run. Points load one
-     * track at a time and commit in batches, for the reasons on [edgeStays] — and a track whose
+     * stored after, as [resettle]'s is, so an interrupted sweep costs a re-run. Points load one
+     * track at a time and commit in batches, for the reasons on [resettle] — and a track whose
      * stored columns already agree is left alone: `tracks` is observed, so a needless UPDATE per
      * track re-runs the timeline.
      */
@@ -97,7 +97,7 @@ internal class HistorySweeps(
     /**
      * The walk both sweeps share: [rederive] runs per item and returns whether it wrote anything
      * (only the count is reported). The batching and progress cadence are why this is one function —
-     * [edgeStays] says why each is shaped as it is. A sweep that agrees with the stored rows must
+     * [resettle] says why each is shaped as it is. A sweep that agrees with the stored rows must
      * cost no writes, so a `rederive` decides for itself whether there is anything to store.
      */
     private suspend fun <T> sweep(

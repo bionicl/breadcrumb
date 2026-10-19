@@ -49,8 +49,9 @@ data class Track(
     val distanceMeters: Double = 0.0,
     /** Usable (non-ignored) points. */
     val pointCount: Int = 0,
-    /** Ignored points: bad fixes — a signal that the track is questionable — plus the recorder's
-     *  overrun at the edges, which is not. [ignoreReason][TrackPoint.ignoreReason] separates them. */
+    /** Ignored points: bad fixes — a signal that the track is questionable — plus the good fixes
+     *  the settle pass takes off the path (`TrackSettle`), which are not. [ignoreReason][TrackPoint.ignoreReason]
+     *  separates them. */
     val ignoredCount: Int = 0,
     /** First/last good point — the stay deriver's endpoints. Null for a track with no good points. */
     val startLat: Double? = null,
@@ -72,7 +73,7 @@ data class Track(
     /**
      * Dormant, kept on purpose. It marked a track whose edge stay awaited the user's accept/reject;
      * nothing writes it since the overrun became a per-point flag applied as it is found
-     * ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore]), needing no pending decision.
+     * ([io.github.valeronm.breadcrumb.domain.TrackSettle]), needing no pending decision.
      * Reserved for the mid-track dwell split, whose cut *does* need confirming — splitting a track
      * in two is not undone by clearing a flag — and wants exactly this: one boolean saying a
      * decision is pending here. Don't drop it to tidy up; its next reader should re-derive rather
@@ -124,7 +125,7 @@ data class TrackPoint(
     /**
      * True for a fix that isn't part of the track's path — judged unreliable by
      * [io.github.valeronm.breadcrumb.data.TrackQuality] (too-coarse accuracy, implausible jump) or
-     * recorded past the stop at a track edge ([io.github.valeronm.breadcrumb.domain.EdgeStayIgnore])
+     * recorded past the stop at a track edge ([io.github.valeronm.breadcrumb.domain.TrackSettle])
      * — and excluded from distance, the rendered track line, the endpoints, and exports, but stored.
      */
     val ignored: Boolean = false,
@@ -342,7 +343,7 @@ data class TrackSummary(
     val distanceMeters: Double,
     /** Number of usable (non-ignored) points. */
     val pointCount: Int,
-    /** Number of ignored points — bad fixes, plus any the recorder ran on past the stop for. */
+    /** Number of ignored points — bad fixes, plus the good fixes the settle pass takes off the path. */
     val ignoredCount: Int,
     /** [Track.source]: who wrote the fixes. Undefaulted like the columns beside it — a projection
      *  that leaves it out reads as a track whose writer is unknown, which is a claim, not a gap. */

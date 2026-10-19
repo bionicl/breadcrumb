@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { splitForDrawing } from "../js/map.js";
 import {
   FLAG_SEGMENT_START,
-  REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY,
+  REASON_NONE, REASON_ACCURACY, REASON_JUMP, REASON_NO_GNSS, REASON_EDGE_STAY, REASON_STATIONARY,
 } from "../js/convert.js";
 
 // Points as [lat, reason] at a fixed longitude — latitude alone identifies a fix in these cases.
@@ -126,6 +126,22 @@ const lats = (coords) => coords.map(([, lat]) => lat);
 
   assert.deepEqual(paths, [], "nothing to draw as a path");
   assert.deepEqual(lats(overruns[0]), [1, 2], "and the run has no good fix to anchor to");
+}
+
+// --- the inside of a stop is drawn nowhere -----------------------------------------------------
+{
+  const { paths, rejected, overruns } = split([
+    [1, REASON_NONE],
+    [2, REASON_NONE],
+    [2, REASON_STATIONARY],
+    [2, REASON_STATIONARY],
+    [2, REASON_NONE],
+    [3, REASON_NONE],
+  ]);
+
+  assert.deepEqual(paths.map(lats), [[1, 2, 2, 3]], "the path runs through the stop's two ends");
+  assert.deepEqual(rejected, []);
+  assert.deepEqual(overruns, []);
 }
 
 console.log("all draw tests passed");
