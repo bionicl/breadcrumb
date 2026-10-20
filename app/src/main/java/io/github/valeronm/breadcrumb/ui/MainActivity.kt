@@ -110,6 +110,7 @@ class MainActivity : FragmentActivity() {
             AppTheme {
                 var unitChoice by remember { mutableStateOf(storedUnitChoice(this)) }
                 var mapShade by remember { mutableStateOf(MapShade.of(AppSettings.mapDark(this))) }
+                var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(this)) }
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
@@ -133,7 +134,7 @@ class MainActivity : FragmentActivity() {
                 // two choices that resolve alike (Automatic and Metric here) must not redo that walk.
                 // The symbols need no key — they resolve each string from the context as it is asked.
                 val measures = remember(context, system) { measuresOf(context, system) }
-                val readerClock = rememberReaderClock()
+                val readerClock = rememberReaderClock(clockTimeFormat)
                 CompositionLocalProvider(
                     LocalMeasures provides measures,
                     LocalDurationSymbols provides durations,
@@ -152,6 +153,10 @@ class MainActivity : FragmentActivity() {
                             onMapShade = {
                                 mapShade = it
                                 AppSettings.setMapDark(this, it.dark)
+                            },
+                            onClockTimeFormat = {
+                                clockTimeFormat = it
+                                AppSettings.setClockTimeFormat(this, it)
                             },
                         )
                     }
@@ -209,6 +214,7 @@ private fun MainScreen(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
@@ -647,6 +653,7 @@ private fun MainScreen(
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             onMapShade = onMapShade,
+            onClockTimeFormat = onClockTimeFormat,
             onOpenTrack = { discardedTrackId = it },
         )
 
@@ -1007,13 +1014,20 @@ private fun SettingsPagesOverlay(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
             SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
             SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
-            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice, onMapShade)
+            SettingsPage.Display -> DisplaySettingsScreen(
+                layer.dismiss,
+                unitChoice,
+                onUnitChoice,
+                onMapShade,
+                onClockTimeFormat,
+            )
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(

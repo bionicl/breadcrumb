@@ -669,7 +669,10 @@ internal fun DisplaySettingsScreen(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
 ) {
+    val context = LocalContext.current
+    var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(context)) }
     SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
         GroupedRows(
             { ChoiceChipsRow(stringResource(R.string.settings_units), UnitChoice.entries, unitChoice, { it.labelRes }, onUnitChoice) },
@@ -681,6 +684,23 @@ internal fun DisplaySettingsScreen(
                     { it.labelRes },
                     onMapShade,
                 )
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_time_format),
+                    AppSettings.ClockTimeFormat.entries,
+                    clockTimeFormat,
+                    {
+                        when (it) {
+                            AppSettings.ClockTimeFormat.SYSTEM -> R.string.settings_time_format_system
+                            AppSettings.ClockTimeFormat.HOUR_12 -> R.string.settings_time_format_12
+                            AppSettings.ClockTimeFormat.HOUR_24 -> R.string.settings_time_format_24
+                        }
+                    },
+                ) {
+                    clockTimeFormat = it
+                    onClockTimeFormat(it)
+                }
             },
         )
     }

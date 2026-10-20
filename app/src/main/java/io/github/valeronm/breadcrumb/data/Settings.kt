@@ -7,6 +7,8 @@ import androidx.core.content.edit
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
 
+    enum class ClockTimeFormat { SYSTEM, HOUR_12, HOUR_24 }
+
     private const val FILE = "settings"
     private const val KEY_AUTO_RECORD = "auto_record"
 
@@ -29,6 +31,7 @@ object Settings {
     // Renaming this key drops every pick already saved under it.
     private const val KEY_MAP_DARK = "places_map_dark"
     private const val KEY_TIMELINE_VIEW_MAP = "timeline_view_map"
+    private const val KEY_CLOCK_TIME_FORMAT = "clock_time_format"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
@@ -393,6 +396,15 @@ object Settings {
      *  list, the timeline's denser reading. */
     fun timelineViewMap(context: Context): Boolean =
         prefs(context).getBoolean(KEY_TIMELINE_VIEW_MAP, false)
+
+    fun clockTimeFormat(context: Context): ClockTimeFormat =
+        prefs(context).getString(KEY_CLOCK_TIME_FORMAT, null)
+            ?.let { runCatching { ClockTimeFormat.valueOf(it) }.getOrNull() }
+            ?: ClockTimeFormat.SYSTEM
+
+    fun setClockTimeFormat(context: Context, format: ClockTimeFormat) {
+        prefs(context).edit { putString(KEY_CLOCK_TIME_FORMAT, format.name) }
+    }
 
     fun setTimelineViewMap(context: Context, map: Boolean) {
         prefs(context).edit { putBoolean(KEY_TIMELINE_VIEW_MAP, map) }

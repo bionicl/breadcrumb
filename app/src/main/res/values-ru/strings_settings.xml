@@ -21,6 +21,10 @@
     <string name="settings_map_shade_theme">Автоматически</string>
     <string name="settings_map_shade_light">Светлая</string>
     <string name="settings_map_shade_dark">Тёмная</string>
+    <string name="settings_time_format">Время</string>
+    <string name="settings_time_format_system">Как в системе</string>
+    <string name="settings_time_format_12">12-часовой формат</string>
+    <string name="settings_time_format_24">24-часовой формат</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <plurals name="settings_recently_deleted_sub">
