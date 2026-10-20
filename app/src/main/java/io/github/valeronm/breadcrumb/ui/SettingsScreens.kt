@@ -8,6 +8,8 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -36,14 +39,16 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,10 +57,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.annotation.StringRes
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -700,11 +707,23 @@ internal fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-internal enum class SettingsPage { Record, Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
+internal enum class SettingsPage {
+    Record,
+    Recording,
+    Trips,
+    Display,
+    TimelineLayout,
+    Privacy,
+    Data,
+    RecentlyDeleted,
+    Logs,
+    About,
+}
 
 @Composable
 internal fun DisplaySettingsScreen(
     onBack: () -> Unit,
+    onOpenTimelineLayout: () -> Unit,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
@@ -719,13 +738,10 @@ internal fun DisplaySettingsScreen(
     SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
         GroupedRows(
             {
-                SwitchSettingRow(
-                    title = stringResource(R.string.settings_modern_timeline_layout),
-                    subtitle = stringResource(R.string.settings_modern_timeline_layout_sub),
-                    checked = timelineDisplayOptions.modernTimelineLayout,
-                    onCheckedChange = {
-                        onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = it))
-                    },
+                NavRow(
+                    label = stringResource(R.string.settings_timeline_layout),
+                    subtitle = stringResource(timelineLayoutChoiceLabelRes(timelineDisplayOptions.modernTimelineLayout)),
+                    onClick = onOpenTimelineLayout,
                 )
             },
         )
@@ -819,6 +835,94 @@ internal fun DisplaySettingsScreen(
                 }
             },
         )
+    }
+}
+
+@StringRes
+internal fun timelineLayoutChoiceLabelRes(modern: Boolean): Int =
+    if (modern) R.string.settings_timeline_layout_modern else R.string.settings_timeline_layout_classic
+
+@Composable
+internal fun TimelineLayoutSettingsScreen(
+    onBack: () -> Unit,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+) {
+    val modern = timelineDisplayOptions.modernTimelineLayout
+    SettingsSubScreen(stringResource(R.string.settings_timeline_layout), onBack) {
+        Text(
+            stringResource(R.string.settings_timeline_layout_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(16.dp))
+        Column(
+            Modifier.selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            TimelineLayoutChoiceRow(
+                index = 0,
+                count = 2,
+                selected = modern,
+                title = stringResource(R.string.settings_timeline_layout_modern),
+                subtitle = stringResource(R.string.settings_timeline_layout_modern_sub),
+                onClick = {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = true))
+                },
+            )
+            TimelineLayoutChoiceRow(
+                index = 1,
+                count = 2,
+                selected = !modern,
+                title = stringResource(R.string.settings_timeline_layout_classic),
+                subtitle = stringResource(R.string.settings_timeline_layout_classic_sub),
+                onClick = {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = false))
+                },
+            )
+        }
+        SectionHeading(stringResource(R.string.settings_timeline_layout_preview))
+        TimelineLayoutSamplePreview(
+            modern = modern,
+            displayOptions = timelineDisplayOptions,
+            colorPalette = timelineColorPalette,
+        )
+    }
+}
+
+@Composable
+private fun TimelineLayoutChoiceRow(
+    index: Int,
+    count: Int,
+    selected: Boolean,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth(), shape = groupedRowShape(index, count)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

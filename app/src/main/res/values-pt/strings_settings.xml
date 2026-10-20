@@ -36,8 +36,14 @@
     <string name="settings_timeline_location_colors">Cores dos locais</string>
     <string name="settings_timeline_location_colors_category">Categoria do local</string>
     <string name="settings_timeline_location_colors_trip">Tipo da última viagem</string>
-    <string name="settings_modern_timeline_layout">Linha temporal moderna</string>
-    <string name="settings_modern_timeline_layout_sub">Mostrar um mapa acima da linha temporal diária arrastável.</string>
+    <string name="settings_timeline_layout">Layout da cronologia</string>
+    <string name="settings_timeline_layout_description">Escolha como o separador Cronologia está organizado.</string>
+    <string name="settings_timeline_layout_modern">Moderno</string>
+    <string name="settings_timeline_layout_modern_sub">Um mapa com a cronologia do dia num painel que pode arrastar</string>
+    <string name="settings_timeline_layout_classic">Clássico</string>
+    <string name="settings_timeline_layout_classic_sub">Todos os dias numa lista, com mapa à parte</string>
+    <string name="settings_timeline_layout_preview">Pré-visualização</string>
+    <string name="settings_timeline_layout_sample_place">Local de exemplo</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">

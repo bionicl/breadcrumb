@@ -270,6 +270,7 @@ private fun MainScreen(
 
     // Track details preview the tabs underneath. Its back handler yields while a layer is stacked above it.
     var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
+    var settingsSubPage by remember { mutableStateOf<SettingsPage?>(null) }
     // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
     // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
@@ -327,7 +328,16 @@ private fun MainScreen(
     val settingsLayer = rememberOverlayLayer(
         content = settingsPage,
         over = tabsLayer,
-        dismiss = { settingsPage = null },
+        dismiss = {
+            settingsSubPage = null
+            settingsPage = null
+        },
+    )
+    // A Display sub-screen (Timeline layout): back returns to Display, previewing it under the gesture.
+    val settingsSubLayer = rememberOverlayLayer(
+        content = settingsSubPage,
+        over = settingsLayer,
+        dismiss = { settingsSubPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
     val discardedLayer = rememberOverlayLayer(
@@ -735,7 +745,15 @@ private fun MainScreen(
             onTimelineColorPalette = onTimelineColorPalette,
             timelineDisplayOptions = timelineDisplayOptions,
             onTimelineDisplayOptions = onTimelineDisplayOptions,
+            onOpenTimelineLayout = { settingsSubPage = SettingsPage.TimelineLayout },
             onOpenTrack = { discardedTrackId = it },
+        )
+
+        SettingsSubPageOverlay(
+            layer = settingsSubLayer,
+            timelineDisplayOptions = timelineDisplayOptions,
+            onTimelineDisplayOptions = onTimelineDisplayOptions,
+            timelineColorPalette = timelineColorPalette,
         )
 
         DiscardedTrackOverlay(
@@ -1104,6 +1122,7 @@ private fun SettingsPagesOverlay(
     onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
     timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
     onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    onOpenTimelineLayout: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
@@ -1123,6 +1142,7 @@ private fun SettingsPagesOverlay(
             SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
             SettingsPage.Display -> DisplaySettingsScreen(
                 layer.dismiss,
+                onOpenTimelineLayout,
                 unitChoice,
                 onUnitChoice,
                 onMapShade,
@@ -1132,6 +1152,7 @@ private fun SettingsPagesOverlay(
                 timelineDisplayOptions,
                 onTimelineDisplayOptions,
             )
+            SettingsPage.TimelineLayout -> Unit
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
@@ -1141,6 +1162,26 @@ private fun SettingsPagesOverlay(
             )
             SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
             SettingsPage.About -> AboutSettingsScreen(viewModel::say, layer.dismiss)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSubPageOverlay(
+    layer: OverlayLayerState<SettingsPage>,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+) {
+    OverlayFrame(layer) { rendered ->
+        when (rendered) {
+            SettingsPage.TimelineLayout -> TimelineLayoutSettingsScreen(
+                onBack = layer.dismiss,
+                timelineDisplayOptions = timelineDisplayOptions,
+                onTimelineDisplayOptions = onTimelineDisplayOptions,
+                timelineColorPalette = timelineColorPalette,
+            )
+            else -> Unit
         }
     }
 }

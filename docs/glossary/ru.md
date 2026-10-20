@@ -25,6 +25,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | insights | Статистика | Not a calque: Russian has no everyday noun for *insights*, so the tab is named for what is read there. |
 | journey | путешествие | Deliberately not a second *поездка* — see decisions below. |
 | statistics | По месяцам | **Not the literal *Статистика***, which this language already spends on the tab above — see decisions below. |
+| timeline-layout | вид хронологии | *Современный* — карта с хронологией дня на перетаскиваемой панели; *Классический* — список дней и отдельная карта. Не путать с *Классической* палитрой цветов хронологии. |
 
 ### A trip
 

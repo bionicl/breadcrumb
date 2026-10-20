@@ -1854,6 +1854,7 @@ internal fun TrackRow(
     onReplay: (() -> Unit)? = null,
     showVisitTime: Boolean = true,
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+    containerColor: Color? = null,
 ) {
     // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
     // from Recently deleted.
@@ -1882,6 +1883,7 @@ internal fun TrackRow(
                 }
             },
             contentVerticalPadding = 8.dp,
+            colors = containerColor?.let { CardDefaults.cardColors(containerColor = it) },
             mark = origin?.mark,
             // Movement states its type and duration, followed by distance, without clock times.
             title = "$activityName · ${durationText(track.startedAt, track.endedAt)}",
@@ -2002,6 +2004,7 @@ internal fun StayCard(
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     lastTripActivity: ActivityType? = null,
     showOriginalArrival: Boolean = false,
+    containerColor: Color? = null,
 ) {
     val stay = item.stay
     val place = item.place
@@ -2010,7 +2013,7 @@ internal fun StayCard(
         targetValue = if (highlighted) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
-            CardDefaults.cardColors().containerColor
+            containerColor ?: CardDefaults.cardColors().containerColor
         },
         animationSpec = tween(durationMillis = 600),
         label = "stayHighlight",
