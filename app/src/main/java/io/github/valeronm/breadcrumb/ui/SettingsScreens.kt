@@ -739,6 +739,16 @@ internal fun DisplaySettingsScreen(
                 )
             },
             {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_modern_timeline_layout),
+                    subtitle = stringResource(R.string.settings_modern_timeline_layout_sub),
+                    checked = timelineDisplayOptions.modernTimelineLayout,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = it))
+                    },
+                )
+            },
+            {
                 ChoiceChipsRow(
                     stringResource(R.string.settings_timeline_location_colors),
                     AppSettings.TimelineLocationColorMode.entries,

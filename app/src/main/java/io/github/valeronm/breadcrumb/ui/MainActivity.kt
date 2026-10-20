@@ -435,7 +435,7 @@ private fun MainScreen(
             Scaffold(
                 modifier = Modifier.blurredBy { tabsLayer.blurDp },
                 topBar = {
-                    TopAppBar(
+                    if (selectedTab != HomeTab.TIMELINE || !timelineDisplayOptions.modernTimelineLayout) TopAppBar(
                         colors = canvasTopBarColors(),
                         title = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -558,6 +558,7 @@ private fun MainScreen(
                             onOpenData = { settingsPage = SettingsPage.Data },
                             timelineColorPalette = timelineColorPalette,
                             displayOptions = timelineDisplayOptions,
+                            onOpenSettings = { mainDestination = MainDestination.Settings },
                         )
 
                         HomeTab.PLACES -> PlacesTab(

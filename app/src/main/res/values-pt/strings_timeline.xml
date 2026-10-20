@@ -35,6 +35,7 @@
 
     <string name="timeline_view_list">Lista</string>
     <string name="timeline_view_map">Mapa</string>
+    <string name="timeline_show_day">Mostrar linha temporal do dia</string>
 
     <string name="timeline_map_prev_day">Dia anterior</string>
     <string name="timeline_map_next_day">Dia seguinte</string>

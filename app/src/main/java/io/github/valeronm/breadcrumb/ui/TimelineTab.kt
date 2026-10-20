@@ -2,6 +2,8 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -9,8 +11,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -23,9 +35,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,15 +50,19 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -66,6 +84,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -78,6 +101,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
@@ -103,6 +128,8 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
@@ -169,6 +196,8 @@ private enum class TimelinePage(@StringRes val labelRes: Int) {
     MAP(R.string.timeline_view_map),
 }
 
+private enum class TimelineSheetAnchor { Hidden, PartiallyExpanded, Expanded }
+
 /** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
 private val timelinePageLabels = TimelinePage.entries.map { it.labelRes }
 
@@ -195,6 +224,7 @@ internal fun TimelineTab(
     onOpenData: () -> Unit,
     timelineColorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
+    onOpenSettings: () -> Unit = {},
 ) {
     // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
@@ -310,6 +340,31 @@ internal fun TimelineTab(
     val travels by viewModel.travels.collectAsStateWithLifecycle()
     val awayDays = remember(travels) { awayDaysOf(travels.orEmpty(), timelineZone()) }
 
+    if (displayOptions.modernTimelineLayout) {
+        ModernTimelineLayout(
+            items = items,
+            recording = recording,
+            viewModel = viewModel,
+            undo = undo,
+            jump = jump,
+            onJumpShown = onJumpShown,
+            viewedDay = viewedDay,
+            listViewedDay = listViewedDay,
+            activityTypesByTrackId = activityTypesByTrackId,
+            colorPalette = timelineColorPalette,
+            displayOptions = displayOptions,
+            awayDays = awayDays,
+            onOpen = onOpen,
+            onOpenPlace = onOpenPlace,
+            onOpenJourney = onOpenJourney,
+            onAddTrip = onAddTrip,
+            onReplay = onReplay,
+            onOpenRecording = onOpenRecording,
+            onOpenSettings = onOpenSettings,
+        )
+        return
+    }
+
     // Each view keeps its state across switches — above all the list's scroll position, which is
     // what makes "only if the map moved" above worth deciding.
     val viewStateHolder = rememberSaveableStateHolder()
@@ -366,6 +421,215 @@ internal fun TimelineTab(
 }
 
 @Composable
+private fun ModernTimelineLayout(
+    items: List<TimelineItem>,
+    recording: TimelineItem.RecordingItem?,
+    viewModel: TrackListViewModel,
+    undo: UndoSnackbar,
+    jump: TimelineJump?,
+    onJumpShown: () -> Unit,
+    viewedDay: TimelineViewedDay,
+    listViewedDay: TimelineViewedDay,
+    activityTypesByTrackId: Map<Long, ActivityType?>,
+    colorPalette: TimelineColorPalette,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    awayDays: Map<LocalDate, AwayDay>,
+    onOpen: (Long) -> Unit,
+    onOpenPlace: (String) -> Unit,
+    onOpenJourney: (TravelNaming.Summary) -> Unit,
+    onAddTrip: (TripDraft) -> Unit,
+    onReplay: (TrackSummary) -> Unit,
+    onOpenRecording: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    var mapDay by rememberSaveable { mutableStateOf(LocalDate.now(timelineZone())) }
+    val listState = rememberLazyListState()
+    var sheetExpansionAllowed by remember { mutableStateOf(false) }
+    var sheetCollapseAllowed by remember { mutableStateOf(false) }
+    viewedDay.read = { mapDay }
+    LaunchedEffect(jump) {
+        when (jump) {
+            is TimelineJump.Row -> mapDay = java.time.Instant.ofEpochMilli(jump.anchorMs)
+                .atZone(timelineZone()).toLocalDate()
+            is TimelineJump.Day -> mapDay = jump.date
+            TimelineJump.Home -> mapDay = LocalDate.now(timelineZone())
+            null -> Unit
+        }
+    }
+
+    val dayItems = remember(items, mapDay) { items.filter { it.filedOn == mapDay } }
+    val dayRecording = remember(recording, mapDay) { recording?.takeIf { it.filedOn == mapDay } }
+    val sheetScope = rememberCoroutineScope()
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val fullHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        val peekHeightPx = fullHeightPx * 0.5f
+        val flingThresholdPx = with(LocalDensity.current) { 125.dp.toPx() }
+        val sheetState = remember { AnchoredDraggableState(TimelineSheetAnchor.PartiallyExpanded) }
+        val flingBehavior = AnchoredDraggableDefaults.flingBehavior(sheetState)
+        LaunchedEffect(fullHeightPx) {
+            sheetState.updateAnchors(
+                DraggableAnchors {
+                    TimelineSheetAnchor.Expanded at 0f
+                    TimelineSheetAnchor.PartiallyExpanded at peekHeightPx
+                    TimelineSheetAnchor.Hidden at fullHeightPx
+                },
+            )
+        }
+        val nestedScroll = remember(sheetState, flingThresholdPx) {
+            object : NestedScrollConnection {
+                private var sheetDragged = false
+
+                override fun onPreScroll(available: Offset, source: NestedScrollSource) = Offset.Zero
+
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
+                    if (available.y < 0f && !sheetExpansionAllowed) return Offset.Zero
+                    if (available.y > 0f && !sheetCollapseAllowed) return Offset.Zero
+                    val delta = sheetState.dispatchRawDelta(available.y)
+                    if (delta != 0f) sheetDragged = true
+                    return Offset(0f, delta)
+                }
+
+                override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                    if (!sheetDragged) return Velocity.Zero
+                    sheetDragged = false
+                    val offset = sheetState.offset
+                    val anchors = sheetState.anchors
+                    val canFling = if (available.y < 0f) sheetExpansionAllowed else sheetCollapseAllowed
+                    val target = if (canFling && abs(available.y) >= flingThresholdPx) {
+                        val movingUp = available.y < 0f
+                        (0 until anchors.size)
+                            .mapNotNull(anchors::anchorAt)
+                            .filter { anchor ->
+                                val position = anchors.positionOf(anchor)
+                                if (movingUp) position < offset else position > offset
+                            }
+                            .minByOrNull { abs(anchors.positionOf(it) - offset) }
+                    } else {
+                        null
+                    } ?: anchors.closestAnchor(offset)
+                    target?.let { sheetState.animateTo(it, spring(stiffness = Spring.StiffnessMediumLow)) }
+                    return available
+                }
+            }
+        }
+        val sheetOffset = sheetState.offset.takeUnless { it.isNaN() } ?: peekHeightPx
+        val visibleHeight = with(LocalDensity.current) {
+            (fullHeightPx - sheetOffset).coerceAtLeast(1f).toDp()
+        }
+        val sheetHidden = sheetState.currentValue == TimelineSheetAnchor.Hidden
+        Box(Modifier.fillMaxSize()) {
+            TimelineMapPage(
+                items = items,
+                viewModel = viewModel,
+                day = mapDay,
+                away = awayDays[mapDay],
+                onSelectDay = { mapDay = it },
+                onOpenPlace = onOpenPlace,
+                onOpenJourney = onOpenJourney,
+                colorPalette = colorPalette,
+                displayOptions = displayOptions,
+                backgroundOnly = true,
+            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(visibleHeight)
+                    .offset { IntOffset(0, sheetOffset.roundToInt()) }
+                    .pointerInput(listState) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            sheetExpansionAllowed = !listState.canScrollForward
+                            sheetCollapseAllowed = !listState.canScrollBackward
+                            waitForUpOrCancellation(pass = PointerEventPass.Final)
+                        }
+                    }
+                    .nestedScroll(nestedScroll),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                tonalElevation = 0.dp,
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier.fillMaxWidth().height(28.dp).anchoredDraggable(
+                            state = sheetState,
+                            orientation = Orientation.Vertical,
+                            flingBehavior = flingBehavior,
+                        ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier.width(32.dp).height(4.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            stringResource(R.string.nav_timeline),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        IconButton(onClick = { onAddTrip(TripDraft(day = mapDay)) }) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = stringResource(R.string.action_add_missing_trip),
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.action_settings))
+                        }
+                    }
+                    DaySelector(mapDay, onSelect = { mapDay = it })
+                    if (dayItems.isEmpty() && dayRecording == null) {
+                        EmptyState(
+                            stringResource(R.string.timeline_map_empty_day),
+                            Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                        )
+                    } else {
+                        TimelineListPage(
+                            items = dayItems,
+                            recording = dayRecording,
+                            viewModel = viewModel,
+                            undo = undo,
+                            jump = jump,
+                            onJumpShown = onJumpShown,
+                            viewedDay = listViewedDay,
+                            onOpen = onOpen,
+                            onOpenPlace = onOpenPlace,
+                            onOpenJourney = onOpenJourney,
+                            onAddTrip = onAddTrip,
+                            onReplay = onReplay,
+                            onOpenRecording = onOpenRecording,
+                            awayDays = awayDays,
+                            displayOptions = displayOptions,
+                            activityTypesByTrackId = activityTypesByTrackId,
+                            colorPalette = colorPalette,
+                            listStateOverride = listState,
+                        )
+                    }
+                }
+            }
+            if (sheetHidden) {
+                FloatingActionButton(
+                    onClick = {
+                        sheetScope.launch { sheetState.animateTo(TimelineSheetAnchor.PartiallyExpanded) }
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                ) {
+                    Icon(Icons.Filled.ExpandLess, contentDescription = stringResource(R.string.timeline_show_day))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun TimelineListPage(
     items: List<TimelineItem>,
     recording: TimelineItem.RecordingItem?,
@@ -386,6 +650,7 @@ private fun TimelineListPage(
     displayOptions: AppSettings.TimelineDisplayOptions,
     activityTypesByTrackId: Map<Long, ActivityType?>,
     colorPalette: TimelineColorPalette,
+    listStateOverride: LazyListState? = null,
 ) {
     val context = LocalContext.current
 
@@ -393,7 +658,7 @@ private fun TimelineListPage(
     val groups = remember(items, recording) {
         groupTimelineByDay(recording?.let { listOf(it) + items } ?: items)
     }
-    val listState = rememberLazyListState()
+    val listState = listStateOverride ?: rememberLazyListState()
     // Resolved here because [dayLabel] is callable from a plain function and [stringResource] is not;
     // each header then words itself, rather than reading its text out of a list it must stay aligned
     // with. Day label -> its header's lazy-item index: what the fast scroller jumps between.
@@ -619,6 +884,7 @@ private fun TimelineMapPage(
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     colorPalette: TimelineColorPalette,
     displayOptions: AppSettings.TimelineDisplayOptions,
+    backgroundOnly: Boolean = false,
 ) {
     // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
     // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
@@ -640,7 +906,17 @@ private fun TimelineMapPage(
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
     val mapPlaces = rememberStayPlaces(dayItems, placeSummaries)
 
-    Column(Modifier.fillMaxSize()) {
+    if (backgroundOnly) {
+        MapLibreJourneyMap(
+            lines = lines,
+            places = mapPlaces,
+            frameKey = day,
+            linesComplete = lines.size == dayTracks.size,
+            onOpenPlace = onOpenPlace,
+            colorPalette = colorPalette,
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else Column(Modifier.fillMaxSize()) {
         DaySelector(day, onSelectDay)
         away?.let {
             Row(

@@ -39,6 +39,7 @@
 
     <string name="timeline_view_list">Список</string>
     <string name="timeline_view_map">Карта</string>
+    <string name="timeline_show_day">Показать хронологию дня</string>
 
     <string name="timeline_map_prev_day">Предыдущий день</string>
     <string name="timeline_map_next_day">Следующий день</string>

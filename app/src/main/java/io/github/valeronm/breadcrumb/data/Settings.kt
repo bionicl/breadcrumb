@@ -15,6 +15,7 @@ object Settings {
         val showVisitTime: Boolean = true,
         val showDaySummary: Boolean = true,
         val locationColorMode: TimelineLocationColorMode = TimelineLocationColorMode.LAST_TRIP_TYPE,
+        val modernTimelineLayout: Boolean = true,
     )
 
     private const val FILE = "settings"
@@ -44,6 +45,7 @@ object Settings {
     private const val KEY_TIMELINE_SHOW_VISIT_TIME = "timeline_show_visit_time"
     private const val KEY_TIMELINE_SHOW_DAY_SUMMARY = "timeline_show_day_summary"
     private const val KEY_TIMELINE_LOCATION_COLOR_MODE = "timeline_location_color_mode"
+    private const val KEY_MODERN_TIMELINE_LAYOUT = "modern_timeline_layout"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
@@ -435,6 +437,7 @@ object Settings {
             locationColorMode = preferences.getString(KEY_TIMELINE_LOCATION_COLOR_MODE, null)
                 ?.let { runCatching { TimelineLocationColorMode.valueOf(it) }.getOrNull() }
                 ?: TimelineLocationColorMode.LAST_TRIP_TYPE,
+            modernTimelineLayout = preferences.getBoolean(KEY_MODERN_TIMELINE_LAYOUT, true),
         )
     }
 
@@ -443,6 +446,7 @@ object Settings {
             putBoolean(KEY_TIMELINE_SHOW_VISIT_TIME, options.showVisitTime)
             putBoolean(KEY_TIMELINE_SHOW_DAY_SUMMARY, options.showDaySummary)
             putString(KEY_TIMELINE_LOCATION_COLOR_MODE, options.locationColorMode.name)
+            putBoolean(KEY_MODERN_TIMELINE_LAYOUT, options.modernTimelineLayout)
         }
     }
 

@@ -41,6 +41,7 @@
     <!-- The tab row over the timeline's two views: the day-by-day list, and one day on a map. -->
     <string name="timeline_view_list">List</string>
     <string name="timeline_view_map">Map</string>
+    <string name="timeline_show_day">Show day timeline</string>
 
     <!-- The map page's day selector and its one empty state. -->
     <string name="timeline_map_prev_day">Previous day</string>

@@ -37,6 +37,8 @@
     <string name="settings_timeline_location_colors">Location colours</string>
     <string name="settings_timeline_location_colors_category">Place category</string>
     <string name="settings_timeline_location_colors_trip">Last trip type</string>
+    <string name="settings_modern_timeline_layout">Modern timeline layout</string>
+    <string name="settings_modern_timeline_layout_sub">Show a map above a draggable day timeline.</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_online_services">Online services</string>
     <plurals name="settings_recently_deleted_sub">

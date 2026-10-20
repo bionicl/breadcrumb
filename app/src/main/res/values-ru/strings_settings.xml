@@ -33,6 +33,8 @@
     <string name="settings_timeline_location_colors">Цвет мест</string>
     <string name="settings_timeline_location_colors_category">Категория места</string>
     <string name="settings_timeline_location_colors_trip">Тип последней поездки</string>
+    <string name="settings_modern_timeline_layout">Современная хронология</string>
+    <string name="settings_modern_timeline_layout_sub">Показывать карту над перетаскиваемой хронологией дня.</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <plurals name="settings_recently_deleted_sub">

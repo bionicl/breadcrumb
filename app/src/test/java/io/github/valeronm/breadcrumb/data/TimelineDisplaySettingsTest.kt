@@ -34,6 +34,7 @@ class TimelineDisplaySettingsTest {
             showVisitTime = false,
             showDaySummary = false,
             locationColorMode = TimelineLocationColorMode.LOCATION_COLORS,
+            modernTimelineLayout = false,
         )
         Settings.setTimelineDisplayOptions(context, options)
         Settings.setTimelineColorPalette(context, TimelineColorPalette.ARC_TIMELINE)

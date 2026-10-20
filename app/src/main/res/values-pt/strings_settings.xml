@@ -33,6 +33,8 @@
     <string name="settings_timeline_location_colors">Cores dos locais</string>
     <string name="settings_timeline_location_colors_category">Categoria do local</string>
     <string name="settings_timeline_location_colors_trip">Tipo da última viagem</string>
+    <string name="settings_modern_timeline_layout">Linha temporal moderna</string>
+    <string name="settings_modern_timeline_layout_sub">Mostrar um mapa acima da linha temporal diária arrastável.</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">
