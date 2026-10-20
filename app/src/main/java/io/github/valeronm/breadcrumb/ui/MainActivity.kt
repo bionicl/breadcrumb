@@ -279,6 +279,10 @@ private fun MainScreen(
     // The last summary the key resolved to: keeps the screen stable between re-derivations and
     // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
     var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    // A place opened inside the modern Timeline drawer can launch the existing editor/merge
+    // overlays without creating a second full-screen place-detail layer underneath them.
+    var modernPlaceActionKey by remember { mutableStateOf<String?>(null) }
+    var modernPlaceActionSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
     // Whether that place's capture area is being tuned, stacked above its detail. Its own layer
     // because its map wants the whole screen where the detail's is a card — see PlaceEditScreen.
     // A flag rather than a second key: it can only ever be the place the detail below is showing,
@@ -357,18 +361,26 @@ private fun MainScreen(
     // detail's own key, so the two cannot drift apart or outlive one another, unless it is naming a
     // new spot, where the detail layer is empty and back returns to the tabs.
     val placeEditLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { editingArea } ?: newPlaceSpot?.key,
+        content = placeDetailKey?.takeIf { editingArea }
+            ?: modernPlaceActionKey?.takeIf { editingArea }
+            ?: newPlaceSpot?.key,
         over = placeLayer,
         dismiss = {
             editingArea = false
             newPlaceSpot = null
+            modernPlaceActionKey = null
+            modernPlaceActionSnapshot = null
         },
     )
     // Back from a merge returns to the place detail with nothing written.
     val mergeLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { mergingPlaces },
+        content = placeDetailKey?.takeIf { mergingPlaces } ?: modernPlaceActionKey?.takeIf { mergingPlaces },
         over = placeLayer,
-        dismiss = { mergingPlaces = false },
+        dismiss = {
+            mergingPlaces = false
+            modernPlaceActionKey = null
+            modernPlaceActionSnapshot = null
+        },
     )
     // The trip form: back discards the half-entered trip by construction, nothing having been
     // written until its check mark. Stacked on the track detail rather than on the tabs, because a
@@ -405,6 +417,7 @@ private fun MainScreen(
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
     val unnamedPlaceDeleted = stringResource(R.string.places_deleted_unnamed)
+    val splitTrackUndoMessage = stringResource(R.string.undo_track_split)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place)
         val message = place.label?.let { placeDeleted.format(it) } ?: unnamedPlaceDeleted
@@ -416,7 +429,12 @@ private fun MainScreen(
             viewModel.unmergePlaces(keep)
         }
         mergingPlaces = false
-        placeDetailKey = PlaceResolver.keyOf(keep.id)
+        if (modernPlaceActionKey != null) {
+            modernPlaceActionKey = null
+            modernPlaceActionSnapshot = null
+        } else {
+            placeDetailKey = PlaceResolver.keyOf(keep.id)
+        }
     }
 
     // A map covered by another layer keeps its shade until it is uncovered, rather than rebuilding
@@ -553,6 +571,30 @@ private fun MainScreen(
                                 selectedTab = HomeTab.SETTINGS
                             },
                             onOpenData = { settingsPage = SettingsPage.Data },
+                            onModernAdjustPlace = { summary ->
+                                modernPlaceActionKey = summary.key
+                                modernPlaceActionSnapshot = summary
+                                editingArea = true
+                            },
+                            onModernRemovePlace = removePlace,
+                            onModernMergePlace = { summary ->
+                                modernPlaceActionKey = summary.key
+                                modernPlaceActionSnapshot = summary
+                                mergingPlaces = true
+                            },
+                            onModernVisit = { stay ->
+                                timelineJump = TimelineJump.Visit(stay)
+                                landOnTimeline()
+                            },
+                            onModernGap = { gap ->
+                                timelineJump = TimelineJump.Gap(gap)
+                                landOnTimeline()
+                            },
+                            onModernSplitTrack = { trackId, atTs ->
+                                viewModel.splitTrack(trackId, atTs) { split ->
+                                    undo.show(splitTrackUndoMessage) { viewModel.unsplitTracks(trackId, split) }
+                                }
+                            },
                             timelineColorPalette = timelineColorPalette,
                             displayOptions = timelineDisplayOptions,
                         )
@@ -635,7 +677,7 @@ private fun MainScreen(
         PlaceEditOverlay(
             layer = placeEditLayer,
             viewModel = viewModel,
-            snapshot = newPlaceSpot ?: placeDetailSnapshot,
+            snapshot = newPlaceSpot ?: modernPlaceActionSnapshot ?: placeDetailSnapshot,
             snackbarHostState = snackbarHostState,
             // A named spot opens its detail as a create from a stop leaves one, and [onCreated]
             // re-keys it onto the row.
@@ -644,6 +686,8 @@ private fun MainScreen(
                     placeDetailSnapshot = spot
                     placeDetailKey = spot.key
                 }
+                modernPlaceActionKey = null
+                modernPlaceActionSnapshot = null
                 placeEditLayer.dismiss()
             },
             // The row's id is the only thing that identifies a just-created place until a derivation
@@ -653,8 +697,12 @@ private fun MainScreen(
             // Both layers go with it: the editor and the detail underneath are both about a row that
             // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
             onRemove = { place ->
-                placeLayer.dismissAbove()
-                placeLayer.dismiss()
+                if (modernPlaceActionKey != null) {
+                    placeEditLayer.dismiss()
+                } else {
+                    placeLayer.dismissAbove()
+                    placeLayer.dismiss()
+                }
                 removePlace(place)
             },
         )
@@ -662,7 +710,7 @@ private fun MainScreen(
         MergePlacesOverlay(
             layer = mergeLayer,
             viewModel = viewModel,
-            snapshot = placeDetailSnapshot,
+            snapshot = modernPlaceActionSnapshot ?: placeDetailSnapshot,
             onMerge = mergePlaces,
         )
 
@@ -1027,7 +1075,7 @@ private class HeldMergeSources {
  * [pending] dresses the answer too, since [snapshot] is in no list it dresses.
  */
 @Composable
-private fun rememberPlaceSummary(
+internal fun rememberPlaceSummary(
     summaries: List<PlaceResolver.PlaceSummary>?,
     key: String?,
     snapshot: PlaceResolver.PlaceSummary?,

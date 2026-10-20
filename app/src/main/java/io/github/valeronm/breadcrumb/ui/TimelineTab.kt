@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -67,6 +69,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -112,18 +115,26 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.data.SweepStatus
+import io.github.valeronm.breadcrumb.data.TrackPoints
+import io.github.valeronm.breadcrumb.data.TrackQuality
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.domain.PlaceOverlap
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.activityTotals
@@ -207,6 +218,18 @@ private enum class TimelinePage(@StringRes val labelRes: Int) {
 
 internal enum class TimelineSheetAnchor { Hidden, PartiallyExpanded, Expanded }
 
+private sealed interface ModernDetailTarget {
+    data class Track(val id: Long) : ModernDetailTarget
+    data class Place(val key: String) : ModernDetailTarget
+}
+
+internal fun <T> pushModernTimelineDetail(stack: List<T>, target: T): List<T> = stack + target
+
+internal fun <T> popModernTimelineDetail(stack: List<T>): List<T> =
+    if (stack.isEmpty()) stack else stack.dropLast(1)
+
+internal fun <T> resetModernTimelineDetails(): List<T> = emptyList()
+
 /** Keep map framing fixed throughout a drag and its settling animation. */
 internal fun settledMapBottomPadding(
     state: AnchoredDraggableState<TimelineSheetAnchor>,
@@ -241,6 +264,12 @@ internal fun TimelineTab(
     /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
     onOpenRecording: () -> Unit,
     onOpenData: () -> Unit,
+    onModernAdjustPlace: (PlaceResolver.PlaceSummary) -> Unit = {},
+    onModernRemovePlace: (Place) -> Unit = {},
+    onModernMergePlace: (PlaceResolver.PlaceSummary) -> Unit = {},
+    onModernVisit: (StayDeriver.Stay) -> Unit = {},
+    onModernGap: (PlaceResolver.PlaceGap) -> Unit = {},
+    onModernSplitTrack: (Long, Long) -> Unit = { _, _ -> },
     timelineColorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
 ) {
@@ -372,12 +401,16 @@ internal fun TimelineTab(
             colorPalette = timelineColorPalette,
             displayOptions = displayOptions,
             awayDays = awayDays,
-            onOpen = onOpen,
-            onOpenPlace = onOpenPlace,
             onOpenJourney = onOpenJourney,
             onAddTrip = onAddTrip,
             onReplay = onReplay,
             onOpenRecording = onOpenRecording,
+            onAdjustPlace = onModernAdjustPlace,
+            onRemovePlace = onModernRemovePlace,
+            onMergePlace = onModernMergePlace,
+            onVisit = onModernVisit,
+            onGap = onModernGap,
+            onSplitTrack = onModernSplitTrack,
         )
         return
     }
@@ -451,33 +484,56 @@ private fun ModernTimelineLayout(
     colorPalette: TimelineColorPalette,
     displayOptions: AppSettings.TimelineDisplayOptions,
     awayDays: Map<LocalDate, AwayDay>,
-    onOpen: (Long) -> Unit,
-    onOpenPlace: (String) -> Unit,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     onOpenRecording: () -> Unit,
+    onAdjustPlace: (PlaceResolver.PlaceSummary) -> Unit,
+    onRemovePlace: (Place) -> Unit,
+    onMergePlace: (PlaceResolver.PlaceSummary) -> Unit,
+    onVisit: (StayDeriver.Stay) -> Unit,
+    onGap: (PlaceResolver.PlaceGap) -> Unit,
+    onSplitTrack: (Long, Long) -> Unit,
 ) {
     var mapDay by rememberSaveable { mutableStateOf(LocalDate.now(timelineZone())) }
+    var detailStack by remember { mutableStateOf(emptyList<ModernDetailTarget>()) }
+    var selectedGraphPoint by remember { mutableStateOf<TrackPoint?>(null) }
     val listState = rememberLazyListState()
     var sheetExpansionAllowed by remember { mutableStateOf(false) }
     var sheetCollapseAllowed by remember { mutableStateOf(false) }
     viewedDay.read = { mapDay }
     LaunchedEffect(jump) {
         when (jump) {
-            is TimelineJump.Row -> mapDay = java.time.Instant.ofEpochMilli(jump.anchorMs)
-                .atZone(timelineZone()).toLocalDate()
-            is TimelineJump.Day -> mapDay = jump.date
-            TimelineJump.Home -> mapDay = LocalDate.now(timelineZone())
+            is TimelineJump.Row -> {
+                detailStack = resetModernTimelineDetails()
+                mapDay = java.time.Instant.ofEpochMilli(jump.anchorMs).atZone(timelineZone()).toLocalDate()
+            }
+            is TimelineJump.Day -> {
+                detailStack = resetModernTimelineDetails()
+                mapDay = jump.date
+            }
+            TimelineJump.Home -> {
+                detailStack = resetModernTimelineDetails()
+                mapDay = LocalDate.now(timelineZone())
+            }
             null -> Unit
         }
     }
 
-    LaunchedEffect(mapDay) { listState.scrollToItem(0) }
+    LaunchedEffect(mapDay) {
+        detailStack = resetModernTimelineDetails()
+        selectedGraphPoint = null
+        listState.scrollToItem(0)
+    }
     val dayItems = remember(items, mapDay) { items.filter { it.filedOn == mapDay } }
     val dayRecording = remember(recording, mapDay) { recording?.takeIf { it.filedOn == mapDay } }
     val context = LocalContext.current
     val dayTracks = remember(dayItems) { dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary } }
+    val dayTrackKeys = remember(dayTracks) { dayTracks.map { it.id to it.endedAt } }
+    val dayContextLines by produceState(emptyList<JourneyLine>(), dayTrackKeys) {
+        value = emptyList()
+        viewModel.journeyPolylines.linesFor(dayTracks).collect { value = it }
+    }
     val sheetScope = rememberCoroutineScope()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
@@ -486,6 +542,77 @@ private fun ModernTimelineLayout(
         val flingThresholdPx = with(LocalDensity.current) { 125.dp.toPx() }
         val sheetState = remember { AnchoredDraggableState(TimelineSheetAnchor.PartiallyExpanded) }
         val flingBehavior = AnchoredDraggableDefaults.flingBehavior(sheetState)
+        var listAnchorBeforeDetails by remember { mutableStateOf(TimelineSheetAnchor.PartiallyExpanded) }
+        val closeDetail = {
+            if (detailStack.isNotEmpty()) {
+                val returningToList = detailStack.size == 1
+                detailStack = popModernTimelineDetail(detailStack)
+                if (returningToList) {
+                    sheetScope.launch { sheetState.animateTo(listAnchorBeforeDetails) }
+                }
+            }
+        }
+        BackHandler(enabled = detailStack.isNotEmpty(), onBack = closeDetail)
+        val openTrackDetail: (Long) -> Unit = { id ->
+            if (detailStack.isEmpty()) listAnchorBeforeDetails = sheetState.settledValue
+            detailStack = pushModernTimelineDetail(detailStack, ModernDetailTarget.Track(id))
+            selectedGraphPoint = null
+            sheetScope.launch { sheetState.animateTo(TimelineSheetAnchor.PartiallyExpanded) }
+        }
+        val openPlaceDetail: (String) -> Unit = { key ->
+            if (detailStack.isEmpty()) listAnchorBeforeDetails = sheetState.settledValue
+            detailStack = pushModernTimelineDetail(detailStack, ModernDetailTarget.Place(key))
+            selectedGraphPoint = null
+            sheetScope.launch { sheetState.animateTo(TimelineSheetAnchor.PartiallyExpanded) }
+        }
+        val selectedTarget = detailStack.lastOrNull()
+        val selectedTrackId = (selectedTarget as? ModernDetailTarget.Track)?.id
+        val selectedTrackSummary = remember(dayTracks, selectedTrackId) {
+            dayTracks.firstOrNull { it.id == selectedTrackId }
+        }
+        LaunchedEffect(dayTracks, selectedTrackId) {
+            if (selectedTrackId != null && selectedTrackSummary == null) {
+                detailStack = resetModernTimelineDetails()
+                selectedGraphPoint = null
+            }
+        }
+        val selectedTrackPoints by produceState<TrackPoints?>(null, selectedTrackId, selectedTrackSummary) {
+            value = selectedTrackId?.let { viewModel.getTrackPoints(it) }
+        }
+        val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
+        val routeEndPlaces = remember(
+            selectedTrackPoints,
+            storedPlaces,
+            selectedTrackSummary?.startPlaceId,
+            selectedTrackSummary?.endPlaceId,
+        ) {
+            RoutePlaces.ends(
+                selectedTrackPoints?.good.orEmpty(),
+                storedPlaces,
+                AndroidDistance,
+                startPlaceId = selectedTrackSummary?.startPlaceId,
+                endPlaceId = selectedTrackSummary?.endPlaceId,
+            )
+        }
+        val routeDwells by produceState(emptyList<DwellDetector.Dwell>(), selectedTrackPoints?.good) {
+            value = selectedTrackPoints?.good?.let { points ->
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    DwellDetector.detect(points, DwellDetector.TRACK_OVERLAY, AndroidDistance)
+                }
+            }.orEmpty()
+        }
+        val routeOverruns = remember(selectedTrackPoints) {
+            TrackSettle.overruns(selectedTrackPoints?.good.orEmpty(), selectedTrackPoints?.edgeStay.orEmpty())
+        }
+        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+        val pendingPlace by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+        val selectedPlaceKey = (selectedTarget as? ModernDetailTarget.Place)?.key
+        val selectedPlaceSummary = rememberPlaceSummary(placeSummaries, selectedPlaceKey, null, pendingPlace)
+        val selectedColorMode = remember(selectedTrackId) { mutableStateOf(ColorMode.SPEED) }
+        val sharedTrackColoring = remember(selectedTrackId) { mutableStateOf<TrackColoring?>(null) }
+        val sharedTrackSeams = remember(selectedTrackId) { mutableStateOf<TrackQuality.Seams?>(null) }
+        var showDayContext by remember(selectedTrackId) { mutableStateOf(false) }
+        val settledBottomPadding = settledMapBottomPadding(sheetState, fullHeightPx, peekHeightPx)
         LaunchedEffect(fullHeightPx, topInsetPx) {
             sheetState.updateAnchors(
                 DraggableAnchors {
@@ -549,19 +676,69 @@ private fun ModernTimelineLayout(
         }
         val sheetHidden = sheetState.currentValue == TimelineSheetAnchor.Hidden
         Box(Modifier.fillMaxSize()) {
-            TimelineMapPage(
-                items = items,
-                viewModel = viewModel,
-                day = mapDay,
-                away = awayDays[mapDay],
-                onSelectDay = { mapDay = it },
-                onOpenPlace = onOpenPlace,
-                onOpenJourney = onOpenJourney,
-                colorPalette = colorPalette,
-                displayOptions = displayOptions,
-                backgroundOnly = true,
-                mapBottomPaddingPx = settledMapBottomPadding(sheetState, fullHeightPx, peekHeightPx),
-            )
+            if (selectedTarget == null) {
+                TimelineMapPage(
+                    items = items,
+                    viewModel = viewModel,
+                    day = mapDay,
+                    away = awayDays[mapDay],
+                    onSelectDay = { mapDay = it },
+                    onOpenPlace = openPlaceDetail,
+                    onOpenJourney = onOpenJourney,
+                    colorPalette = colorPalette,
+                    displayOptions = displayOptions,
+                    backgroundOnly = true,
+                    mapBottomPaddingPx = settledBottomPadding,
+                )
+            } else if (selectedTrackSummary != null && selectedTrackPoints != null) {
+                val track = selectedTrackPoints!!
+                val trackActivity = ActivityType.ofName(selectedTrackSummary.activityType)
+                val source = TrackOrigin.fromCode(selectedTrackSummary.source)
+                val modes = remember(track.good, source) { availableColorModes(track.good, source) }
+                LaunchedEffect(selectedTrackId, modes) {
+                    if (selectedColorMode.value !in modes && modes.isNotEmpty()) selectedColorMode.value = modes.first()
+                }
+                MapLibreTrackMap(
+                    points = track.good,
+                    noisyPoints = track.noisy,
+                    activity = trackActivity,
+                    colorMode = selectedColorMode.value,
+                    precomputedColoring = sharedTrackColoring.value,
+                    precomputedSeams = sharedTrackSeams.value,
+                    showLegend = modes.isNotEmpty(),
+                    selectedPoint = selectedGraphPoint,
+                    endPlaces = routeEndPlaces,
+                    dwells = routeDwells,
+                    overruns = routeOverruns,
+                    cameraBottomPaddingPx = settledBottomPadding,
+                    legendBottomPadding = visibleHeight + 20.dp,
+                    contextLines = dayContextLines.filter { it.trackId != selectedTrackId },
+                    showContextLines = showDayContext,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                Surface(
+                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    tonalElevation = 3.dp,
+                ) {
+                    Row(
+                        Modifier.padding(start = 12.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(stringResource(R.string.timeline_other_day_routes), style = MaterialTheme.typography.labelLarge)
+                        Switch(checked = showDayContext, onCheckedChange = { showDayContext = it })
+                    }
+                }
+            } else if (selectedPlaceSummary != null) {
+                MapLibrePlaceMap(
+                    center = PlaceMarker(selectedPlaceSummary.anchor, selectedPlaceSummary.place),
+                    radiusM = selectedPlaceSummary.radiusM,
+                    endpoints = emptyList(),
+                    modifier = Modifier.fillMaxSize(),
+                    onLongPress = {},
+                    cameraBottomPaddingPx = settledBottomPadding,
+                )
+            }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -575,7 +752,7 @@ private fun ModernTimelineLayout(
                             waitForUpOrCancellation(pass = PointerEventPass.Final)
                         }
                     }
-                    .nestedScroll(nestedScroll),
+                    .then(if (selectedTarget == null) Modifier.nestedScroll(nestedScroll) else Modifier),
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                 color = sheetContainerColor,
                 contentColor = sheetColors.onSurface,
@@ -605,31 +782,98 @@ private fun ModernTimelineLayout(
                                     if (intent != null) context.startActivity(intent)
                                 }
                             },
-                            canShare = dayTracks.isNotEmpty(),
+                            canShare = selectedTarget == null && dayTracks.isNotEmpty(),
                         )
-                        awayDays[mapDay]?.let { away ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                TravelHeading(away) { onOpenJourney(away.summary) }
-                                AwayDayMarker(away, MaterialTheme.typography.labelSmall)
+                        if (selectedTarget != null) {
+                            when (selectedTarget) {
+                                is ModernDetailTarget.Track -> {
+                                    val summary = selectedTrackSummary
+                                    if (summary == null) {
+                                        CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                                    } else {
+                                        TrackDetailScreen(
+                                            trackId = selectedTarget.id,
+                                            summary = summary,
+                                            viewModel = viewModel,
+                                            onBack = closeDetail,
+                                            onSplit = { at ->
+                                                onSplitTrack(selectedTarget.id, at)
+                                                closeDetail()
+                                            },
+                                            onEditTrip = onAddTrip,
+                                            embeddedPanel = true,
+                                            externalTrackPoints = selectedTrackPoints,
+                                            useExternalTrackPoints = true,
+                                            onSelectedPoint = { selectedGraphPoint = it },
+                                            externalColorMode = selectedColorMode.value,
+                                            onColorModeChanged = { selectedColorMode.value = it },
+                                            onTrackColoringChanged = { coloring, seams ->
+                                                sharedTrackColoring.value = coloring
+                                                sharedTrackSeams.value = seams
+                                            },
+                                        )
+                                    }
+                                }
+                                is ModernDetailTarget.Place -> {
+                                    val place = selectedPlaceSummary
+                                    if (place == null) {
+                                        LaunchedEffect(selectedTarget.key, placeSummaries) {
+                                            if (placeSummaries != null) closeDetail()
+                                        }
+                                        CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
+                                    } else {
+                                        val canMerge = remember(place.place, placeSummaries) {
+                                            val row = place.place ?: return@remember false
+                                            PlaceOverlap.candidatesFor(
+                                                row,
+                                                placeSummaries.orEmpty().mapNotNull { it.place },
+                                                AndroidDistance,
+                                            ).isNotEmpty()
+                                        }
+                                        PlaceDetailScreen(
+                                            summary = place,
+                                            viewModel = viewModel,
+                                            onBack = closeDetail,
+                                            onOpenVisit = onVisit,
+                                            onOpenGap = onGap,
+                                            onOpenPlace = openPlaceDetail,
+                                            onAdjustArea = { onAdjustPlace(place) },
+                                            onRemove = onRemovePlace,
+                                            canMerge = canMerge,
+                                            onOpenMerge = { onMergePlace(place) },
+                                            embeddedPanel = true,
+                                        )
+                                    }
+                                }
                             }
                         }
-                        DayTotals(
-                            dayTracks = dayTracks,
-                            dayItems = dayItems,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                            show = displayOptions.showDaySummary,
-                            colorPalette = colorPalette,
-                        )
-                        if (dayItems.isEmpty() && dayRecording == null) {
+                        if (selectedTarget == null) {
+                            awayDays[mapDay]?.let { away ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    TravelHeading(away) { onOpenJourney(away.summary) }
+                                    AwayDayMarker(away, MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                        if (selectedTarget == null) {
+                            DayTotals(
+                                dayTracks = dayTracks,
+                                dayItems = dayItems,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                                show = displayOptions.showDaySummary,
+                                colorPalette = colorPalette,
+                            )
+                        }
+                        if (selectedTarget == null && dayItems.isEmpty() && dayRecording == null) {
                             EmptyState(
                                 stringResource(R.string.timeline_map_empty_day),
                                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
                             )
-                        } else {
+                        } else if (selectedTarget == null) {
                             TimelineListPage(
                                 items = dayItems,
                                 recording = dayRecording,
@@ -638,8 +882,8 @@ private fun ModernTimelineLayout(
                                 jump = jump,
                                 onJumpShown = onJumpShown,
                                 viewedDay = listViewedDay,
-                                onOpen = onOpen,
-                                onOpenPlace = onOpenPlace,
+                                onOpen = openTrackDetail,
+                                onOpenPlace = openPlaceDetail,
                                 onOpenJourney = onOpenJourney,
                                 onAddTrip = onAddTrip,
                                 onReplay = onReplay,

@@ -47,6 +47,7 @@
     <string name="timeline_map_prev_day">Previous day</string>
     <string name="timeline_map_next_day">Next day</string>
     <string name="timeline_map_empty_day">Nothing recorded on this day</string>
+    <string name="timeline_other_day_routes">Other routes of the day</string>
     <!-- What tapping a day header's date does, read aloud. -->
 
     <!-- Row actions, read aloud -->

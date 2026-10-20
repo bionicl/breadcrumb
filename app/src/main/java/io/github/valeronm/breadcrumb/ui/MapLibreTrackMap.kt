@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
+import android.graphics.PointF
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -9,8 +10,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -75,6 +79,10 @@ internal fun MapLibreTrackMap(
     // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
+    cameraBottomPaddingPx: Int = 0,
+    legendBottomPadding: Dp = 0.dp,
+    contextLines: List<JourneyLine> = emptyList(),
+    showContextLines: Boolean = false,
 ) {
     // Display geometry only: the coloring, seams and markers stay on the stored fixes.
     val greatCircleLegs = GreatCircle.drawsPath(points.size, activity)
@@ -102,6 +110,7 @@ internal fun MapLibreTrackMap(
                 // pins over it so it can't cover them.
                 addEndPlaceAreas(style, endPlaces)
                 addDwellLayers(style, dwells)
+                addContextTrackLines(style, contextLines, mapDark, showContextLines)
                 addTrackLine(style, points, colors, greatCircleLegs)
                 addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
@@ -110,7 +119,12 @@ internal fun MapLibreTrackMap(
                 // scrubber's selection alone draws over it — that one is under the user's thumb.
                 addEndPlacePins(ctx, style, endPlaces, dark)
                 addSelectionLayer(ctx, style, selectedPoint)
-                frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
+                frameTo(
+                    map,
+                    framePositions(points, noisyPoints, greatCircleLegs),
+                    singlePointZoom = 15.0,
+                    bottomPaddingPx = cameraBottomPaddingPx,
+                )
                 // Stamped here as well as drawn: otherwise the first update sees no applied input
                 // and rebuilds every source the load just built.
                 applied.points = points
@@ -118,6 +132,9 @@ internal fun MapLibreTrackMap(
                 applied.colors = colors
                 applied.endPlaces = endPlaces
                 applied.framed = true
+                applied.framePadding = cameraBottomPaddingPx
+                applied.contextLines = contextLines
+                applied.showContextLines = showContextLines
             },
             onUpdate = { map, style ->
                 // The line's features carry their colors, so a color switch rebuilds that source —
@@ -130,6 +147,13 @@ internal fun MapLibreTrackMap(
                     applied.colors = colors
                     style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)
                         ?.setGeoJson(trackLineFeature(points, colors, greatCircleLegs))
+                }
+                if (applied.contextLines !== contextLines || applied.showContextLines != showContextLines) {
+                    applied.contextLines = contextLines
+                    applied.showContextLines = showContextLines
+                    style.getSourceAs<GeoJsonSource>(CONTEXT_TRACK_SOURCE)?.setGeoJson(
+                        contextTrackFeature(contextLines, showContextLines),
+                    )
                 }
                 // Refresh geometry when the track grows (the live "current track" preview).
                 if (moved) {
@@ -156,6 +180,18 @@ internal fun MapLibreTrackMap(
                 if (applied.selection !== selectedPoint) {
                     applied.selection = selectedPoint
                     style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
+                    selectedPoint?.let { point ->
+                        val screen = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
+                        val left = 40f
+                        val right = (map.width - 40).toFloat()
+                        val top = 40f
+                        val bottom = (map.height - cameraBottomPaddingPx - 40).toFloat()
+                        val target = PointF(screen.x.coerceIn(left, right), screen.y.coerceIn(top, bottom))
+                        if (screen.x != target.x || screen.y != target.y) {
+                            // scrollBy moves the map under the marker; the zoom level is unchanged.
+                            map.scrollBy(screen.x - target.x, screen.y - target.y, 180)
+                        }
+                    }
                 }
                 if (applied.dwells !== dwells) {
                     applied.dwells = dwells
@@ -179,14 +215,32 @@ internal fun MapLibreTrackMap(
                         ?.setGeoJson(endPlaceCollection(endPlaces))
                 }
                 if (!applied.framed) {
-                    frameTo(map, framePositions(points, noisyPoints, greatCircleLegs), singlePointZoom = 15.0)
+                    frameTo(
+                        map,
+                        framePositions(points, noisyPoints, greatCircleLegs),
+                        singlePointZoom = 15.0,
+                        bottomPaddingPx = cameraBottomPaddingPx,
+                    )
                     applied.framed = true
+                    applied.framePadding = cameraBottomPaddingPx
+                } else if (applied.framePadding != cameraBottomPaddingPx) {
+                    applied.framePadding = cameraBottomPaddingPx
+                    frameTo(
+                        map,
+                        framePositions(points, noisyPoints, greatCircleLegs),
+                        singlePointZoom = 15.0,
+                        bottomPaddingPx = cameraBottomPaddingPx,
+                    )
                 }
             },
         )
         if (showLegend) {
             // Bottom-right: MapLibre's logo + attribution live bottom-left.
-            TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(MapInset))
+            TrackLegend(
+                coloring.legend,
+                Modifier.align(Alignment.BottomEnd)
+                    .padding(end = MapInset, bottom = MapInset + legendBottomPadding),
+            )
         }
     }
 }
@@ -198,6 +252,9 @@ internal fun MapLibreTrackMap(
  */
 private class AppliedTrackInputs {
     var points: List<TrackPoint>? = null
+    var framePadding = 0
+    var contextLines: List<JourneyLine>? = null
+    var showContextLines = false
     var noisy: List<TrackPoint>? = null
 
     /** The line's colours: a metric switch rebuilds the source, the legs carrying their own. */
@@ -217,6 +274,8 @@ private class AppliedTrackInputs {
 
 private const val TRACK_SOURCE = "track-src"
 private const val TRACK_LAYER = "track-layer"
+private const val CONTEXT_TRACK_SOURCE = "context-track-src"
+private const val CONTEXT_TRACK_LAYER = "context-track-layer"
 private const val MARKER_SOURCE = "marker-src"
 private const val MARKER_LAYER = "marker-layer"
 private const val IMG_START = "marker-start"
@@ -434,6 +493,33 @@ private fun trackLineFeature(
         lineFeature(points.subList(run.first, run.last + 1), props, greatCircleLegs)?.let(features::add)
     }
     return FeatureCollection.fromFeatures(features)
+}
+
+private fun contextTrackFeature(lines: List<JourneyLine>, visible: Boolean): FeatureCollection {
+    if (!visible) return FeatureCollection.fromFeatures(emptyList())
+    val features = lines.flatMap { line ->
+        line.segments.mapNotNull { coords ->
+            if (coords.size < 4) return@mapNotNull null
+            val points = (coords.indices step 2).map { index ->
+                Point.fromLngLat(coords[index], coords[index + 1])
+            }
+            Feature.fromGeometry(LineString.fromLngLats(points))
+        }
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun addContextTrackLines(style: Style, lines: List<JourneyLine>, dark: Boolean, visible: Boolean) {
+    style.addSource(GeoJsonSource(CONTEXT_TRACK_SOURCE, contextTrackFeature(lines, visible)))
+    style.addLayer(
+        LineLayer(CONTEXT_TRACK_LAYER, CONTEXT_TRACK_SOURCE).withProperties(
+            PropertyFactory.lineColor(if (dark) "#B6BEC8" else "#68727D"),
+            PropertyFactory.lineOpacity(0.42f),
+            PropertyFactory.lineWidth(2f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        ),
+    )
 }
 
 private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray, greatCircleLegs: Boolean) {

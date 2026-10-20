@@ -179,6 +179,7 @@ internal fun PlaceDetailScreen(
     /** Another place row's circle overlaps this one's. */
     canMerge: Boolean,
     onOpenMerge: () -> Unit,
+    embeddedPanel: Boolean = false,
 ) {
     val context = LocalContext.current
     // Only a named row is edited, tagged and titled by its name here.
@@ -365,12 +366,14 @@ internal fun PlaceDetailScreen(
                 ) { Text(stringResource(summary.namingActionRes)) }
             }
             Card(Modifier.fillMaxWidth()) { PlaceStatsHeader(summary) }
-            ViewSwitchRow(
-                labelsRes = placeViewLabels,
-                selectedIndex = view.ordinal,
-                onSelect = { view = PlaceView.entries[it] },
-            )
-            when (view) {
+            if (!embeddedPanel) {
+                ViewSwitchRow(
+                    labelsRes = placeViewLabels,
+                    selectedIndex = view.ordinal,
+                    onSelect = { view = PlaceView.entries[it] },
+                )
+            }
+            when (if (embeddedPanel) PlaceView.VISITS else view) {
                 PlaceView.VISITS -> if (eventGroups.isEmpty()) {
                     EmptyState(
                         stringResource(R.string.places_no_visits_detail),
