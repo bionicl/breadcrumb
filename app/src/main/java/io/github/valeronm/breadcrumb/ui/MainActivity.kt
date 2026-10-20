@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -434,6 +436,13 @@ private fun MainScreen(
         CompositionLocalProvider(LocalMapShade provides tabsMapShade.value) {
             Scaffold(
                 modifier = Modifier.blurredBy { tabsLayer.blurDp },
+                contentWindowInsets = if (
+                    selectedTab == HomeTab.TIMELINE && timelineDisplayOptions.modernTimelineLayout
+                ) {
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+                } else {
+                    ScaffoldDefaults.contentWindowInsets
+                },
                 topBar = {
                     if (selectedTab != HomeTab.TIMELINE || !timelineDisplayOptions.modernTimelineLayout) TopAppBar(
                         colors = canvasTopBarColors(),
