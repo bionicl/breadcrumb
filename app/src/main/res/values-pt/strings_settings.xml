@@ -28,6 +28,7 @@
     <string name="settings_time_format_system">Sistema</string>
     <string name="settings_time_format_12">12 horas</string>
     <string name="settings_time_format_24">24 horas</string>
+    <string name="settings_path_location_colours">Cores do percurso e dos locais</string>
     <string name="settings_timeline_color_palette">Cores da linha temporal</string>
     <string name="settings_timeline_palette_classic">Clássica</string>
     <string name="settings_timeline_palette_arc">Linha temporal em arco</string>

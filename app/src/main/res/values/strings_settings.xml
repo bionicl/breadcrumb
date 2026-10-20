@@ -32,6 +32,7 @@
     <string name="settings_time_format_system">System</string>
     <string name="settings_time_format_12">12-hour</string>
     <string name="settings_time_format_24">24-hour</string>
+    <string name="settings_path_location_colours">Path and location colours</string>
     <string name="settings_timeline_color_palette">Timeline colours</string>
     <string name="settings_timeline_palette_classic">Classic</string>
     <string name="settings_timeline_palette_arc">Arc timeline</string>

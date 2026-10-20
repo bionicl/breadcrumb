@@ -746,6 +746,7 @@ private fun MainScreen(
             timelineDisplayOptions = timelineDisplayOptions,
             onTimelineDisplayOptions = onTimelineDisplayOptions,
             onOpenTimelineLayout = { settingsSubPage = SettingsPage.TimelineLayout },
+            onOpenPathLocationColours = { settingsSubPage = SettingsPage.PathLocationColours },
             onOpenTrack = { discardedTrackId = it },
         )
 
@@ -754,6 +755,7 @@ private fun MainScreen(
             timelineDisplayOptions = timelineDisplayOptions,
             onTimelineDisplayOptions = onTimelineDisplayOptions,
             timelineColorPalette = timelineColorPalette,
+            onTimelineColorPalette = onTimelineColorPalette,
         )
 
         DiscardedTrackOverlay(
@@ -1123,6 +1125,7 @@ private fun SettingsPagesOverlay(
     timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
     onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
     onOpenTimelineLayout: () -> Unit,
+    onOpenPathLocationColours: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
@@ -1143,16 +1146,17 @@ private fun SettingsPagesOverlay(
             SettingsPage.Display -> DisplaySettingsScreen(
                 layer.dismiss,
                 onOpenTimelineLayout,
+                onOpenPathLocationColours,
                 unitChoice,
                 onUnitChoice,
                 onMapShade,
                 onClockTimeFormat,
                 timelineColorPalette,
-                onTimelineColorPalette,
                 timelineDisplayOptions,
                 onTimelineDisplayOptions,
             )
             SettingsPage.TimelineLayout -> Unit
+            SettingsPage.PathLocationColours -> Unit
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
@@ -1172,6 +1176,7 @@ private fun SettingsSubPageOverlay(
     timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
     onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
     timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
@@ -1180,6 +1185,13 @@ private fun SettingsSubPageOverlay(
                 timelineDisplayOptions = timelineDisplayOptions,
                 onTimelineDisplayOptions = onTimelineDisplayOptions,
                 timelineColorPalette = timelineColorPalette,
+            )
+            SettingsPage.PathLocationColours -> PathLocationColoursSettingsScreen(
+                onBack = layer.dismiss,
+                timelineDisplayOptions = timelineDisplayOptions,
+                onTimelineDisplayOptions = onTimelineDisplayOptions,
+                timelineColorPalette = timelineColorPalette,
+                onTimelineColorPalette = onTimelineColorPalette,
             )
             else -> Unit
         }

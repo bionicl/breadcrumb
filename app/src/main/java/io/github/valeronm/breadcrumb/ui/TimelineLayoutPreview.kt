@@ -30,6 +30,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -42,7 +43,33 @@ private val SAMPLE_DAY = LocalDate.of(2021, 3, 4)
 private const val SAMPLE_HOUR_MS = 3_600_000L
 private val sampleRowShape = RoundedCornerShape(0.dp)
 
+private fun sampleShape(index: Int, grouped: Boolean) =
+    if (grouped) groupedRowShape(index, 4) else sampleRowShape
+
 private val classicPageLabels = listOf(R.string.timeline_view_list, R.string.timeline_view_map)
+
+/** The colour page's preview: the same sample day, colored by the palette and location mode in hand. */
+@Composable
+internal fun TimelineColourSamplePreview(
+    displayOptions: TimelineDisplayOptions,
+    colorPalette: TimelineColorPalette,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        TimelineLayoutSampleRows(
+            displayOptions = displayOptions,
+            colorPalette = colorPalette,
+            rowSpacing = 2.dp,
+            contentPadding = PaddingValues(12.dp),
+            grouped = true,
+        )
+    }
+}
 
 @Composable
 internal fun TimelineLayoutSamplePreview(
@@ -148,6 +175,7 @@ private fun TimelineLayoutSampleRows(
     rowSpacing: Dp,
     contentPadding: PaddingValues,
     rowColor: Color? = null,
+    grouped: Boolean = false,
 ) {
     val zone = timelineZone()
     val placeLabel = stringResource(R.string.settings_timeline_layout_sample_place)
@@ -160,7 +188,7 @@ private fun TimelineLayoutSampleRows(
     ) {
         StayCard(
             item = samples.stayNamed,
-            shape = sampleRowShape,
+            shape = sampleShape(0, grouped),
             named = true,
             highlighted = false,
             zone = zone,
@@ -172,7 +200,7 @@ private fun TimelineLayoutSampleRows(
         )
         TrackRow(
             track = samples.walkTrack,
-            shape = sampleRowShape,
+            shape = sampleShape(1, grouped),
             onOpen = {},
             onDelete = {},
             showVisitTime = displayOptions.showVisitTime,
@@ -181,7 +209,7 @@ private fun TimelineLayoutSampleRows(
         )
         TrackRow(
             track = samples.driveTrack,
-            shape = sampleRowShape,
+            shape = sampleShape(2, grouped),
             onOpen = {},
             onDelete = {},
             showVisitTime = displayOptions.showVisitTime,
@@ -190,7 +218,7 @@ private fun TimelineLayoutSampleRows(
         )
         StayCard(
             item = samples.stayPlain,
-            shape = sampleRowShape,
+            shape = sampleShape(3, grouped),
             named = false,
             highlighted = false,
             zone = zone,
@@ -224,6 +252,7 @@ private fun timelineLayoutSamples(placeLabel: String, zone: ZoneId): TimelineLay
         lon = SAMPLE_ORIGIN.lon,
         createdAt = 0,
         radiusM = 60.0,
+        category = PlaceCategory.HOME.code,
     )
     return TimelineLayoutSamples(
         stayNamed = TimelineItem.StayItem(

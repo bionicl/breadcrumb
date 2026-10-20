@@ -28,6 +28,7 @@
     <string name="settings_time_format_system">Как в системе</string>
     <string name="settings_time_format_12">12-часовой формат</string>
     <string name="settings_time_format_24">24-часовой формат</string>
+    <string name="settings_path_location_colours">Цвета пути и мест</string>
     <string name="settings_timeline_color_palette">Цвета хронологии</string>
     <string name="settings_timeline_palette_classic">Классическая</string>
     <string name="settings_timeline_palette_arc">Дуговая хронология</string>

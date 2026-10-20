@@ -4,12 +4,11 @@ import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -45,10 +46,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,14 +58,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.annotation.StringRes
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -713,6 +713,7 @@ internal enum class SettingsPage {
     Trips,
     Display,
     TimelineLayout,
+    PathLocationColours,
     Privacy,
     Data,
     RecentlyDeleted,
@@ -724,12 +725,12 @@ internal enum class SettingsPage {
 internal fun DisplaySettingsScreen(
     onBack: () -> Unit,
     onOpenTimelineLayout: () -> Unit,
+    onOpenPathLocationColours: () -> Unit,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
     onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
     timelineColorPalette: AppSettings.TimelineColorPalette,
-    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
     timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
     onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
 ) {
@@ -766,34 +767,15 @@ internal fun DisplaySettingsScreen(
                 )
             },
             {
-                ChoiceChipsRow(
-                    stringResource(R.string.settings_timeline_location_colors),
-                    AppSettings.TimelineLocationColorMode.entries,
-                    timelineDisplayOptions.locationColorMode,
-                    {
-                        when (it) {
-                            AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
-                                R.string.settings_timeline_location_colors_category
-                            AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
-                                R.string.settings_timeline_location_colors_trip
-                        }
-                    },
-                ) {
-                    onTimelineDisplayOptions(timelineDisplayOptions.copy(locationColorMode = it))
-                }
-            },
-            {
-                ChoiceChipsRow(
-                    stringResource(R.string.settings_timeline_color_palette),
-                    AppSettings.TimelineColorPalette.entries,
-                    timelineColorPalette,
-                    {
-                        when (it) {
-                            AppSettings.TimelineColorPalette.CLASSIC -> R.string.settings_timeline_palette_classic
-                            AppSettings.TimelineColorPalette.ARC_TIMELINE -> R.string.settings_timeline_palette_arc
-                        }
-                    },
-                    onTimelineColorPalette,
+                NavRow(
+                    label = stringResource(R.string.settings_path_location_colours),
+                    subtitle = stringResource(locationColorModeLabelRes(timelineDisplayOptions.locationColorMode)) +
+                        " · " +
+                        stringResource(timelinePaletteLabelRes(timelineColorPalette)),
+                    // A switch reserves the minimum touch height; this row sits in that group, so it
+                    // takes the same height rather than reading as the short one.
+                    modifier = Modifier.minimumInteractiveComponentSize(),
+                    onClick = onOpenPathLocationColours,
                 )
             },
         )
@@ -842,6 +824,18 @@ internal fun DisplaySettingsScreen(
 internal fun timelineLayoutChoiceLabelRes(modern: Boolean): Int =
     if (modern) R.string.settings_timeline_layout_modern else R.string.settings_timeline_layout_classic
 
+@StringRes
+private fun locationColorModeLabelRes(mode: AppSettings.TimelineLocationColorMode): Int = when (mode) {
+    AppSettings.TimelineLocationColorMode.LOCATION_COLORS -> R.string.settings_timeline_location_colors_category
+    AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE -> R.string.settings_timeline_location_colors_trip
+}
+
+@StringRes
+private fun timelinePaletteLabelRes(palette: AppSettings.TimelineColorPalette): Int = when (palette) {
+    AppSettings.TimelineColorPalette.CLASSIC -> R.string.settings_timeline_palette_classic
+    AppSettings.TimelineColorPalette.ARC_TIMELINE -> R.string.settings_timeline_palette_arc
+}
+
 @Composable
 internal fun TimelineLayoutSettingsScreen(
     onBack: () -> Unit,
@@ -885,6 +879,44 @@ internal fun TimelineLayoutSettingsScreen(
         SectionHeading(stringResource(R.string.settings_timeline_layout_preview))
         TimelineLayoutSamplePreview(
             modern = modern,
+            displayOptions = timelineDisplayOptions,
+            colorPalette = timelineColorPalette,
+        )
+    }
+}
+
+@Composable
+internal fun PathLocationColoursSettingsScreen(
+    onBack: () -> Unit,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
+) {
+    SettingsSubScreen(stringResource(R.string.settings_path_location_colours), onBack) {
+        GroupedRows(
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_location_colors),
+                    AppSettings.TimelineLocationColorMode.entries,
+                    timelineDisplayOptions.locationColorMode,
+                    ::locationColorModeLabelRes,
+                ) {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(locationColorMode = it))
+                }
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_color_palette),
+                    AppSettings.TimelineColorPalette.entries,
+                    timelineColorPalette,
+                    ::timelinePaletteLabelRes,
+                    onTimelineColorPalette,
+                )
+            },
+        )
+        SectionHeading(stringResource(R.string.settings_timeline_layout_preview))
+        TimelineColourSamplePreview(
             displayOptions = timelineDisplayOptions,
             colorPalette = timelineColorPalette,
         )
