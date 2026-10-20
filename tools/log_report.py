@@ -69,7 +69,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
 
 KNOWN = [re.compile(rx) for rx in [
     r"snapshot ", r"watchdog", r"transition ", r"removing transition updates", r"cancelling transition PendingIntent",
-    r"boot receiver", r"edge-stay sweep", r"stats sweep", r"derivation rebuild", r"purged \d+ discarded",
+    r"boot receiver", r"edge-stay sweep", r"settle sweep", r"stats sweep", r"derivation rebuild", r"purged \d+ discarded",
     r"cleared \d+ track", r"handleStart:", r"departure fence", r"departure watch anchored", r"motion trigger", r"wifi ",
     r"motion cross-check", r"backup export", r"gpx import", r"manual track", r"live delivery resumed",
     r"activity detection not responding", r"\s*EXIT \w+ -> treating as STILL", r"track \d+: \d+ jump fixes restored",
