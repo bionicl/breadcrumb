@@ -9,7 +9,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
 import androidx.compose.foundation.gestures.AnchoredDraggableState
@@ -34,16 +33,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -54,13 +53,13 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,18 +80,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
@@ -101,15 +101,16 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.data.JourneyLine
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.data.SweepStatus
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -122,15 +123,17 @@ import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
+import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**
@@ -563,66 +566,66 @@ private fun ModernTimelineLayout(
             ) {
                 MaterialTheme(colorScheme = sheetColors.copy(surfaceContainerHighest = sheetContainerColor)) {
                     Column(Modifier.fillMaxSize().background(sheetContainerColor)) {
-                    Box(
-                        Modifier.fillMaxWidth().height(28.dp).anchoredDraggable(
-                            state = sheetState,
-                            orientation = Orientation.Vertical,
-                            flingBehavior = flingBehavior,
-                        ),
-                        contentAlignment = Alignment.Center,
-                    ) {
                         Box(
-                            Modifier.width(32.dp).height(4.dp).clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
-                        )
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            stringResource(R.string.nav_timeline),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        IconButton(onClick = { onAddTrip(TripDraft(day = mapDay)) }) {
-                            Icon(
-                                Icons.Filled.Add,
-                                contentDescription = stringResource(R.string.action_add_missing_trip),
+                            Modifier.fillMaxWidth().height(28.dp).anchoredDraggable(
+                                state = sheetState,
+                                orientation = Orientation.Vertical,
+                                flingBehavior = flingBehavior,
+                            ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                Modifier.width(32.dp).height(4.dp).clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
                             )
                         }
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.action_settings))
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                stringResource(R.string.nav_timeline),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            IconButton(onClick = { onAddTrip(TripDraft(day = mapDay)) }) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = stringResource(R.string.action_add_missing_trip),
+                                )
+                            }
+                            IconButton(onClick = onOpenSettings) {
+                                Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.action_settings))
+                            }
                         }
-                    }
-                    DaySelector(mapDay, onSelect = { mapDay = it })
-                    if (dayItems.isEmpty() && dayRecording == null) {
-                        EmptyState(
-                            stringResource(R.string.timeline_map_empty_day),
-                            Modifier.weight(1f).fillMaxWidth().padding(24.dp),
-                        )
-                    } else {
-                        TimelineListPage(
-                            items = dayItems,
-                            recording = dayRecording,
-                            viewModel = viewModel,
-                            undo = undo,
-                            jump = jump,
-                            onJumpShown = onJumpShown,
-                            viewedDay = listViewedDay,
-                            onOpen = onOpen,
-                            onOpenPlace = onOpenPlace,
-                            onOpenJourney = onOpenJourney,
-                            onAddTrip = onAddTrip,
-                            onReplay = onReplay,
-                            onOpenRecording = onOpenRecording,
-                            awayDays = awayDays,
-                            displayOptions = displayOptions,
-                            activityTypesByTrackId = activityTypesByTrackId,
-                            colorPalette = colorPalette,
-                            listStateOverride = listState,
-                        )
-                    }
+                        DaySelector(mapDay, onSelect = { mapDay = it })
+                        if (dayItems.isEmpty() && dayRecording == null) {
+                            EmptyState(
+                                stringResource(R.string.timeline_map_empty_day),
+                                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                            )
+                        } else {
+                            TimelineListPage(
+                                items = dayItems,
+                                recording = dayRecording,
+                                viewModel = viewModel,
+                                undo = undo,
+                                jump = jump,
+                                onJumpShown = onJumpShown,
+                                viewedDay = listViewedDay,
+                                onOpen = onOpen,
+                                onOpenPlace = onOpenPlace,
+                                onOpenJourney = onOpenJourney,
+                                onAddTrip = onAddTrip,
+                                onReplay = onReplay,
+                                onOpenRecording = onOpenRecording,
+                                awayDays = awayDays,
+                                displayOptions = displayOptions,
+                                activityTypesByTrackId = activityTypesByTrackId,
+                                colorPalette = colorPalette,
+                                listStateOverride = listState,
+                            )
+                        }
                     }
                 }
             }
@@ -914,69 +917,135 @@ private fun TimelineMapPage(
         viewModel.journeyPolylines.linesFor(dayTracks).collect { value = it }
     }
 
+    // The open track is not in the finalized timeline query yet, but accepted fixes are in Room.
+    // Read them incrementally; ignored rows matter because a resumed GPS stretch may mark a break.
+    var liveLine by remember(day) { mutableStateOf<JourneyLine?>(null) }
+    LaunchedEffect(day) {
+        if (day != LocalDate.now(timelineZone())) {
+            liveLine = null
+            return@LaunchedEffect
+        }
+        var activeTrackId: Long? = null
+        var cursor = 0L
+        var lastPointCount = -1
+        var pendingBreak = false
+        val goodPoints = ArrayList<TrackPoint>()
+        TrackingStatus.state.collect { status ->
+            val open = status.openTrack
+            if (open == null || !status.recording) {
+                activeTrackId = null
+                liveLine = null
+                return@collect
+            }
+
+            var refresh = false
+            if (activeTrackId != open.id) {
+                activeTrackId = open.id
+                cursor = 0L
+                lastPointCount = -1
+                pendingBreak = false
+                goodPoints.clear()
+                val initial = viewModel.getAllPoints(open.id)
+                cursor = initial.maxOfOrNull { it.id } ?: 0L
+                for (point in initial) {
+                    if (point.ignored) {
+                        pendingBreak = pendingBreak || point.segmentStart
+                    } else {
+                        goodPoints += if (pendingBreak && !point.segmentStart) point.copy(segmentStart = true) else point
+                        pendingBreak = false
+                    }
+                }
+                refresh = true
+            } else if (status.points > lastPointCount) {
+                val added = viewModel.getAllPointsAfter(open.id, cursor)
+                cursor = maxOf(cursor, added.maxOfOrNull { it.id } ?: cursor)
+                for (point in added) {
+                    if (point.ignored) {
+                        pendingBreak = pendingBreak || point.segmentStart
+                    } else {
+                        goodPoints += if (pendingBreak && !point.segmentStart) point.copy(segmentStart = true) else point
+                        pendingBreak = false
+                    }
+                }
+                refresh = true
+            }
+            lastPointCount = status.points
+            if (refresh) {
+                liveLine = if (goodPoints.size >= 2) {
+                    viewModel.journeyPolylines.liveLine(open.id, open.label, goodPoints.toList())
+                } else {
+                    null
+                }
+            }
+        }
+    }
+    val mapLines = remember(lines, liveLine) { liveLine?.let { lines + it } ?: lines }
+
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
     val mapPlaces = rememberStayPlaces(dayItems, placeSummaries)
 
     if (backgroundOnly) {
         MapLibreJourneyMap(
-            lines = lines,
+            lines = mapLines,
             places = mapPlaces,
-            frameKey = day,
+            frameKey = day to (liveLine != null),
             linesComplete = lines.size == dayTracks.size,
             onOpenPlace = onOpenPlace,
             colorPalette = colorPalette,
             modifier = Modifier.fillMaxSize(),
         )
-    } else Column(Modifier.fillMaxSize()) {
-        DaySelector(day, onSelectDay)
-        away?.let {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 16.dp),
-            ) {
-                TravelHeading(it) { onOpenJourney(it.summary) }
-                // Band and marker share one line and one scale — this view has no date line for
-                // the marker to continue, so it continues the band instead.
-                AwayDayMarker(it, MaterialTheme.typography.labelLarge)
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            DaySelector(day, onSelectDay)
+            away?.let {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                ) {
+                    TravelHeading(it) { onOpenJourney(it.summary) }
+                    // Band and marker share one line and one scale — this view has no date line for
+                    // the marker to continue, so it continues the band instead.
+                    AwayDayMarker(it, MaterialTheme.typography.labelLarge)
+                }
             }
-        }
-        // The same figures the list's day header states, so the two views describe a day alike.
-        // Zero-height on an empty day, whose message below says all there is to say.
-        DayTotals(
-            dayTracks = dayTracks,
-            dayItems = dayItems,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-            show = displayOptions.showDaySummary,
-            colorPalette = colorPalette,
-        )
-        if (dayTracks.isEmpty() && mapPlaces.isEmpty()) {
-            // The day, not the history, is empty — a bare basemap would read as a broken map.
-            EmptyState(
-                stringResource(R.string.timeline_map_empty_day),
-                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            // The same figures the list's day header states, so the two views describe a day alike.
+            // Zero-height on an empty day, whose message below says all there is to say.
+            DayTotals(
+                dayTracks = dayTracks,
+                dayItems = dayItems,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                show = displayOptions.showDaySummary,
+                colorPalette = colorPalette,
             )
-        } else {
-            // The same card the journey detail draws its map in — a block of content, not the
-            // page's own ground. Card padding keeps the texture-mode map off the back-gesture
-            // edge strips.
-            Card(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                shape = groupedRowShape(0, 1),
-            ) {
-                Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapLibreJourneyMap(
-                        lines = lines,
-                        places = mapPlaces,
-                        frameKey = day,
-                        linesComplete = lines.size == dayTracks.size,
-                        onOpenPlace = onOpenPlace,
-                        colorPalette = colorPalette,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+            if (dayTracks.isEmpty() && mapPlaces.isEmpty()) {
+                // The day, not the history, is empty — a bare basemap would read as a broken map.
+                EmptyState(
+                    stringResource(R.string.timeline_map_empty_day),
+                    Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+                )
+            } else {
+                // The same card the journey detail draws its map in — a block of content, not the
+                // page's own ground. Card padding keeps the texture-mode map off the back-gesture
+                // edge strips.
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+                    shape = groupedRowShape(0, 1),
+                ) {
+                    Box(Modifier.fillMaxSize().clipToBounds()) {
+                        MapLibreJourneyMap(
+                            lines = mapLines,
+                            places = mapPlaces,
+                            frameKey = day to (liveLine != null),
+                            linesComplete = lines.size == dayTracks.size,
+                            onOpenPlace = onOpenPlace,
+                            colorPalette = colorPalette,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }

@@ -444,62 +444,64 @@ private fun MainScreen(
                     ScaffoldDefaults.contentWindowInsets
                 },
                 topBar = {
-                    if (selectedTab != HomeTab.TIMELINE || !timelineDisplayOptions.modernTimelineLayout) TopAppBar(
-                        colors = canvasTopBarColors(),
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(selectedTab.titleRes))
-                                // What it says is the variant, named in one place; whether to draw one
-                                // at all is a decision of its own, off on release and on demo so that
-                                // neither a shipped screen nor a screenshot carries a badge.
-                                val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
-                                if (badge != null) {
-                                    Spacer(Modifier.width(8.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    ) {
-                                        Text(
-                                            badge,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    if (selectedTab != HomeTab.TIMELINE || !timelineDisplayOptions.modernTimelineLayout) {
+                        TopAppBar(
+                            colors = canvasTopBarColors(),
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(stringResource(selectedTab.titleRes))
+                                    // What it says is the variant, named in one place; whether to draw one
+                                    // at all is a decision of its own, off on release and on demo so that
+                                    // neither a shipped screen nor a screenshot carries a badge.
+                                    val badge = BuildIdentity.variant?.takeIf { BuildConfig.SHOW_BUILD_BADGE }
+                                    if (badge != null) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        ) {
+                                            Text(
+                                                badge,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            actions = {
+                                // Only where the trip would land: the Timeline is the one tab that shows
+                                // what a manual entry changes.
+                                if (selectedTab == HomeTab.TIMELINE) {
+                                    IconButton(onClick = {
+                                        tripDraft = TripDraft(day = timelineViewedDay.read())
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Add,
+                                            contentDescription = stringResource(R.string.action_add_missing_trip),
                                         )
                                     }
                                 }
-                            }
-                        },
-                        actions = {
-                            // Only where the trip would land: the Timeline is the one tab that shows
-                            // what a manual entry changes.
-                            if (selectedTab == HomeTab.TIMELINE) {
-                                IconButton(onClick = {
-                                    tripDraft = TripDraft(day = timelineViewedDay.read())
-                                }) {
+                                if (selectedTab == HomeTab.PLACES) {
+                                    IconButton(onClick = {
+                                        newPlacePick = NewPlacePick(placesMapCamera.camera?.position())
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Add,
+                                            contentDescription = stringResource(R.string.places_new_place),
+                                        )
+                                    }
+                                }
+                                IconButton(onClick = { mainDestination = MainDestination.Settings }) {
                                     Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = stringResource(R.string.action_add_missing_trip),
+                                        Icons.Filled.Settings,
+                                        contentDescription = stringResource(R.string.action_settings),
                                     )
                                 }
-                            }
-                            if (selectedTab == HomeTab.PLACES) {
-                                IconButton(onClick = {
-                                    newPlacePick = NewPlacePick(placesMapCamera.camera?.position())
-                                }) {
-                                    Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = stringResource(R.string.places_new_place),
-                                    )
-                                }
-                            }
-                            IconButton(onClick = { mainDestination = MainDestination.Settings }) {
-                                Icon(
-                                    Icons.Filled.Settings,
-                                    contentDescription = stringResource(R.string.action_settings),
-                                )
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                 },
                 bottomBar = {
                     // One container step below the canvas: the default surfaceContainer became the

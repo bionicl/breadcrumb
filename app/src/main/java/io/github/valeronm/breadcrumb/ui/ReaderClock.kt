@@ -15,12 +15,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import io.github.valeronm.breadcrumb.data.Settings.ClockTimeFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import android.provider.Settings as SystemSettings
-import io.github.valeronm.breadcrumb.data.Settings.ClockTimeFormat
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /**

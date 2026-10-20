@@ -5,8 +5,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
-import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.geometry.LatLng

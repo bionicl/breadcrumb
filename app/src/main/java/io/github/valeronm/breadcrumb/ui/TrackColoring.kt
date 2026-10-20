@@ -29,13 +29,13 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
-import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.util.FixUnit
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem

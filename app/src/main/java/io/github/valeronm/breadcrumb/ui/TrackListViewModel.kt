@@ -665,6 +665,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
         repository.pointsAfter(trackId, afterId)
 
+    suspend fun getAllPoints(trackId: Long): List<TrackPoint> = repository.allPointsFor(trackId)
+
+    suspend fun getAllPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
+        repository.allPointsAfter(trackId, afterId)
+
     /** The overrun comes from the stored flags rather than a fresh detection. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
 
