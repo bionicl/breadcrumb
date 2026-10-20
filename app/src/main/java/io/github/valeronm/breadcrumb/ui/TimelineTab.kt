@@ -217,6 +217,16 @@ private enum class TimelinePage(@StringRes val labelRes: Int) {
     MAP(R.string.timeline_view_map),
 }
 
+/** Resolve the row before choosing a day: a foreign visit need not share the device's date. */
+internal fun timelineJumpDay(jump: TimelineJump.Row, items: List<TimelineItem>): LocalDate =
+    items.firstOrNull(jump::matches)?.filedOn
+        ?: groupTimelineByDay(items).firstOrNull { it.items.last().startedAt <= jump.anchorMs }?.date
+        ?: java.time.Instant.ofEpochMilli(jump.anchorMs).atZone(timelineZone()).toLocalDate()
+
+/** Only the classic list has a sticky heading to leave above the requested row. */
+internal fun timelineJumpScrollIndex(rowIndex: Int, singleDayMode: Boolean): Int =
+    (rowIndex - if (singleDayMode) 0 else 1).coerceAtLeast(0)
+
 internal enum class TimelineSheetAnchor { Hidden, PartiallyExpanded, Expanded }
 
 private sealed interface ModernDetailTarget {
@@ -503,11 +513,12 @@ private fun ModernTimelineLayout(
     var sheetExpansionAllowed by remember { mutableStateOf(false) }
     var sheetCollapseAllowed by remember { mutableStateOf(false) }
     viewedDay.read = { mapDay }
-    LaunchedEffect(jump) {
+    val rowJumpDay = remember(jump, items) { (jump as? TimelineJump.Row)?.let { timelineJumpDay(it, items) } }
+    LaunchedEffect(jump, rowJumpDay) {
         when (jump) {
             is TimelineJump.Row -> {
                 detailStack = resetModernTimelineDetails()
-                mapDay = java.time.Instant.ofEpochMilli(jump.anchorMs).atZone(timelineZone()).toLocalDate()
+                mapDay = checkNotNull(rowJumpDay)
             }
             is TimelineJump.Day -> {
                 detailStack = resetModernTimelineDetails()
@@ -613,6 +624,8 @@ private fun ModernTimelineLayout(
         val sharedTrackColoring = remember(selectedTrackId) { mutableStateOf<TrackColoring?>(null) }
         val sharedTrackSeams = remember(selectedTrackId) { mutableStateOf<TrackQuality.Seams?>(null) }
         var showDayContext by remember(selectedTrackId) { mutableStateOf(false) }
+        var showNoisyOverride by remember(selectedTrackId) { mutableStateOf<Boolean?>(null) }
+        val showNoisy = showNoisyTrackPoints(selectedTrackPoints?.good?.size, showNoisyOverride)
         val settledBottomPadding = settledMapBottomPadding(sheetState, fullHeightPx, peekHeightPx)
         LaunchedEffect(fullHeightPx, topInsetPx) {
             sheetState.updateAnchors(
@@ -697,6 +710,7 @@ private fun ModernTimelineLayout(
                             id = summary.id,
                             points = loaded.good,
                             noisyPoints = loaded.noisy,
+                            showNoisy = showNoisy,
                             activity = activity,
                             colorMode = selectedColorMode.value,
                             selectedPoint = selectedGraphPoint,
@@ -825,6 +839,8 @@ private fun ModernTimelineLayout(
                                             embeddedPanel = true,
                                             externalTrackPoints = selectedTrackPoints,
                                             useExternalTrackPoints = true,
+                                            externalShowNoisy = showNoisy,
+                                            onShowNoisyChanged = { showNoisyOverride = it },
                                             onSelectedPoint = { selectedGraphPoint = it },
                                             externalColorMode = selectedColorMode.value,
                                             onColorModeChanged = { selectedColorMode.value = it },
@@ -910,7 +926,8 @@ private fun ModernTimelineLayout(
                                 recording = dayRecording,
                                 viewModel = viewModel,
                                 undo = undo,
-                                jump = jump,
+                                // Wait for the requested day before its list can consume the jump.
+                                jump = jump.takeUnless { it is TimelineJump.Row && mapDay != rowJumpDay },
                                 onJumpShown = onJumpShown,
                                 viewedDay = listViewedDay,
                                 onOpen = openTrackDetail,
@@ -1039,8 +1056,7 @@ private fun TimelineListPage(
                     if (i >= 0) (dayAnchors[g].itemIndex + (if (singleDayMode) 0 else 1) + i) to groups[g].items[i] else null
                 }
                 if (hit != null) {
-                    // One row above the target so it sits below the sticky day header.
-                    listState.scrollToItem(hit.first - 1)
+                    listState.scrollToItem(timelineJumpScrollIndex(hit.first, singleDayMode))
                     highlightKey = hit.second.rowKey()
                 } else {
                     // By instant, not by date: the target arrives from a place screen carrying no

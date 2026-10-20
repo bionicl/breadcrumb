@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import android.graphics.PointF
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -9,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -182,11 +182,9 @@ internal fun MapLibreTrackMap(
                     style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(selectedPoint))
                     selectedPoint?.let { point ->
                         val screen = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
-                        val left = 40f
-                        val right = (map.width - 40).toFloat()
-                        val top = 40f
-                        val bottom = (map.height - cameraBottomPaddingPx - 40).toFloat()
-                        val target = PointF(screen.x.coerceIn(left, right), screen.y.coerceIn(top, bottom))
+                        val target = mapSelectionTarget(
+                            Offset(screen.x, screen.y), map.width.toInt(), map.height.toInt(), cameraBottomPaddingPx,
+                        ) ?: return@let
                         if (screen.x != target.x || screen.y != target.y) {
                             // scrollBy moves the map under the marker; the zoom level is unchanged.
                             map.scrollBy(screen.x - target.x, screen.y - target.y, 180)
@@ -367,7 +365,7 @@ internal fun MapLibreModernTimelineMap(
                 addContextTrackLines(style, track?.contextLines.orEmpty(), dark, track?.showContextLines == true)
                 addTrackLine(style, track?.points.orEmpty(), colors, GreatCircle.drawsPath(track?.points?.size ?: 0, track?.activity))
                 addEdgeStayLayer(style, track?.overruns.orEmpty(), dark)
-                addMarkers(ctx, style, track?.points.orEmpty(), track?.noisyPoints.orEmpty(), false)
+                addMarkers(ctx, style, track?.points.orEmpty(), track?.visibleNoisyPoints.orEmpty(), false)
                 addEndPlacePins(ctx, style, track?.endPlaces.orEmpty(), dark)
                 addSelectionLayer(ctx, style, track?.selectedPoint)
                 val placeMarker = place?.marker ?: PlaceMarker(Coordinate(0.0, 0.0))
@@ -411,9 +409,10 @@ internal fun MapLibreModernTimelineMap(
                         ),
                     )
                 }
-                if (previousTrack?.noisyPoints !== track?.noisyPoints || previousTrack?.points !== track?.points || previousTrack?.id != track?.id) {
+                val markerPointsChanged = previousTrack?.points !== track?.points || previousTrack?.id != track?.id
+                if (markerPointsChanged || previousTrack?.noisyPoints !== track?.noisyPoints || previousTrack?.showNoisy != track?.showNoisy) {
                     style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(
-                        markerCollection(track?.points.orEmpty(), track?.noisyPoints.orEmpty(), false),
+                        markerCollection(track?.points.orEmpty(), track?.visibleNoisyPoints.orEmpty(), false),
                     )
                 }
                 if (
@@ -443,10 +442,9 @@ internal fun MapLibreModernTimelineMap(
                     style.getSourceAs<GeoJsonSource>(SELECT_SOURCE)?.setGeoJson(selectionCollection(track?.selectedPoint))
                     track?.selectedPoint?.let { point ->
                         val screen = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
-                        val target = android.graphics.PointF(
-                            screen.x.coerceIn(40f, map.width - 40f),
-                            screen.y.coerceIn(40f, map.height - state.bottomPaddingPx - 40f),
-                        )
+                        val target = mapSelectionTarget(
+                            Offset(screen.x, screen.y), map.width.toInt(), map.height.toInt(), state.bottomPaddingPx,
+                        ) ?: return@let
                         if (screen.x != target.x || screen.y != target.y) map.scrollBy(screen.x - target.x, screen.y - target.y, 180)
                     }
                 }
@@ -473,6 +471,9 @@ internal fun MapLibreModernTimelineMap(
         )
         if (track?.showLegend == true) {
             TrackLegend(coloring.legend, Modifier.align(Alignment.BottomEnd).padding(end = MapInset, bottom = MapInset + track.legendBottomPadding))
+        }
+        if (track?.showNoisy == true && track.noisyPoints.isNotEmpty()) {
+            NoisyLegend(track.noisyPoints, Modifier.align(Alignment.TopEnd).padding(MapInset))
         }
     }
 }
@@ -533,7 +534,7 @@ private fun frameModernTimelineState(map: org.maplibre.android.maps.MapLibreMap,
         is ModernTimelineMapState.Overview -> frameModernTimelineOverview(map, state.lines, state.places, state.bottomPaddingPx)
         is ModernTimelineMapState.Track -> frameTo(
             map,
-            framePositions(state.points, state.noisyPoints, GreatCircle.drawsPath(state.points.size, state.activity)),
+            framePositions(state.points, state.visibleNoisyPoints, GreatCircle.drawsPath(state.points.size, state.activity)),
             singlePointZoom = 15.0,
             bottomPaddingPx = state.bottomPaddingPx,
         )

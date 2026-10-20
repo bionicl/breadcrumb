@@ -114,6 +114,8 @@ internal fun TrackDetailScreen(
     embeddedPanel: Boolean = false,
     externalTrackPoints: TrackPoints? = null,
     useExternalTrackPoints: Boolean = false,
+    externalShowNoisy: Boolean? = null,
+    onShowNoisyChanged: (Boolean) -> Unit = {},
     onSelectedPoint: (TrackPoint?) -> Unit = {},
     externalColorMode: ColorMode? = null,
     onColorModeChanged: (ColorMode) -> Unit = {},
@@ -143,7 +145,6 @@ internal fun TrackDetailScreen(
     val startZone = zones.start
     val endZone = zones.end
     val points = trackPoints?.good
-    val noisyPoints = trackPoints?.noisy
     val stayPoints = trackPoints?.edgeStay.orEmpty()
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState(initialValue = emptyList(), points) {
@@ -196,7 +197,7 @@ internal fun TrackDetailScreen(
     // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
     // the default follows the points once they load, until the user says otherwise.
     var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
-    val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
+    val showNoisy = externalShowNoisy ?: showNoisyTrackPoints(points?.size, showNoisyOverride)
     // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
@@ -362,6 +363,11 @@ internal fun TrackDetailScreen(
                     // In the modern Timeline panel the selected track is the map above the
                     // drawer. Keep the same graph and metric state here, without a second map.
                     if (embeddedPanel) {
+                        if (load.noisy.isNotEmpty()) {
+                            MapFilterChip(selected = showNoisy, label = stringResource(R.string.track_filter_noisy)) {
+                                onShowNoisyChanged(!showNoisy)
+                            }
+                        }
                         if (graph != null) {
                             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                                 MetricGraph(
@@ -407,9 +413,7 @@ internal fun TrackDetailScreen(
                                         // Top-right, clear of the color-metric legend (bottom-right).
                                         NoisyLegend(load.noisy, Modifier.align(Alignment.TopEnd).padding(MapInset))
                                     }
-                                    if (!noisyPoints.isNullOrEmpty()) {
-                                        // On the map rather than in the bar: it shows and hides marks
-                                        // drawn here.
+                                    if (load.noisy.isNotEmpty()) {
                                         MapFilterChips {
                                             MapFilterChip(
                                                 selected = showNoisy,
@@ -943,6 +947,9 @@ private fun MetricGraph(
     }
 }
 
+internal fun showNoisyTrackPoints(goodPointCount: Int?, override: Boolean?): Boolean =
+    override ?: (goodPointCount != null && goodPointCount < KeepRule.MIN_LINE_POINTS)
+
 // Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss) and so stay literal —
 // they answer to those files, not to the theme. Only the wording is a resource.
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (reason) {
@@ -956,7 +963,7 @@ private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (re
 
 /** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
 @Composable
-private fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
+internal fun NoisyLegend(noisyPoints: List<TrackPoint>, modifier: Modifier) {
     val entries = remember(noisyPoints) {
         noisyPoints.map { noisyLegendEntry(IgnoreReason.fromCode(it.ignoreReason)) }.distinct()
     }

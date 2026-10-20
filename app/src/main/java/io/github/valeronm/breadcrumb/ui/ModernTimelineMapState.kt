@@ -42,7 +42,10 @@ internal sealed interface ModernTimelineMapState {
         val showLegend: Boolean,
         val legendBottomPadding: Dp,
         override val bottomPaddingPx: Int,
-    ) : ModernTimelineMapState
+        val showNoisy: Boolean = false,
+    ) : ModernTimelineMapState {
+        val visibleNoisyPoints: List<TrackPoint> get() = if (showNoisy) noisyPoints else emptyList()
+    }
 
     data class PlaceTarget(
         val key: String,
