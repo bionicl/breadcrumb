@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
@@ -28,10 +31,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.SideEffect
@@ -113,6 +118,7 @@ internal fun TrackDetailScreen(
     externalColorMode: ColorMode? = null,
     onColorModeChanged: (ColorMode) -> Unit = {},
     onTrackColoringChanged: (TrackColoring?, TrackQuality.Seams?) -> Unit = { _, _ -> },
+    headerDragModifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     // One load of everything the screen draws (null = still reading), keyed on the row as well as
@@ -200,16 +206,45 @@ internal fun TrackDetailScreen(
     // finished, since a still-recording one's last edge is still moving.
     val splittable = onSplit != null && summary?.endedAt != null
     Scaffold(
+        contentWindowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
         topBar = {
             TopAppBar(
+                modifier = headerDragModifier,
                 colors = canvasTopBarColors(),
-                // The bar carries what the track *is*; when it happened is a line of its own below,
-                // where it reads at body size instead of as a caption under a title.
+                windowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                 title = {
-                    Text(
-                        summary?.let { activityLabel(LocalContext.current, it.activityType) }
-                            ?: stringResource(R.string.track_title),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            summary?.let { activityLabel(LocalContext.current, it.activityType) }
+                                ?: stringResource(R.string.track_title),
+                        )
+                        if (embeddedPanel && summary != null) {
+                            val shiftColor = zoneShiftColor
+                            val readerClock = LocalReaderClock.current
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    buildAnnotatedString {
+                                        appendDateTime(
+                                            summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                        )
+                                        summary.endedAt?.let { endedAt ->
+                                            append(" – ")
+                                            appendTime(endedAt, endZone, reader, shiftColor, readerClock)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                                OriginCaption(source?.mark)
+                            }
+                        }
+                    }
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
@@ -263,34 +298,38 @@ internal fun TrackDetailScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 else -> Column(
-                    Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(bottom = 12.dp),
+                    Modifier.fillMaxSize()
+                        .then(if (embeddedPanel) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                        .padding(horizontal = 12.dp).padding(bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (summary != null) {
                         // Each end on its own clock, marked where it differs from the reader's — a
                         // track can cross a border, and the row this screen opened from says so.
-                        val shiftColor = zoneShiftColor
-                        val readerClock = LocalReaderClock.current
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                buildAnnotatedString {
-                                    appendDateTime(
-                                        summary.startedAt, startZone, reader, shiftColor, readerClock,
-                                    )
-                                    summary.endedAt?.let { endedAt ->
-                                        append(" – ")
-                                        appendTime(endedAt, endZone, reader, shiftColor, readerClock)
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            OriginCaption(source?.mark)
+                        if (!embeddedPanel) {
+                            val shiftColor = zoneShiftColor
+                            val readerClock = LocalReaderClock.current
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    buildAnnotatedString {
+                                        appendDateTime(
+                                            summary.startedAt, startZone, reader, shiftColor, readerClock,
+                                        )
+                                        summary.endedAt?.let { endedAt ->
+                                            append(" – ")
+                                            appendTime(endedAt, endZone, reader, shiftColor, readerClock)
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                OriginCaption(source?.mark)
+                            }
                         }
                         Card(Modifier.fillMaxWidth()) { TrackStatsHeader(summary) }
                     }

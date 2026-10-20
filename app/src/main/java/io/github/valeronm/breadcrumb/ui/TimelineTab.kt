@@ -771,10 +771,15 @@ private fun ModernTimelineLayout(
                 contentColor = sheetColors.onSurface,
                 tonalElevation = 0.dp,
             ) {
-                MaterialTheme(colorScheme = sheetColors.copy(surfaceContainerHighest = sheetContainerColor)) {
+                MaterialTheme(
+                    colorScheme = sheetColors.copy(
+                        background = sheetContainerColor,
+                        surfaceContainerHighest = sheetContainerColor,
+                    ),
+                ) {
                     Column(Modifier.fillMaxSize().background(sheetContainerColor)) {
                         Box(
-                            Modifier.fillMaxWidth().height(28.dp).anchoredDraggable(
+                            Modifier.fillMaxWidth().height(if (selectedTarget == null) 28.dp else 16.dp).anchoredDraggable(
                                 state = sheetState,
                                 orientation = Orientation.Vertical,
                                 flingBehavior = flingBehavior,
@@ -786,17 +791,19 @@ private fun ModernTimelineLayout(
                                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
                             )
                         }
-                        DaySelector(
-                            mapDay,
-                            onSelect = { mapDay = it },
-                            onAddTrip = { onAddTrip(TripDraft(day = mapDay)) },
-                            onShare = {
-                                viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
-                                    if (intent != null) context.startActivity(intent)
-                                }
-                            },
-                            canShare = selectedTarget == null && dayTracks.isNotEmpty(),
-                        )
+                        if (selectedTarget == null) {
+                            DaySelector(
+                                mapDay,
+                                onSelect = { mapDay = it },
+                                onAddTrip = { onAddTrip(TripDraft(day = mapDay)) },
+                                onShare = {
+                                    viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
+                                        if (intent != null) context.startActivity(intent)
+                                    }
+                                },
+                                canShare = dayTracks.isNotEmpty(),
+                            )
+                        }
                         if (selectedTarget != null) {
                             when (selectedTarget) {
                                 is ModernDetailTarget.Track -> {
@@ -824,6 +831,11 @@ private fun ModernTimelineLayout(
                                                 sharedTrackColoring.value = coloring
                                                 sharedTrackSeams.value = seams
                                             },
+                                            headerDragModifier = Modifier.anchoredDraggable(
+                                                state = sheetState,
+                                                orientation = Orientation.Vertical,
+                                                flingBehavior = flingBehavior,
+                                            ),
                                         )
                                     }
                                 }
@@ -855,6 +867,11 @@ private fun ModernTimelineLayout(
                                             canMerge = canMerge,
                                             onOpenMerge = { onMergePlace(place) },
                                             embeddedPanel = true,
+                                            headerDragModifier = Modifier.anchoredDraggable(
+                                                state = sheetState,
+                                                orientation = Orientation.Vertical,
+                                                flingBehavior = flingBehavior,
+                                            ),
                                         )
                                     }
                                 }

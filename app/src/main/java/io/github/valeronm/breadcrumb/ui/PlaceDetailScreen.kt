@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -180,6 +182,7 @@ internal fun PlaceDetailScreen(
     canMerge: Boolean,
     onOpenMerge: () -> Unit,
     embeddedPanel: Boolean = false,
+    headerDragModifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     // Only a named row is edited, tagged and titled by its name here.
@@ -249,6 +252,7 @@ internal fun PlaceDetailScreen(
             .let { scrollBehavior.state.heightOffset = it }
     }
     Scaffold(
+        contentWindowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
         modifier = if (titleTruncated) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier,
         topBar = {
             // A place name runs long, and in a one-line bar it either wraps into the icons or gets
@@ -315,7 +319,9 @@ internal fun PlaceDetailScreen(
             }
             if (titleTruncated) {
                 MediumTopAppBar(
+                    modifier = headerDragModifier,
                     colors = canvasTopBarColors(),
+                    windowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                     scrollBehavior = scrollBehavior,
                     title = barTitle,
                     navigationIcon = { BackNavIcon(onBack) },
@@ -323,7 +329,9 @@ internal fun PlaceDetailScreen(
                 )
             } else {
                 TopAppBar(
+                    modifier = headerDragModifier,
                     colors = canvasTopBarColors(),
+                    windowInsets = if (embeddedPanel) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                     title = barTitle,
                     navigationIcon = { BackNavIcon(onBack) },
                     actions = barActions,
