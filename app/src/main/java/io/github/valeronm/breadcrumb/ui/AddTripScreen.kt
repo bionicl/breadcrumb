@@ -451,6 +451,11 @@ internal fun AddTripScreen(
     val focusManager = LocalFocusManager.current
     fun endOf(which: ManualPath.End) = if (which == ManualPath.End.ORIGIN) origin else destination
 
+    val sheetState = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded)
+    // An end is moved on the map, so the sheet is lowered while it is picked. A cancelled pick
+    // raises it again only if it was lowered for that rather than by the user.
+    var sheetLowered by remember { mutableStateOf(false) }
+
     fun placePin(at: Coordinate, placeName: String? = null) {
         val end = endOf(picking ?: return)
         // Placing a pin — from a search result, a map pin or a long press — is done with the
@@ -461,6 +466,27 @@ internal fun AddTripScreen(
         end.pin = at
         end.placeName = placeName
         picking = nextToPlace(origin, destination)
+        if (picking == null) {
+            // The trip is whole: the sheet comes back up, and the trip is fitted once it has, so
+            // the fit reads the sheet where it stopped.
+            sheetLowered = false
+            if (sheetState.currentValue == SheetValue.Expanded) {
+                frameKey++
+            } else {
+                scope.launch {
+                    sheetState.expand()
+                    frameKey++
+                }
+            }
+        }
+    }
+
+    fun stopPicking() {
+        picking = null
+        if (sheetLowered) {
+            sheetLowered = false
+            scope.launch { sheetState.expand() }
+        }
     }
 
     // Only the dot of the track the end being picked meets places that end, and at that track's own
@@ -474,7 +500,7 @@ internal fun AddTripScreen(
 
     // Only an end with a pin to keep can be left unpicked.
     val canStopPicking = picking?.let { endOf(it).pin != null } == true
-    BackHandler(enabled = canStopPicking) { picking = null }
+    BackHandler(enabled = canStopPicking, onBack = ::stopPicking)
 
     // Asked again on every tap: panning away and tapping the row is the way back to the end.
     fun centerOn(end: TripEnd) {
@@ -512,21 +538,11 @@ internal fun AddTripScreen(
         )
     }
     val cover = remember { MapCover() }
-    val sheetState = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded)
-    // An end is moved on the map, so the sheet is lowered while it is picked; it is raised again
-    // only if it was lowered for that rather than by the user.
-    var sheetLowered by remember { mutableStateOf(false) }
     fun pick(end: ManualPath.End) {
         picking = end
         if (sheetState.currentValue == SheetValue.Expanded) {
             sheetLowered = true
             scope.launch { sheetState.partialExpand() }
-        }
-    }
-    LaunchedEffect(picking) {
-        if (picking == null && sheetLowered) {
-            sheetLowered = false
-            sheetState.expand()
         }
     }
     BottomSheetScaffold(
@@ -730,9 +746,6 @@ internal fun AddTripScreen(
             fun pickResult(at: Coordinate, placeName: String? = null) {
                 placePin(at, placeName)
                 queryState.clearText()
-                // A pin picked by name can land anywhere relative to the other, at a zoom that
-                // shows neither; one placed on the map is already where the user is looking.
-                if (origin.pin != null && destination.pin != null) frameKey++
             }
             val onlineHits by rememberOnlineHits(query, near = origin.pin ?: destination.pin, viewModel)
             Box(
@@ -893,7 +906,7 @@ internal fun AddTripScreen(
                                         style = MaterialTheme.typography.labelSmall,
                                     )
                                     if (canStopPicking) {
-                                        IconButton(onClick = { picking = null }, modifier = Modifier.size(28.dp)) {
+                                        IconButton(onClick = ::stopPicking, modifier = Modifier.size(28.dp)) {
                                             Icon(
                                                 Icons.Filled.Close,
                                                 contentDescription = stringResource(R.string.common_cancel),
