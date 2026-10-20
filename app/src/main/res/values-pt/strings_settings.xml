@@ -44,7 +44,8 @@
     <string name="settings_timeline_layout_classic">Clássico</string>
     <string name="settings_timeline_layout_classic_sub">Todos os dias numa lista, com mapa à parte</string>
     <string name="settings_timeline_layout_preview">Pré-visualização</string>
-    <string name="settings_timeline_layout_sample_place">Local de exemplo</string>
+    <string name="settings_timeline_layout_sample_home">Casa</string>
+    <string name="settings_timeline_layout_sample_shopping_mall">Centro comercial</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">

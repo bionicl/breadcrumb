@@ -44,7 +44,8 @@
     <string name="settings_timeline_layout_classic">Классический</string>
     <string name="settings_timeline_layout_classic_sub">Все дни списком и отдельный вид карты</string>
     <string name="settings_timeline_layout_preview">Предпросмотр</string>
-    <string name="settings_timeline_layout_sample_place">Пример места</string>
+    <string name="settings_timeline_layout_sample_home">Дом</string>
+    <string name="settings_timeline_layout_sample_shopping_mall">Торговый центр</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <plurals name="settings_recently_deleted_sub">

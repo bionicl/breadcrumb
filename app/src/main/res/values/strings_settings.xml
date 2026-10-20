@@ -48,7 +48,8 @@
     <string name="settings_timeline_layout_classic">Classic</string>
     <string name="settings_timeline_layout_classic_sub">All days in a list, with a separate map view</string>
     <string name="settings_timeline_layout_preview">Preview</string>
-    <string name="settings_timeline_layout_sample_place">Example place</string>
+    <string name="settings_timeline_layout_sample_home">Home</string>
+    <string name="settings_timeline_layout_sample_shopping_mall">Shopping mall</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_online_services">Online services</string>
     <plurals name="settings_recently_deleted_sub">

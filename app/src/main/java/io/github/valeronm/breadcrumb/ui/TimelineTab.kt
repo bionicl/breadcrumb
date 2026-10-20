@@ -108,6 +108,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -1125,7 +1126,9 @@ private fun TimelineListPage(
                         when (item) {
                             is TimelineItem.TrackItem -> TrackRow(
                                 track = item.summary,
-                                showVisitTime = displayOptions.showVisitTime,
+                                zone = item.clock,
+                                endZone = item.endZone,
+                                displayOptions = displayOptions,
                                 colorPalette = colorPalette,
                                 shape = shape,
                                 onOpen = { onOpen(item.summary.id) },
@@ -1146,7 +1149,7 @@ private fun TimelineListPage(
                                 item = item,
                                 shape = shape,
                                 onClick = onOpenRecording,
-                                showVisitTime = displayOptions.showVisitTime,
+                                displayOptions = displayOptions,
                                 colorPalette = colorPalette,
                             )
                             is TimelineItem.StayItem -> StayRow(
@@ -1811,30 +1814,49 @@ internal fun RecordingRow(
     item: TimelineItem.RecordingItem,
     shape: RoundedCornerShape,
     onClick: () -> Unit,
-    showVisitTime: Boolean = true,
+    displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
     val activityName = stringResource(item.label.labelRes)
     val recording = durationText(item.startedAt, endedAt = null)
-    ListRowCard(
-        shape = shape,
-        icon = activityIcon(item.label),
-        disc = activityDiscStyle(item.label, colorPalette),
-        iconDescription = activityName,
-        leadingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TimelineVisitTimeGutter(showVisitTime)
-                MovementTimelineLine(timelineActivityColor(item.label, colorPalette), activityName)
-            }
-        },
-        contentVerticalPadding = 8.dp,
-        title = activityName,
-        titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-        titleStyle = MaterialTheme.typography.bodySmall,
-        subtitleStyle = MaterialTheme.typography.bodySmall,
-        subtitle = AnnotatedString(recording),
-        onClick = onClick,
-    )
+    if (displayOptions.modernTimelineLayout) {
+        ListRowCard(
+            shape = shape,
+            icon = activityIcon(item.label),
+            disc = activityDiscStyle(item.label, colorPalette),
+            iconDescription = activityName,
+            leadingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TimelineVisitTimeGutter(displayOptions.showVisitTime)
+                    MovementTimelineLine(timelineActivityColor(item.label, colorPalette), activityName)
+                }
+            },
+            contentVerticalPadding = 8.dp,
+            title = activityName,
+            titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+            titleStyle = MaterialTheme.typography.bodySmall,
+            subtitleStyle = MaterialTheme.typography.bodySmall,
+            subtitle = AnnotatedString(recording),
+            onClick = onClick,
+        )
+    } else {
+        val startedAt = timeText(item.startedAt, item.clock)
+        val subtitle = if (displayOptions.showVisitTime) {
+            "$startedAt · $recording"
+        } else {
+            recording
+        }
+        ListRowCard(
+            shape = shape,
+            icon = activityIcon(item.label),
+            disc = activityDiscStyle(item.label, colorPalette),
+            iconDescription = activityName,
+            title = activityName,
+            titleColor = MaterialTheme.colorScheme.onSurface,
+            subtitle = AnnotatedString(subtitle),
+            onClick = onClick,
+        )
+    }
 }
 
 @Composable
@@ -1849,10 +1871,12 @@ private fun MovementTimelineLine(color: Color, description: String) {
 internal fun TrackRow(
     track: TrackSummary,
     shape: RoundedCornerShape,
+    zone: ZoneId,
+    endZone: ZoneId? = null,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onReplay: (() -> Unit)? = null,
-    showVisitTime: Boolean = true,
+    displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     containerColor: Color? = null,
 ) {
@@ -1869,29 +1893,58 @@ internal fun TrackRow(
         val activity = ActivityType.ofName(track.activityType)
         val activityName = activityLabel(LocalContext.current, track.activityType)
         val origin = TrackOrigin.fromCode(track.source)
-        ListRowCard(
-            // Long-press replays the track, which Card's own onClick can't express.
-            modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
-            shape = shape,
-            icon = activityIcon(activity),
-            disc = activityDiscStyle(activity, colorPalette),
-            iconDescription = activityName,
-            leadingContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TimelineVisitTimeGutter(showVisitTime)
-                    MovementTimelineLine(timelineActivityColor(activity, colorPalette), activityName)
+        if (displayOptions.modernTimelineLayout) {
+            ListRowCard(
+                modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
+                shape = shape,
+                icon = activityIcon(activity),
+                disc = activityDiscStyle(activity, colorPalette),
+                iconDescription = activityName,
+                leadingContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TimelineVisitTimeGutter(displayOptions.showVisitTime)
+                        MovementTimelineLine(timelineActivityColor(activity, colorPalette), activityName)
+                    }
+                },
+                contentVerticalPadding = 8.dp,
+                colors = containerColor?.let { CardDefaults.cardColors(containerColor = it) },
+                mark = origin?.mark,
+                title = "$activityName · ${durationText(track.startedAt, track.endedAt)}",
+                titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                titleStyle = MaterialTheme.typography.bodySmall,
+                subtitleStyle = MaterialTheme.typography.bodySmall,
+                subtitle = AnnotatedString(distanceText(track.distanceMeters)),
+            )
+        } else {
+            val reader = timelineZone()
+            val shiftColor = zoneShiftColor
+            val readerClock = LocalReaderClock.current
+            val length = durationText(track.startedAt, track.endedAt)
+            val subtitle = buildAnnotatedString {
+                if (displayOptions.showVisitTime) {
+                    appendTime(track.startedAt, zone, reader, shiftColor, readerClock)
+                    track.endedAt?.let { endedAt ->
+                        append(" – ")
+                        appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
+                    }
+                    append(" · $length")
+                } else {
+                    append(length)
                 }
-            },
-            contentVerticalPadding = 8.dp,
-            colors = containerColor?.let { CardDefaults.cardColors(containerColor = it) },
-            mark = origin?.mark,
-            // Movement states its type and duration, followed by distance, without clock times.
-            title = "$activityName · ${durationText(track.startedAt, track.endedAt)}",
-            titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-            titleStyle = MaterialTheme.typography.bodySmall,
-            subtitleStyle = MaterialTheme.typography.bodySmall,
-            subtitle = AnnotatedString(distanceText(track.distanceMeters)),
-        )
+            }
+            ListRowCard(
+                modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
+                shape = shape,
+                icon = activityIcon(activity),
+                disc = activityDiscStyle(activity, colorPalette),
+                iconDescription = activityName,
+                colors = containerColor?.let { CardDefaults.cardColors(containerColor = it) },
+                mark = origin?.mark,
+                title = "$activityName · " + distanceText(track.distanceMeters),
+                titleColor = MaterialTheme.colorScheme.onSurface,
+                subtitle = subtitle,
+            )
+        }
     }
 }
 
@@ -2027,54 +2080,110 @@ internal fun StayCard(
     // in the subtitle: the row would then name in words what it has just drawn, and the line is
     // shared with when and how long, which nothing else says.
     val category = place?.category
-    val locationTint = timelineLocationColor(category, displayOptions, colorPalette, lastTripActivity)
-    // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
-    // the same place can't read as accented on one screen and neutral on the other.
-    val disc = placeDiscStyle(category)
-    val reportableText = stay.reportableDurationMs(System.currentTimeMillis())?.let { durationText(it) }
-    ListRowCard(
-        shape = shape,
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        icon = category.discIcon,
-        disc = disc,
-        iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
-        badge = if (mergeable) Icons.Filled.Pause else null,
-        badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
-        leadingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val arrival = when {
-                    showOriginalArrival -> timeText(item.originalArrivalAt, zone)
-                    item.holdsStart -> timeText(stay.start, zone)
-                    else -> null
-                }
-                TimelineVisitTimeGutter(displayOptions.showVisitTime, arrival)
-                TimelinePlaceGlyph(
-                    category = category,
-                    tint = locationTint,
-                    mergeable = mergeable,
-                    badgeDescription = if (mergeable) {
-                        stringResource(R.string.timeline_short_stop_mergeable)
-                    } else {
-                        null
-                    },
-                )
-            }
-        },
-        contentVerticalPadding = 8.dp,
-        mark = place?.place?.mark,
-        // The place leads; the subtitle states only the duration of the visit. The
-        // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
-        // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't
-        // reach names the situation instead.
-        title = place?.name ?: stringResource(
-            if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
-        ),
-        titleColor = placeTitleColor(named),
-        titleMaxLines = 2,
-        subtitle = AnnotatedString(reportableText.orEmpty()),
+    val disc = timelineLocationDiscStyle(category, displayOptions, colorPalette, lastTripActivity)
+    val title = place?.name ?: stringResource(
+        if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
     )
+    if (displayOptions.modernTimelineLayout) {
+        val locationTint = timelineLocationColor(category, displayOptions, colorPalette, lastTripActivity)
+        val reportableText = stay.reportableDurationMs(System.currentTimeMillis())?.let { durationText(it) }
+        ListRowCard(
+            shape = shape,
+            onClick = onClick,
+            colors = CardDefaults.cardColors(containerColor = containerColor),
+            icon = category.discIcon,
+            disc = disc,
+            iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
+            badge = if (mergeable) Icons.Filled.Pause else null,
+            badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+            leadingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val arrival = when {
+                        showOriginalArrival -> timeText(item.originalArrivalAt, zone)
+                        item.holdsStart -> timeText(stay.start, zone)
+                        else -> null
+                    }
+                    TimelineVisitTimeGutter(displayOptions.showVisitTime, arrival)
+                    TimelinePlaceGlyph(
+                        category = category,
+                        tint = locationTint,
+                        mergeable = mergeable,
+                        badgeDescription = if (mergeable) {
+                            stringResource(R.string.timeline_short_stop_mergeable)
+                        } else {
+                            null
+                        },
+                    )
+                }
+            },
+            contentVerticalPadding = 8.dp,
+            mark = place?.place?.mark,
+            title = title,
+            titleColor = placeTitleColor(named),
+            titleMaxLines = 2,
+            subtitle = AnnotatedString(reportableText.orEmpty()),
+        )
+    } else {
+        val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
+        val visitsText = visits?.let { visitCountLabel(it) }
+        val stated = stayBounds(stay.start, stay.end, item.holdsStart, item.holdsEnd)
+        val reportableText = stay.reportableDurationMs(System.currentTimeMillis())
+            ?.takeIf { stated.withDuration }
+            ?.let { durationText(it) }
+        val reader = timelineZone()
+        val shiftColor = zoneShiftColor
+        val readerClock = LocalReaderClock.current
+        fun marked(atMs: Long) = markedTime(atMs, zone, reader, shiftColor, readerClock)
+        val bounds = when (stated) {
+            StayBounds.AllDay -> AnnotatedString(stringResource(R.string.timeline_all_day))
+            is StayBounds.Since ->
+                annotatedStringResource(R.string.timeline_stay_since, marked(stated.start))
+            is StayBounds.Until ->
+                annotatedStringResource(R.string.timeline_stay_until, marked(stated.end))
+            is StayBounds.From ->
+                annotatedStringResource(R.string.timeline_stay_from, marked(stated.start))
+            is StayBounds.At -> marked(stated.moment)
+            is StayBounds.Between -> annotatedStringResource(
+                R.string.timeline_stay_between,
+                marked(stated.start),
+                marked(stated.end),
+            )
+        }
+        ListRowCard(
+            shape = shape,
+            onClick = onClick,
+            colors = CardDefaults.cardColors(containerColor = containerColor),
+            icon = category.discIcon,
+            disc = disc,
+            iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
+            badge = if (mergeable) Icons.Filled.Pause else null,
+            badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+            mark = place?.place?.mark,
+            title = title,
+            titleColor = placeTitleColor(named),
+            subtitle = buildAnnotatedString {
+                if (displayOptions.showVisitTime) {
+                    append(bounds)
+                    if (reportableText != null || visitsText != null) {
+                        append(" · ")
+                    }
+                }
+                if (reportableText != null) {
+                    append(reportableText)
+                    if (visitsText != null) {
+                        append(" · ")
+                    }
+                }
+                if (visitsText != null) {
+                    append(visitsText)
+                }
+            },
+        )
+    }
 }
+
+@Composable
+private fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.timeline_visits, n, n)
 
 @Composable
 private fun TimelineVisitTimeGutter(show: Boolean, time: String? = null) {
@@ -2105,6 +2214,18 @@ private fun timelineLocationColor(
         lastTripActivity?.let { timelineActivityColor(it, colorPalette) }
             ?: category?.let(::categoryColor)
             ?: MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun timelineLocationDiscStyle(
+    category: io.github.valeronm.breadcrumb.domain.PlaceCategory?,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    colorPalette: TimelineColorPalette,
+    lastTripActivity: ActivityType?,
+): DiscStyle = when (displayOptions.locationColorMode) {
+    AppSettings.TimelineLocationColorMode.LOCATION_COLORS -> placeDiscStyle(category)
+    AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
+        lastTripActivity?.let { activityDiscStyle(it, colorPalette) } ?: placeDiscStyle(category)
 }
 
 @Composable
@@ -2247,13 +2368,16 @@ internal fun GapCard(
             )
             else -> error("a gap row holds at least one end; this one was stamped with neither")
         }
+        val modernGap = displayOptions.modernTimelineLayout
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             GapPlaceLine(arrival, arrivalAt, onOpenPlace, displayOptions, colorPalette, lastTripActivity)
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TimelineVisitTimeGutter(displayOptions.showVisitTime)
+                if (modernGap) {
+                    TimelineVisitTimeGutter(displayOptions.showVisitTime)
+                }
                 // Tertiary marks a mergeable interval throughout the timeline — the same accent
                 // the short-stop row wears, so the swipe is discoverable in both places.
                 val strokeColor = if (item.merge != null) {
@@ -2347,13 +2471,21 @@ private fun GapPlaceLine(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TimelineVisitTimeGutter(displayOptions.showVisitTime)
-        TimelinePlaceGlyph(
-            category = category,
-            tint = timelineLocationColor(category, displayOptions, colorPalette, lastTripActivity),
-            mergeable = false,
-            badgeDescription = null,
-        )
+        if (displayOptions.modernTimelineLayout) {
+            TimelineVisitTimeGutter(displayOptions.showVisitTime)
+            TimelinePlaceGlyph(
+                category = category,
+                tint = timelineLocationColor(category, displayOptions, colorPalette, lastTripActivity),
+                mergeable = false,
+                badgeDescription = null,
+            )
+        } else {
+            IconDisc(
+                icon = category.discIcon,
+                style = timelineLocationDiscStyle(category, displayOptions, colorPalette, lastTripActivity),
+                contentDescription = category?.let { stringResource(it.labelRes) },
+            )
+        }
         Spacer(Modifier.width(16.dp))
         // A long name truncates here, before the origin glyph.
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {

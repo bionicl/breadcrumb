@@ -43,8 +43,10 @@ private val SAMPLE_DAY = LocalDate.of(2021, 3, 4)
 private const val SAMPLE_HOUR_MS = 3_600_000L
 private val sampleRowShape = RoundedCornerShape(0.dp)
 
+private const val SAMPLE_ROW_COUNT = 5
+
 private fun sampleShape(index: Int, grouped: Boolean) =
-    if (grouped) groupedRowShape(index, 4) else sampleRowShape
+    if (grouped) groupedRowShape(index, SAMPLE_ROW_COUNT) else sampleRowShape
 
 private val classicPageLabels = listOf(R.string.timeline_view_list, R.string.timeline_view_map)
 
@@ -54,19 +56,29 @@ internal fun TimelineColourSamplePreview(
     displayOptions: TimelineDisplayOptions,
     colorPalette: TimelineColorPalette,
 ) {
+    val classic = !displayOptions.modernTimelineLayout
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        color = if (classic) {
+            MaterialTheme.colorScheme.background
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
     ) {
         TimelineLayoutSampleRows(
             displayOptions = displayOptions,
             colorPalette = colorPalette,
             rowSpacing = 2.dp,
-            contentPadding = PaddingValues(12.dp),
-            grouped = true,
+            contentPadding = if (classic) {
+                // Settings already insets 16.dp; match the Timeline list's sole horizontal gutter.
+                PaddingValues(top = 12.dp, bottom = 12.dp)
+            } else {
+                PaddingValues(12.dp)
+            },
+            grouped = classic,
         )
     }
 }
@@ -77,17 +89,24 @@ internal fun TimelineLayoutSamplePreview(
     displayOptions: TimelineDisplayOptions,
     colorPalette: TimelineColorPalette,
 ) {
+    val rowOptions = remember(modern, displayOptions) {
+        displayOptions.copy(modernTimelineLayout = modern)
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        color = if (modern) {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        } else {
+            MaterialTheme.colorScheme.background
+        },
     ) {
         if (modern) {
-            ModernTimelineLayoutSample(displayOptions, colorPalette)
+            ModernTimelineLayoutSample(rowOptions, colorPalette)
         } else {
-            ClassicTimelineLayoutSample(displayOptions, colorPalette)
+            ClassicTimelineLayoutSample(rowOptions, colorPalette)
         }
     }
 }
@@ -142,11 +161,7 @@ private fun ClassicTimelineLayoutSample(
     displayOptions: TimelineDisplayOptions,
     colorPalette: TimelineColorPalette,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(12.dp),
-    ) {
+    Column(Modifier.fillMaxWidth()) {
         ViewSwitchRow(
             labelsRes = classicPageLabels,
             selectedIndex = 0,
@@ -156,7 +171,8 @@ private fun ClassicTimelineLayoutSample(
             displayOptions = displayOptions,
             colorPalette = colorPalette,
             rowSpacing = 2.dp,
-            contentPadding = PaddingValues(top = 8.dp),
+            contentPadding = PaddingValues(bottom = 12.dp),
+            grouped = true,
         )
     }
 }
@@ -178,48 +194,22 @@ private fun TimelineLayoutSampleRows(
     grouped: Boolean = false,
 ) {
     val zone = timelineZone()
-    val placeLabel = stringResource(R.string.settings_timeline_layout_sample_place)
-    val samples = remember(placeLabel, zone) { timelineLayoutSamples(placeLabel, zone) }
+    val homeLabel = stringResource(R.string.settings_timeline_layout_sample_home)
+    val shoppingLabel = stringResource(R.string.settings_timeline_layout_sample_shopping_mall)
+    val samples = remember(homeLabel, shoppingLabel, zone) {
+        timelineLayoutSamples(homeLabel, shoppingLabel, zone)
+    }
     Column(
         Modifier
             .fillMaxWidth()
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(rowSpacing),
     ) {
+        // Newest first, as on the Timeline day list — later stay and its arrival time read above the earlier one.
         StayCard(
-            item = samples.stayNamed,
+            item = samples.stayShopping,
             shape = sampleShape(0, grouped),
             named = true,
-            highlighted = false,
-            zone = zone,
-            onClick = {},
-            displayOptions = displayOptions,
-            colorPalette = colorPalette,
-            lastTripActivity = ActivityType.WALKING,
-            containerColor = rowColor,
-        )
-        TrackRow(
-            track = samples.walkTrack,
-            shape = sampleShape(1, grouped),
-            onOpen = {},
-            onDelete = {},
-            showVisitTime = displayOptions.showVisitTime,
-            colorPalette = colorPalette,
-            containerColor = rowColor,
-        )
-        TrackRow(
-            track = samples.driveTrack,
-            shape = sampleShape(2, grouped),
-            onOpen = {},
-            onDelete = {},
-            showVisitTime = displayOptions.showVisitTime,
-            colorPalette = colorPalette,
-            containerColor = rowColor,
-        )
-        StayCard(
-            item = samples.stayPlain,
-            shape = sampleShape(3, grouped),
-            named = false,
             highlighted = false,
             zone = zone,
             onClick = {},
@@ -228,44 +218,112 @@ private fun TimelineLayoutSampleRows(
             lastTripActivity = ActivityType.DRIVING,
             containerColor = rowColor,
         )
+        TrackRow(
+            track = samples.driveTrack,
+            shape = sampleShape(1, grouped),
+            zone = zone,
+            onOpen = {},
+            onDelete = {},
+            displayOptions = displayOptions,
+            colorPalette = colorPalette,
+            containerColor = rowColor,
+        )
+        TrackRow(
+            track = samples.walkTrack,
+            shape = sampleShape(2, grouped),
+            zone = zone,
+            onOpen = {},
+            onDelete = {},
+            displayOptions = displayOptions,
+            colorPalette = colorPalette,
+            containerColor = rowColor,
+        )
+        StayCard(
+            item = samples.stayHome,
+            shape = sampleShape(3, grouped),
+            named = true,
+            highlighted = false,
+            zone = zone,
+            onClick = {},
+            displayOptions = displayOptions,
+            colorPalette = colorPalette,
+            lastTripActivity = ActivityType.RUNNING,
+            containerColor = rowColor,
+        )
+        TrackRow(
+            track = samples.runTrack,
+            shape = sampleShape(4, grouped),
+            zone = zone,
+            onOpen = {},
+            onDelete = {},
+            displayOptions = displayOptions,
+            colorPalette = colorPalette,
+            containerColor = rowColor,
+        )
     }
 }
 
 private data class TimelineLayoutSamples(
-    val stayNamed: TimelineItem.StayItem,
+    val stayHome: TimelineItem.StayItem,
+    val runTrack: TrackSummary,
     val walkTrack: TrackSummary,
     val driveTrack: TrackSummary,
-    val stayPlain: TimelineItem.StayItem,
+    val stayShopping: TimelineItem.StayItem,
 )
 
-private fun timelineLayoutSamples(placeLabel: String, zone: ZoneId): TimelineLayoutSamples {
+private fun timelineLayoutSamples(
+    homeLabel: String,
+    shoppingLabel: String,
+    zone: ZoneId,
+): TimelineLayoutSamples {
     val midnight = SAMPLE_DAY.atStartOfDay(zone).toInstant().toEpochMilli()
-    val firstStayStart = midnight + 7 * SAMPLE_HOUR_MS
-    val firstStayEnd = firstStayStart + 2 * SAMPLE_HOUR_MS
-    val walkEnd = firstStayEnd + 2 * SAMPLE_HOUR_MS
-    val secondStayStart = midnight + 13 * SAMPLE_HOUR_MS
-    val secondStayEnd = secondStayStart + SAMPLE_HOUR_MS
-    val place = Place(
+    val homeStayStart = midnight + 7 * SAMPLE_HOUR_MS
+    val homeStayEnd = homeStayStart + 2 * SAMPLE_HOUR_MS
+    val walkEnd = homeStayEnd + 2 * SAMPLE_HOUR_MS
+    val shoppingStayStart = midnight + 13 * SAMPLE_HOUR_MS
+    val shoppingStayEnd = shoppingStayStart + SAMPLE_HOUR_MS
+    val homePlace = Place(
         id = 1,
-        label = placeLabel,
+        label = homeLabel,
         lat = SAMPLE_ORIGIN.lat,
         lon = SAMPLE_ORIGIN.lon,
         createdAt = 0,
         radiusM = 60.0,
         category = PlaceCategory.HOME.code,
     )
+    val shoppingPlace = Place(
+        id = 2,
+        label = shoppingLabel,
+        lat = SAMPLE_ORIGIN.lat + 0.01,
+        lon = SAMPLE_ORIGIN.lon + 0.01,
+        createdAt = 0,
+        radiusM = 80.0,
+        category = PlaceCategory.SHOPPING.code,
+    )
     return TimelineLayoutSamples(
-        stayNamed = TimelineItem.StayItem(
-            stay = StayDeriver.Stay(start = firstStayStart, end = firstStayEnd, afterTrackId = 1, clusterId = 0),
-            place = PlaceResolver.ResolvedStay(place = place, visitCount = 4, centroid = SAMPLE_ORIGIN),
+        stayHome = TimelineItem.StayItem(
+            stay = StayDeriver.Stay(start = homeStayStart, end = homeStayEnd, afterTrackId = 1, clusterId = 0),
+            place = PlaceResolver.ResolvedStay(place = homePlace, visitCount = 4, centroid = SAMPLE_ORIGIN),
             merge = null,
             holdsStart = true,
             holdsEnd = true,
         ),
-        walkTrack = TrackSummary(
+        runTrack = TrackSummary(
             id = 1,
+            activityType = ActivityType.RUNNING.name,
+            startedAt = homeStayStart - SAMPLE_HOUR_MS,
+            endedAt = homeStayStart,
+            distanceMeters = 5_200.0,
+            pointCount = 95,
+            ignoredCount = 0,
+            source = TrackOrigin.RECORDED.code,
+            startPlaceId = null,
+            endPlaceId = null,
+        ),
+        walkTrack = TrackSummary(
+            id = 2,
             activityType = ActivityType.WALKING.name,
-            startedAt = firstStayEnd,
+            startedAt = homeStayEnd,
             endedAt = walkEnd,
             distanceMeters = 2_400.0,
             pointCount = 80,
@@ -275,10 +333,10 @@ private fun timelineLayoutSamples(placeLabel: String, zone: ZoneId): TimelineLay
             endPlaceId = null,
         ),
         driveTrack = TrackSummary(
-            id = 2,
+            id = 3,
             activityType = ActivityType.DRIVING.name,
             startedAt = walkEnd,
-            endedAt = secondStayStart,
+            endedAt = shoppingStayStart,
             distanceMeters = 18_000.0,
             pointCount = 120,
             ignoredCount = 2,
@@ -286,9 +344,14 @@ private fun timelineLayoutSamples(placeLabel: String, zone: ZoneId): TimelineLay
             startPlaceId = null,
             endPlaceId = null,
         ),
-        stayPlain = TimelineItem.StayItem(
-            stay = StayDeriver.Stay(start = secondStayStart, end = secondStayEnd, afterTrackId = 2, clusterId = 1),
-            place = PlaceResolver.ResolvedStay(place = null, visitCount = 2, centroid = SAMPLE_ORIGIN),
+        stayShopping = TimelineItem.StayItem(
+            stay = StayDeriver.Stay(
+                start = shoppingStayStart,
+                end = shoppingStayEnd,
+                afterTrackId = 3,
+                clusterId = 1,
+            ),
+            place = PlaceResolver.ResolvedStay(place = shoppingPlace, visitCount = 2, centroid = SAMPLE_ORIGIN),
             merge = null,
             holdsStart = true,
             holdsEnd = true,
