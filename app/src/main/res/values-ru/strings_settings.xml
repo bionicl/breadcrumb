@@ -14,6 +14,8 @@
     <string name="settings_trip_continuation">Продолжение поездки</string>
     <string name="settings_track_filtering">Фильтр поездок</string>
     <string name="settings_units">Единицы измерения</string>
+    <string name="settings_distance_units">Единицы расстояния</string>
+    <string name="settings_timeline_section">Хронология</string>
     <string name="units_choice_automatic">Автоматически</string>
     <string name="units_choice_metric">Километры</string>
     <string name="units_choice_imperial">Мили</string>

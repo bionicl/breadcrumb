@@ -17,6 +17,8 @@
     <string name="settings_trip_continuation">Continuing a trip</string>
     <string name="settings_track_filtering">Trip filtering</string>
     <string name="settings_units">Units</string>
+    <string name="settings_distance_units">Distance units</string>
+    <string name="settings_timeline_section">Timeline</string>
     <!-- The unit-system choices. "Automatic" reads the device country, not the language. -->
     <string name="units_choice_automatic">Automatic</string>
     <string name="units_choice_metric">Kilometers</string>

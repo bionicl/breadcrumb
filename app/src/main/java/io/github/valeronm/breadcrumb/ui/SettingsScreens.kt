@@ -33,9 +33,9 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -96,7 +96,7 @@ internal fun SettingsScreen(say: (String) -> Unit, onOpenPage: (SettingsPage) ->
         GroupedRows(
             { NavRow(stringResource(R.string.settings_group_recording), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Recording) } },
             { NavRow(stringResource(R.string.settings_trips), icon = Icons.Filled.Route) { onOpenPage(SettingsPage.Trips) } },
-            { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.Display) } },
+            { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Palette) { onOpenPage(SettingsPage.Display) } },
             { NavRow(stringResource(R.string.settings_group_privacy), icon = Icons.Filled.Lock) { onOpenPage(SettingsPage.Privacy) } },
         )
         Spacer(Modifier.height(24.dp))
@@ -718,7 +718,80 @@ internal fun DisplaySettingsScreen(
     var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(context)) }
     SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
         GroupedRows(
-            { ChoiceChipsRow(stringResource(R.string.settings_units), UnitChoice.entries, unitChoice, { it.labelRes }, onUnitChoice) },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_modern_timeline_layout),
+                    subtitle = stringResource(R.string.settings_modern_timeline_layout_sub),
+                    checked = timelineDisplayOptions.modernTimelineLayout,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = it))
+                    },
+                )
+            },
+        )
+        SectionHeading(stringResource(R.string.settings_timeline_section))
+        GroupedRows(
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_visit_time),
+                    checked = timelineDisplayOptions.showVisitTime,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showVisitTime = it))
+                    },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_day_summary),
+                    checked = timelineDisplayOptions.showDaySummary,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showDaySummary = it))
+                    },
+                )
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_location_colors),
+                    AppSettings.TimelineLocationColorMode.entries,
+                    timelineDisplayOptions.locationColorMode,
+                    {
+                        when (it) {
+                            AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
+                                R.string.settings_timeline_location_colors_category
+                            AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
+                                R.string.settings_timeline_location_colors_trip
+                        }
+                    },
+                ) {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(locationColorMode = it))
+                }
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_color_palette),
+                    AppSettings.TimelineColorPalette.entries,
+                    timelineColorPalette,
+                    {
+                        when (it) {
+                            AppSettings.TimelineColorPalette.CLASSIC -> R.string.settings_timeline_palette_classic
+                            AppSettings.TimelineColorPalette.ARC_TIMELINE -> R.string.settings_timeline_palette_arc
+                        }
+                    },
+                    onTimelineColorPalette,
+                )
+            },
+        )
+        SectionHeading(stringResource(R.string.settings_units))
+        GroupedRows(
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_distance_units),
+                    UnitChoice.entries,
+                    unitChoice,
+                    { it.labelRes },
+                    onUnitChoice,
+                )
+            },
             {
                 ChoiceChipsRow(
                     stringResource(R.string.settings_map_shade),
@@ -743,65 +816,6 @@ internal fun DisplaySettingsScreen(
                 ) {
                     clockTimeFormat = it
                     onClockTimeFormat(it)
-                }
-            },
-            {
-                ChoiceChipsRow(
-                    stringResource(R.string.settings_timeline_color_palette),
-                    AppSettings.TimelineColorPalette.entries,
-                    timelineColorPalette,
-                    {
-                        when (it) {
-                            AppSettings.TimelineColorPalette.CLASSIC -> R.string.settings_timeline_palette_classic
-                            AppSettings.TimelineColorPalette.ARC_TIMELINE -> R.string.settings_timeline_palette_arc
-                        }
-                    },
-                    onTimelineColorPalette,
-                )
-            },
-            {
-                SwitchSettingRow(
-                    title = stringResource(R.string.settings_timeline_visit_time),
-                    checked = timelineDisplayOptions.showVisitTime,
-                    onCheckedChange = {
-                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showVisitTime = it))
-                    },
-                )
-            },
-            {
-                SwitchSettingRow(
-                    title = stringResource(R.string.settings_timeline_day_summary),
-                    checked = timelineDisplayOptions.showDaySummary,
-                    onCheckedChange = {
-                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showDaySummary = it))
-                    },
-                )
-            },
-            {
-                SwitchSettingRow(
-                    title = stringResource(R.string.settings_modern_timeline_layout),
-                    subtitle = stringResource(R.string.settings_modern_timeline_layout_sub),
-                    checked = timelineDisplayOptions.modernTimelineLayout,
-                    onCheckedChange = {
-                        onTimelineDisplayOptions(timelineDisplayOptions.copy(modernTimelineLayout = it))
-                    },
-                )
-            },
-            {
-                ChoiceChipsRow(
-                    stringResource(R.string.settings_timeline_location_colors),
-                    AppSettings.TimelineLocationColorMode.entries,
-                    timelineDisplayOptions.locationColorMode,
-                    {
-                        when (it) {
-                            AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
-                                R.string.settings_timeline_location_colors_category
-                            AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
-                                R.string.settings_timeline_location_colors_trip
-                        }
-                    },
-                ) {
-                    onTimelineDisplayOptions(timelineDisplayOptions.copy(locationColorMode = it))
                 }
             },
         )
