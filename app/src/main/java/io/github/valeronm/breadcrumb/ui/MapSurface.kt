@@ -233,7 +233,13 @@ internal fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction:
  * a caller re-framing a moving position needs: an exact fit lands it on the viewport edge, due to
  * re-frame again on the next fix.
  */
-internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: Double, headroom: Double = 1.0) {
+internal fun frameTo(
+    map: MapLibreMap,
+    positions: List<LatLng>,
+    singlePointZoom: Double,
+    headroom: Double = 1.0,
+    bottomPaddingPx: Int = 0,
+) {
     when {
         // moveCamera (not easeCamera): the map should open already framed, with no zoom animation.
         positions.size >= 2 -> {
@@ -241,7 +247,7 @@ internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom:
             positions.forEach { b.include(it) }
             var bounds = b.build()
             if (headroom > 1.0) bounds = bounds.scaled(headroom)
-            map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
+            map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96, 96, 96, 96 + bottomPaddingPx))
         }
         positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
             .target(positions[0]).zoom(singlePointZoom).build()

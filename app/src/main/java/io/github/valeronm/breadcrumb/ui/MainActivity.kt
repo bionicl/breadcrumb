@@ -555,7 +555,6 @@ private fun MainScreen(
                             onOpenData = { settingsPage = SettingsPage.Data },
                             timelineColorPalette = timelineColorPalette,
                             displayOptions = timelineDisplayOptions,
-                            onOpenSettings = { selectedTab = HomeTab.SETTINGS },
                         )
 
                         HomeTab.PLACES -> PlacesTab(

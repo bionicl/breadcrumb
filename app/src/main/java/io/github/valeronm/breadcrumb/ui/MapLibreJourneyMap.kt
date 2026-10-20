@@ -1,14 +1,21 @@
 package io.github.valeronm.breadcrumb.ui
 
+import android.graphics.PointF
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.expressions.Expression
@@ -46,6 +53,7 @@ internal fun MapLibreJourneyMap(
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+    bottomPaddingPx: Int = 0,
 ) {
     // Only the unknown-type fallback depends on the map's shade.
     val dark = isMapDark()
@@ -54,10 +62,11 @@ internal fun MapLibreJourneyMap(
             .associateWith { mapActivityArgb(ActivityType.ofName(it), dark, colorPalette) }
     }
     val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val applied = remember { AppliedJourneyInputs() }
     applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
-        modifier = modifier,
+        modifier = modifier.onSizeChanged { viewportSize = it },
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
@@ -66,10 +75,13 @@ internal fun MapLibreJourneyMap(
             }
         },
         onStyleLoaded = { ctx, map, style, dark ->
+            applied.viewportSize = viewportSize
             applied.collection = collection
             applied.places = places
             applied.frameKey = frameKey
             applied.framedComplete = linesComplete
+            applied.bottomPaddingPx = bottomPaddingPx
+            applied.hasFramedPositions = framePositions(lines, places).isNotEmpty()
             style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
             style.addLayer(
                 LineLayer(JOURNEY_LAYER, JOURNEY_SOURCE).withProperties(
@@ -80,9 +92,10 @@ internal fun MapLibreJourneyMap(
                 ),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
-            frame(map, lines, places)
+            frame(map, lines, places, bottomPaddingPx)
         },
         onUpdate = { map, style ->
+            val placesJustArrived = applied.places.orEmpty().isEmpty() && places.isNotEmpty()
             if (applied.collection !== collection) {
                 applied.collection = collection
                 style.getSourceAs<GeoJsonSource>(JOURNEY_SOURCE)?.setGeoJson(collection)
@@ -91,10 +104,18 @@ internal fun MapLibreJourneyMap(
                 applied.places = places
                 updateOverviewSource(style, places)
             }
-            if (applied.frameKey != frameKey || (linesComplete && !applied.framedComplete)) {
+            val hasPositions = framePositions(lines, places).isNotEmpty()
+            val completed = linesComplete && !applied.framedComplete
+            val contentArrived = !applied.hasFramedPositions && hasPositions
+            val viewportChanged = applied.viewportSize != viewportSize || applied.bottomPaddingPx != bottomPaddingPx
+            val contentChanged = applied.frameKey != frameKey || completed || contentArrived || placesJustArrived
+            if (contentChanged || viewportChanged) {
+                applied.viewportSize = viewportSize
                 applied.frameKey = frameKey
                 applied.framedComplete = linesComplete
-                frame(map, lines, places)
+                applied.bottomPaddingPx = bottomPaddingPx
+                applied.hasFramedPositions = hasPositions
+                frame(map, lines, places, bottomPaddingPx)
             }
         },
     )
@@ -104,6 +125,9 @@ private class AppliedJourneyInputs {
     var collection: FeatureCollection? = null
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
+    var viewportSize = IntSize.Zero
+    var bottomPaddingPx = 0
+    var hasFramedPositions = false
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
     var onOpenPlace: (String) -> Unit = {}
@@ -112,8 +136,19 @@ private class AppliedJourneyInputs {
     var framedComplete = false
 }
 
-private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>) {
-    frameTo(map, framePositions(lines, places), singlePointZoom = 13.0)
+private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>, bottomPaddingPx: Int) {
+    // A fully expanded sheet leaves no usable map; frame again when it is lowered.
+    if (map.height - bottomPaddingPx < 192) return
+    val positions = framePositions(lines, places).distinct()
+    if (positions.size != 1 || bottomPaddingPx == 0) {
+        frameTo(map, positions, singlePointZoom = 13.0, bottomPaddingPx = bottomPaddingPx)
+    } else {
+        map.moveCamera(CameraUpdateFactory.newLatLngZoom(positions.single(), 13.0))
+        val target = map.projection.fromScreenLocation(
+            PointF(map.width / 2f, (map.height + bottomPaddingPx) / 2f),
+        )
+        map.moveCamera(CameraUpdateFactory.newLatLng(target))
+    }
 }
 
 /**

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +85,8 @@ internal fun ListRowCard(
     title: String,
     titleColor: Color,
     subtitle: AnnotatedString,
+    titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    subtitleStyle: TextStyle = MaterialTheme.typography.bodyMedium,
     modifier: Modifier = Modifier,
     iconDescription: String? = null,
     /** A second fact about the row, marked on the disc's corner instead of replacing its glyph. */
@@ -120,10 +123,10 @@ internal fun ListRowCard(
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
+                Text(title, style = titleStyle, color = titleColor)
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = subtitleStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

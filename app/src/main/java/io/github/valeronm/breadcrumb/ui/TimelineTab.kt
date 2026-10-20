@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -51,12 +53,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Luggage
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -97,6 +101,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -228,7 +234,6 @@ internal fun TimelineTab(
     onOpenData: () -> Unit,
     timelineColorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
-    onOpenSettings: () -> Unit = {},
 ) {
     // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
@@ -364,7 +369,6 @@ internal fun TimelineTab(
             onAddTrip = onAddTrip,
             onReplay = onReplay,
             onOpenRecording = onOpenRecording,
-            onOpenSettings = onOpenSettings,
         )
         return
     }
@@ -444,7 +448,6 @@ private fun ModernTimelineLayout(
     onAddTrip: (TripDraft) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     onOpenRecording: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     var mapDay by rememberSaveable { mutableStateOf(LocalDate.now(timelineZone())) }
     val listState = rememberLazyListState()
@@ -461,19 +464,23 @@ private fun ModernTimelineLayout(
         }
     }
 
+    LaunchedEffect(mapDay) { listState.scrollToItem(0) }
     val dayItems = remember(items, mapDay) { items.filter { it.filedOn == mapDay } }
     val dayRecording = remember(recording, mapDay) { recording?.takeIf { it.filedOn == mapDay } }
+    val context = LocalContext.current
+    val dayTracks = remember(dayItems) { dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary } }
     val sheetScope = rememberCoroutineScope()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val fullHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        val topInsetPx = WindowInsets.statusBars.getTop(LocalDensity.current).toFloat()
         val peekHeightPx = fullHeightPx * 0.5f
         val flingThresholdPx = with(LocalDensity.current) { 125.dp.toPx() }
         val sheetState = remember { AnchoredDraggableState(TimelineSheetAnchor.PartiallyExpanded) }
         val flingBehavior = AnchoredDraggableDefaults.flingBehavior(sheetState)
-        LaunchedEffect(fullHeightPx) {
+        LaunchedEffect(fullHeightPx, topInsetPx) {
             sheetState.updateAnchors(
                 DraggableAnchors {
-                    TimelineSheetAnchor.Expanded at 0f
+                    TimelineSheetAnchor.Expanded at topInsetPx
                     TimelineSheetAnchor.PartiallyExpanded at peekHeightPx
                     TimelineSheetAnchor.Hidden at fullHeightPx
                 },
@@ -544,6 +551,7 @@ private fun ModernTimelineLayout(
                 colorPalette = colorPalette,
                 displayOptions = displayOptions,
                 backgroundOnly = true,
+                mapBottomPaddingPx = (fullHeightPx - sheetOffset).roundToInt().coerceAtLeast(0),
             )
             Surface(
                 modifier = Modifier
@@ -579,26 +587,34 @@ private fun ModernTimelineLayout(
                                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f)),
                             )
                         }
-                        Row(
-                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                stringResource(R.string.nav_timeline),
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            IconButton(onClick = { onAddTrip(TripDraft(day = mapDay)) }) {
-                                Icon(
-                                    Icons.Filled.Add,
-                                    contentDescription = stringResource(R.string.action_add_missing_trip),
-                                )
-                            }
-                            IconButton(onClick = onOpenSettings) {
-                                Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.action_settings))
+                        DaySelector(
+                            mapDay,
+                            onSelect = { mapDay = it },
+                            onAddTrip = { onAddTrip(TripDraft(day = mapDay)) },
+                            onShare = {
+                                viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
+                                    if (intent != null) context.startActivity(intent)
+                                }
+                            },
+                            canShare = dayTracks.isNotEmpty(),
+                        )
+                        awayDays[mapDay]?.let { away ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                TravelHeading(away) { onOpenJourney(away.summary) }
+                                AwayDayMarker(away, MaterialTheme.typography.labelSmall)
                             }
                         }
-                        DaySelector(mapDay, onSelect = { mapDay = it })
+                        DayTotals(
+                            dayTracks = dayTracks,
+                            dayItems = dayItems,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                            show = displayOptions.showDaySummary,
+                            colorPalette = colorPalette,
+                        )
                         if (dayItems.isEmpty() && dayRecording == null) {
                             EmptyState(
                                 stringResource(R.string.timeline_map_empty_day),
@@ -624,6 +640,7 @@ private fun ModernTimelineLayout(
                                 activityTypesByTrackId = activityTypesByTrackId,
                                 colorPalette = colorPalette,
                                 listStateOverride = listState,
+                                singleDayMode = true,
                             )
                         }
                     }
@@ -665,6 +682,7 @@ private fun TimelineListPage(
     activityTypesByTrackId: Map<Long, ActivityType?>,
     colorPalette: TimelineColorPalette,
     listStateOverride: LazyListState? = null,
+    singleDayMode: Boolean = false,
 ) {
     val context = LocalContext.current
 
@@ -679,12 +697,12 @@ private fun TimelineListPage(
     val todayText = stringResource(R.string.relative_today).standaloneCase()
     val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
     val today = LocalDate.now(timelineZone())
-    val dayAnchors = remember(groups, today, todayText, yesterdayText) {
+    val dayAnchors = remember(groups, today, todayText, yesterdayText, singleDayMode) {
         buildList {
             var index = 0
             groups.forEach { group ->
                 add(ScrollStop(dayLabel(group.date, today, todayText, yesterdayText), index))
-                index += group.items.size + 1
+                index += group.items.size + if (singleDayMode) 0 else 1
             }
         }
     }
@@ -734,7 +752,7 @@ private fun TimelineListPage(
             is TimelineJump.Row -> {
                 val hit = groups.indices.firstNotNullOfOrNull { g ->
                     val i = groups[g].items.indexOfFirst(jump::matches)
-                    if (i >= 0) (dayAnchors[g].itemIndex + 1 + i) to groups[g].items[i] else null
+                    if (i >= 0) (dayAnchors[g].itemIndex + (if (singleDayMode) 0 else 1) + i) to groups[g].items[i] else null
                 }
                 if (hit != null) {
                     // One row above the target so it sits below the sticky day header.
@@ -799,19 +817,21 @@ private fun TimelineListPage(
                     val away = awayDays[group.date]
                     // Keyed by the run's newest instant, not its date: a westward crossing puts one
                     // date on two runs. A lazy list crashes on a duplicate key.
-                    stickyHeading(key = "header:${group.items.first().startedAt}") {
-                        val label = dayLabel(group.date, today, todayText, yesterdayText)
-                        DayHeader(
-                            label = label,
-                            dayTracks = dayTracks,
-                            dayItems = dayItems,
-                            displayOptions = displayOptions,
-                            colorPalette = colorPalette,
-                            away = away,
-                            onOpenJourney = onOpenJourney,
-                        ) {
-                            viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
-                                if (intent != null) context.startActivity(intent)
+                    if (!singleDayMode) {
+                        stickyHeading(key = "header:${group.items.first().startedAt}") {
+                            val label = dayLabel(group.date, today, todayText, yesterdayText)
+                            DayHeader(
+                                label = label,
+                                dayTracks = dayTracks,
+                                dayItems = dayItems,
+                                displayOptions = displayOptions,
+                                colorPalette = colorPalette,
+                                away = away,
+                                onOpenJourney = onOpenJourney,
+                            ) {
+                                viewModel.importExport.shareTracks(dayTracks.map { it.id }) { intent ->
+                                    if (intent != null) context.startActivity(intent)
+                                }
                             }
                         }
                     }
@@ -899,6 +919,7 @@ private fun TimelineMapPage(
     colorPalette: TimelineColorPalette,
     displayOptions: AppSettings.TimelineDisplayOptions,
     backgroundOnly: Boolean = false,
+    mapBottomPaddingPx: Int = 0,
 ) {
     // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
     // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
@@ -987,6 +1008,7 @@ private fun TimelineMapPage(
     if (backgroundOnly) {
         MapLibreJourneyMap(
             lines = mapLines,
+            bottomPaddingPx = mapBottomPaddingPx,
             places = mapPlaces,
             frameKey = day to (liveLine != null),
             linesComplete = lines.size == dayTracks.size,
@@ -1059,11 +1081,18 @@ private fun TimelineMapPage(
  * jump anywhere, a hand-entered future trip being reachable that way.
  */
 @Composable
-private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
+internal fun DaySelector(
+    day: LocalDate,
+    onSelect: (LocalDate) -> Unit,
+    onAddTrip: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    canShare: Boolean = false,
+) {
     val today = LocalDate.now(timelineZone())
     val todayText = stringResource(R.string.relative_today).standaloneCase()
     val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
     var pickerOpen by remember { mutableStateOf(false) }
+    var menuOpen by remember(day) { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1074,12 +1103,41 @@ private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
                 contentDescription = stringResource(R.string.timeline_map_prev_day),
             )
         }
-        TextButton(onClick = { pickerOpen = true }, modifier = Modifier.weight(1f)) {
-            Text(
-                dayLabel(day, today, todayText, yesterdayText),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            if (onAddTrip != null) Spacer(Modifier.width(40.dp))
+            TextButton(onClick = { pickerOpen = true }, modifier = Modifier.weight(1f)) {
+                Text(
+                    dayLabel(day, today, todayText, yesterdayText),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (onAddTrip != null) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.timeline_day_actions))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.timeline_share_day, dayLabel(day, today, todayText, yesterdayText))) },
+                            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                            enabled = canShare,
+                            onClick = {
+                                menuOpen = false
+                                onShare?.invoke()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_add_missing_trip)) },
+                            leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                onAddTrip()
+                            },
+                        )
+                    }
+                }
+            }
         }
         IconButton(onClick = { onSelect(day.plusDays(1)) }, enabled = day < today) {
             Icon(
@@ -1461,6 +1519,13 @@ internal fun RecordingRow(
     )
 }
 
+@Composable
+private fun MovementTimelineLine(color: Color, description: String) {
+    Box(Modifier.width(36.dp).height(48.dp).semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
+        Box(Modifier.width(2.4.dp).height(48.dp).clip(CircleShape).background(color.copy(alpha = 0.5f)))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TrackRow(
@@ -1505,27 +1570,25 @@ internal fun TrackRow(
             leadingContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TimelineVisitTimeGutter(showVisitTime, timeText(track.startedAt, zone))
-                    IconDisc(
-                        activityIcon(activity),
-                        activityDiscStyle(activity, colorPalette),
-                        contentDescription = activityName,
-                    )
+                    MovementTimelineLine(timelineActivityColor(activity, colorPalette), activityName)
                 }
             },
             contentVerticalPadding = 8.dp,
             mark = origin?.mark,
             // What happened leads; when it happened is the metadata line.
-            title = "$activityName · " + distanceText(track.distanceMeters),
-            titleColor = MaterialTheme.colorScheme.onSurface,
+            title = "$activityName · ${durationText(track.startedAt, track.endedAt)}",
+            titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+            titleStyle = MaterialTheme.typography.bodySmall,
+            subtitleStyle = MaterialTheme.typography.bodySmall,
             // Worded before the builder, which is not a composable scope.
-            subtitle = durationText(track.startedAt, track.endedAt).let { length ->
+            subtitle = run {
                 buildAnnotatedString {
                     appendTime(track.startedAt, zone, reader, shiftColor, readerClock)
                     track.endedAt?.let { endedAt ->
                         append(" – ")
                         appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
                     }
-                    append(" · $length")
+                    append(" · " + distanceText(track.distanceMeters))
                 }
             },
         )
