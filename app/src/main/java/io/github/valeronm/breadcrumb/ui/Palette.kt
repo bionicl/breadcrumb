@@ -60,6 +60,10 @@ internal fun timelineActivityColorOr(
     }
 }
 
+@Composable
+internal fun timelineActivityColor(activity: ActivityType?, palette: TimelineColorPalette): Color =
+    timelineActivityColorOr(activity, palette, MaterialTheme.colorScheme.onSurfaceVariant)
+
 // The places' categorical palette: what a place was for, by category group rather than by category —
 // fifteen colors would be a legend to memorize, five are a pattern picked up by scrolling. Built like
 // the activity set above (fixed saturation and lightness, hue rotates, so no group outweighs another)
@@ -235,8 +239,10 @@ internal fun categoryGlyphTint(category: PlaceCategory?) =
  * travel from being mistaken for a kind of stop.
  */
 @Composable
-internal fun activityDiscStyle(activity: ActivityType?): DiscStyle =
-    DiscStyle.tonal(activityColor(activity))
+internal fun activityDiscStyle(
+    activity: ActivityType?,
+    palette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+): DiscStyle = DiscStyle.tonal(timelineActivityColor(activity, palette))
 
 /**
  * The disc anything place-like wears in a list row (Timeline stays, the Places list): a categorized

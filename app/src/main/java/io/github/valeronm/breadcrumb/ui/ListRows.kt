@@ -95,23 +95,29 @@ internal fun ListRowCard(
     /** Drawn at the top-right corner, beside the title. */
     mark: OriginMark? = null,
     colors: CardColors? = null,
+    leadingContent: (@Composable () -> Unit)? = null,
+    contentVerticalPadding: Dp = 12.dp,
     onClick: (() -> Unit)? = null,
 ) {
     val cardColors = colors ?: CardDefaults.cardColors()
     val rowContent: @Composable ColumnScope.() -> Unit = {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = contentVerticalPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconDisc(
-                icon,
-                disc,
-                contentDescription = iconDescription,
-                badge = badge,
-                badgeDescription = badgeDescription,
-                badgeColor = badgeColor,
-                badgeContentColor = badgeContentColor,
-            )
+            if (leadingContent != null) {
+                leadingContent()
+            } else {
+                IconDisc(
+                    icon,
+                    disc,
+                    contentDescription = iconDescription,
+                    badge = badge,
+                    badgeDescription = badgeDescription,
+                    badgeColor = badgeColor,
+                    badgeContentColor = badgeContentColor,
+                )
+            }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)

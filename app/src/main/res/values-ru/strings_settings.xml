@@ -28,6 +28,11 @@
     <string name="settings_timeline_color_palette">Цвета хронологии</string>
     <string name="settings_timeline_palette_classic">Классическая</string>
     <string name="settings_timeline_palette_arc">Дуговая хронология</string>
+    <string name="settings_timeline_visit_time">Показывать время посещения</string>
+    <string name="settings_timeline_day_summary">Показывать сводку за день</string>
+    <string name="settings_timeline_location_colors">Цвет мест</string>
+    <string name="settings_timeline_location_colors_category">Категория места</string>
+    <string name="settings_timeline_location_colors_trip">Тип последней поездки</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <plurals name="settings_recently_deleted_sub">

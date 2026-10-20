@@ -5,7 +5,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -191,6 +194,7 @@ internal fun TimelineTab(
     onOpenRecording: () -> Unit,
     onOpenData: () -> Unit,
     timelineColorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+    displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
 ) {
     // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
@@ -203,6 +207,10 @@ internal fun TimelineTab(
     val restoreProgress by viewModel.importExport.restoreProgress.collectAsStateWithLifecycle()
     val googleImportProgress by viewModel.importExport.googleTimelineImportProgress.collectAsStateWithLifecycle()
     val recording by viewModel.recordingRow.collectAsStateWithLifecycle()
+    val activityTypesByTrackId = remember(items) {
+        items.orEmpty().filterIsInstance<TimelineItem.TrackItem>()
+            .associate { it.summary.id to ActivityType.ofName(it.summary.activityType) }
+    }
     // In priority order: a restore or import outranks everything, since that screen reports its
     // progress for the whole run; then "not derived yet"; then a history that really is empty.
     // Gated above the switch rather than per view: both views would show the same blank.
@@ -335,6 +343,9 @@ internal fun TimelineTab(
                     onReplay = onReplay,
                     onOpenRecording = onOpenRecording,
                     awayDays = awayDays,
+                    displayOptions = displayOptions,
+                    activityTypesByTrackId = activityTypesByTrackId,
+                    colorPalette = timelineColorPalette,
                 )
             }
             TimelinePage.MAP -> viewStateHolder.SaveableStateProvider(TimelinePage.MAP) {
@@ -347,6 +358,7 @@ internal fun TimelineTab(
                     onOpenPlace = onOpenPlace,
                     onOpenJourney = onOpenJourney,
                     colorPalette = timelineColorPalette,
+                    displayOptions = displayOptions,
                 )
             }
         }
@@ -371,6 +383,9 @@ private fun TimelineListPage(
     /** Open the map page on this day — a day header's date is the way in from here. */
     /** Which days sit inside a journey — the tab derives it once for both views. */
     awayDays: Map<LocalDate, AwayDay>,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    activityTypesByTrackId: Map<Long, ActivityType?>,
+    colorPalette: TimelineColorPalette,
 ) {
     val context = LocalContext.current
 
@@ -511,6 +526,8 @@ private fun TimelineListPage(
                             label = label,
                             dayTracks = dayTracks,
                             dayItems = dayItems,
+                            displayOptions = displayOptions,
+                            colorPalette = colorPalette,
                             away = away,
                             onOpenJourney = onOpenJourney,
                         ) {
@@ -524,6 +541,8 @@ private fun TimelineListPage(
                         when (item) {
                             is TimelineItem.TrackItem -> TrackRow(
                                 track = item.summary,
+                                showVisitTime = displayOptions.showVisitTime,
+                                colorPalette = colorPalette,
                                 shape = shape,
                                 zone = item.clock,
                                 endZone = item.endZone,
@@ -552,6 +571,9 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 highlighted = item.rowKey() == highlightKey,
                                 onMerge = onMerge,
+                                displayOptions = displayOptions,
+                                colorPalette = colorPalette,
+                                lastTripActivity = activityTypesByTrackId[item.stay.afterTrackId],
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
@@ -596,6 +618,7 @@ private fun TimelineMapPage(
     /** Open the journey detail — the band over a day inside one is the way in, as on the list. */
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     colorPalette: TimelineColorPalette,
+    displayOptions: AppSettings.TimelineDisplayOptions,
 ) {
     // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
     // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
@@ -637,6 +660,8 @@ private fun TimelineMapPage(
             dayTracks = dayTracks,
             dayItems = dayItems,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            show = displayOptions.showDaySummary,
+            colorPalette = colorPalette,
         )
         if (dayTracks.isEmpty() && mapPlaces.isEmpty()) {
             // The day, not the history, is empty — a bare basemap would read as a broken map.
@@ -787,6 +812,8 @@ private fun ColumnScope.DayHeader(
     label: String,
     dayTracks: List<TrackSummary>,
     dayItems: List<TimelineItem>,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    colorPalette: TimelineColorPalette,
     away: AwayDay?,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onShare: () -> Unit,
@@ -823,7 +850,12 @@ private fun ColumnScope.DayHeader(
             }
         }
     }
-    DayTotals(dayTracks = dayTracks, dayItems = dayItems)
+    DayTotals(
+        dayTracks = dayTracks,
+        dayItems = dayItems,
+        show = displayOptions.showDaySummary,
+        colorPalette = colorPalette,
+    )
 }
 
 /**
@@ -836,7 +868,10 @@ private fun DayTotals(
     dayTracks: List<TrackSummary>,
     dayItems: List<TimelineItem>,
     modifier: Modifier = Modifier,
+    show: Boolean = true,
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
+    if (!show) return
     val totals = remember(dayTracks) { activityTotals(dayTracks, System.currentTimeMillis()) }
     val categoryTotals = remember(dayItems) {
         dayCategoryTotals(dayItems, System.currentTimeMillis())
@@ -854,7 +889,7 @@ private fun DayTotals(
                 DayTotal(
                     icon = activityIcon(total.type),
                     description = activityLabel(context, total.activityType),
-                    tint = activityColor(total.type),
+                    tint = timelineActivityColor(total.type, colorPalette),
                     text = "${distanceText(total.meters)} · ${durationText(total.durationMs)}",
                 )
             }
@@ -1081,6 +1116,8 @@ internal fun TrackRow(
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onReplay: (() -> Unit)? = null,
+    showVisitTime: Boolean = true,
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
     // Swipe right-to-left to delete — a soft delete, undoable from the snackbar and, after that,
     // from Recently deleted.
@@ -1107,8 +1144,19 @@ internal fun TrackRow(
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
             shape = shape,
             icon = activityIcon(activity),
-            disc = activityDiscStyle(activity),
+            disc = activityDiscStyle(activity, colorPalette),
             iconDescription = activityName,
+            leadingContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TimelineVisitTimeGutter(showVisitTime, timeText(track.startedAt, zone))
+                    IconDisc(
+                        activityIcon(activity),
+                        activityDiscStyle(activity, colorPalette),
+                        contentDescription = activityName,
+                    )
+                }
+            },
+            contentVerticalPadding = 8.dp,
             mark = origin?.mark,
             // What happened leads; when it happened is the metadata line.
             title = "$activityName · " + distanceText(track.distanceMeters),
@@ -1185,13 +1233,16 @@ private fun StayRow(
     highlighted: Boolean,
     onMerge: (TrackMerge.Plan) -> Unit,
     onClick: () -> Unit,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    colorPalette: TimelineColorPalette,
+    lastTripActivity: ActivityType?,
 ) {
     val place = item.place
     val named = place?.isNamed == true
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
-        StayCard(item, shape, named, highlighted, zone, onClick)
+        StayCard(item, shape, named, highlighted, zone, onClick, displayOptions, colorPalette, lastTripActivity)
     }
 }
 
@@ -1229,6 +1280,9 @@ internal fun StayCard(
     highlighted: Boolean,
     zone: ZoneId,
     onClick: () -> Unit,
+    displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+    lastTripActivity: ActivityType? = null,
 ) {
     val stay = item.stay
     val place = item.place
@@ -1251,6 +1305,14 @@ internal fun StayCard(
     // in the subtitle: the row would then name in words what it has just drawn, and the line is
     // shared with when and how long, which nothing else says.
     val category = place?.category
+    val locationTint = when (displayOptions.locationColorMode) {
+        AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
+            category?.let(::categoryColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
+        AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
+            lastTripActivity?.let { timelineActivityColor(it, colorPalette) }
+                ?: category?.let(::categoryColor)
+                ?: MaterialTheme.colorScheme.onSurfaceVariant
+    }
     // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
     // the same place can't read as accented on one screen and neutral on the other.
     val disc = placeDiscStyle(category)
@@ -1296,6 +1358,23 @@ internal fun StayCard(
         iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
         badge = if (mergeable) Icons.Filled.Pause else null,
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+        leadingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val arrival = if (item.holdsStart) timeText(stay.start, zone) else null
+                TimelineVisitTimeGutter(displayOptions.showVisitTime, arrival)
+                TimelinePlaceGlyph(
+                    category = category,
+                    tint = locationTint,
+                    mergeable = mergeable,
+                    badgeDescription = if (mergeable) {
+                        stringResource(R.string.timeline_short_stop_mergeable)
+                    } else {
+                        null
+                    },
+                )
+            }
+        },
+        contentVerticalPadding = 8.dp,
         mark = place?.place?.mark,
         // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
         // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
@@ -1316,6 +1395,54 @@ internal fun StayCard(
             }
         },
     )
+}
+
+@Composable
+private fun TimelineVisitTimeGutter(show: Boolean, time: String? = null) {
+    if (show) {
+        Box(Modifier.width(56.dp), contentAlignment = Alignment.CenterStart) {
+            if (time != null) {
+                Text(
+                    time,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelinePlaceGlyph(
+    category: io.github.valeronm.breadcrumb.domain.PlaceCategory?,
+    tint: Color,
+    mergeable: Boolean,
+    badgeDescription: String?,
+) {
+    Box(Modifier.size(36.dp)) {
+        Icon(
+            imageVector = category.discIcon,
+            contentDescription = category?.let { stringResource(it.labelRes) }
+                ?: stringResource(R.string.place_stay),
+            tint = tint,
+            modifier = Modifier.size(22.dp).align(Alignment.Center),
+        )
+        if (mergeable) {
+            Box(
+                Modifier.align(Alignment.BottomEnd).size(15.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.tertiary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Pause,
+                    contentDescription = badgeDescription,
+                    tint = MaterialTheme.colorScheme.onTertiary,
+                    modifier = Modifier.size(10.dp),
+                )
+            }
+        }
+    }
 }
 
 /**

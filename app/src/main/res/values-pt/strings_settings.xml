@@ -28,6 +28,11 @@
     <string name="settings_timeline_color_palette">Cores da linha temporal</string>
     <string name="settings_timeline_palette_classic">Clássica</string>
     <string name="settings_timeline_palette_arc">Linha temporal em arco</string>
+    <string name="settings_timeline_visit_time">Mostrar horas das visitas</string>
+    <string name="settings_timeline_day_summary">Mostrar resumo do dia</string>
+    <string name="settings_timeline_location_colors">Cores dos locais</string>
+    <string name="settings_timeline_location_colors_category">Categoria do local</string>
+    <string name="settings_timeline_location_colors_trip">Tipo da última viagem</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">

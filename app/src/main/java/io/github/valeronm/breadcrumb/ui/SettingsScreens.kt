@@ -672,6 +672,8 @@ internal fun DisplaySettingsScreen(
     onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
     timelineColorPalette: AppSettings.TimelineColorPalette,
     onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
+    timelineDisplayOptions: AppSettings.TimelineDisplayOptions,
+    onTimelineDisplayOptions: (AppSettings.TimelineDisplayOptions) -> Unit,
 ) {
     val context = LocalContext.current
     var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(context)) }
@@ -717,6 +719,41 @@ internal fun DisplaySettingsScreen(
                     },
                     onTimelineColorPalette,
                 )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_visit_time),
+                    checked = timelineDisplayOptions.showVisitTime,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showVisitTime = it))
+                    },
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_day_summary),
+                    checked = timelineDisplayOptions.showDaySummary,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showDaySummary = it))
+                    },
+                )
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_location_colors),
+                    AppSettings.TimelineLocationColorMode.entries,
+                    timelineDisplayOptions.locationColorMode,
+                    {
+                        when (it) {
+                            AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
+                                R.string.settings_timeline_location_colors_category
+                            AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
+                                R.string.settings_timeline_location_colors_trip
+                        }
+                    },
+                ) {
+                    onTimelineDisplayOptions(timelineDisplayOptions.copy(locationColorMode = it))
+                }
             },
         )
     }
