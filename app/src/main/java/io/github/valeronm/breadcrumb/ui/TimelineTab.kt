@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -821,6 +822,8 @@ private fun TimelineListPage(
             ) {
                 groups.forEach { group ->
                     val dayItems = group.items
+                    // Rows are newest first, so the day begins at its last stay.
+                    val firstStay = dayItems.lastOrNull { it is TimelineItem.StayItem }
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
                     val away = awayDays[group.date]
                     // Keyed by the run's newest instant, not its date: a westward crossing puts one
@@ -869,12 +872,15 @@ private fun TimelineListPage(
                                 item = item,
                                 shape = shape,
                                 onClick = onOpenRecording,
+                                showVisitTime = displayOptions.showVisitTime,
+                                colorPalette = colorPalette,
                             )
                             is TimelineItem.StayItem -> StayRow(
                                 item = item,
                                 shape = shape,
                                 zone = item.clock,
                                 highlighted = item.rowKey() == highlightKey,
+                                showOriginalArrival = item === firstStay,
                                 onMerge = onMerge,
                                 displayOptions = displayOptions,
                                 colorPalette = colorPalette,
@@ -884,7 +890,10 @@ private fun TimelineListPage(
                                 },
                             )
                             is TimelineItem.GapItem ->
-                                GapRow(item, shape, item.clock, onOpenPlace, onMerge, onAddTrip)
+                                GapRow(
+                                    item, shape, item.clock, onOpenPlace, onMerge, onAddTrip,
+                                    displayOptions, colorPalette, activityTypesByTrackId[item.gap.afterTrackId],
+                                )
                         }
                     }
                 }
@@ -1109,38 +1118,55 @@ internal fun DaySelector(
                 contentDescription = stringResource(R.string.timeline_map_prev_day),
             )
         }
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            if (onAddTrip != null) Spacer(Modifier.width(40.dp))
-            TextButton(onClick = { pickerOpen = true }, modifier = Modifier.weight(1f)) {
-                Text(
-                    dayLabel(day, today, todayText, yesterdayText),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (onAddTrip != null) {
-                Box {
-                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.timeline_day_actions))
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.timeline_share_day, dayLabel(day, today, todayText, yesterdayText))) },
-                            leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
-                            enabled = canShare,
-                            onClick = {
-                                menuOpen = false
-                                onShare?.invoke()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_add_missing_trip)) },
-                            leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                            onClick = {
-                                menuOpen = false
-                                onAddTrip()
-                            },
-                        )
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val dateMaxWidth = (maxWidth - if (onAddTrip != null) 64.dp else 0.dp).coerceAtLeast(0.dp)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onAddTrip != null) Spacer(Modifier.width(32.dp))
+                TextButton(
+                    onClick = { pickerOpen = true },
+                    modifier = Modifier.widthIn(max = dateMaxWidth),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        dayLabel(day, today, todayText, yesterdayText),
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (onAddTrip != null) {
+                    Box {
+                        IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = stringResource(R.string.timeline_day_actions),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp).offset { IntOffset(0, 2) },
+                            )
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.timeline_share_day, dayLabel(day, today, todayText, yesterdayText))) },
+                                leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                                enabled = canShare,
+                                onClick = {
+                                    menuOpen = false
+                                    onShare?.invoke()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_add_missing_trip)) },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    onAddTrip()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -1502,25 +1528,34 @@ private fun EmptyTracksState(viewModel: TrackListViewModel, onOpenData: () -> Un
     }
 }
 
-/** No distance or duration on the track being recorded: the Record tab is where those tick, and
- *  the tap goes there. */
+/** The active movement shares the history's line and alignment; tapping opens recording. */
 @Composable
 internal fun RecordingRow(
     item: TimelineItem.RecordingItem,
     shape: RoundedCornerShape,
     onClick: () -> Unit,
+    showVisitTime: Boolean = true,
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
     val activityName = stringResource(item.label.labelRes)
-    val startedAt = timeText(item.startedAt, item.clock)
     val recording = durationText(item.startedAt, endedAt = null)
     ListRowCard(
         shape = shape,
         icon = activityIcon(item.label),
-        disc = activityDiscStyle(item.label),
+        disc = activityDiscStyle(item.label, colorPalette),
         iconDescription = activityName,
+        leadingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TimelineVisitTimeGutter(showVisitTime)
+                MovementTimelineLine(timelineActivityColor(item.label, colorPalette), activityName)
+            }
+        },
+        contentVerticalPadding = 8.dp,
         title = activityName,
-        titleColor = MaterialTheme.colorScheme.onSurface,
-        subtitle = AnnotatedString("$startedAt · $recording"),
+        titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        titleStyle = MaterialTheme.typography.bodySmall,
+        subtitleStyle = MaterialTheme.typography.bodySmall,
+        subtitle = AnnotatedString(recording),
         onClick = onClick,
     )
 }
@@ -1641,13 +1676,14 @@ private fun StayRow(
     displayOptions: AppSettings.TimelineDisplayOptions,
     colorPalette: TimelineColorPalette,
     lastTripActivity: ActivityType?,
+    showOriginalArrival: Boolean,
 ) {
     val place = item.place
     val named = place?.isNamed == true
     // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
     // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
     MergeSwipeable(item.merge, shape, onMerge) {
-        StayCard(item, shape, named, highlighted, zone, onClick, displayOptions, colorPalette, lastTripActivity)
+        StayCard(item, shape, named, highlighted, zone, onClick, displayOptions, colorPalette, lastTripActivity, showOriginalArrival)
     }
 }
 
@@ -1688,6 +1724,7 @@ internal fun StayCard(
     displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     lastTripActivity: ActivityType? = null,
+    showOriginalArrival: Boolean = false,
 ) {
     val stay = item.stay
     val place = item.place
@@ -1710,14 +1747,7 @@ internal fun StayCard(
     // in the subtitle: the row would then name in words what it has just drawn, and the line is
     // shared with when and how long, which nothing else says.
     val category = place?.category
-    val locationTint = when (displayOptions.locationColorMode) {
-        AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
-            category?.let(::categoryColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
-        AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
-            lastTripActivity?.let { timelineActivityColor(it, colorPalette) }
-                ?: category?.let(::categoryColor)
-                ?: MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val locationTint = timelineLocationColor(category, displayOptions, colorPalette, lastTripActivity)
     // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
     // the same place can't read as accented on one screen and neutral on the other.
     val disc = placeDiscStyle(category)
@@ -1733,7 +1763,11 @@ internal fun StayCard(
         badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
         leadingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val arrival = if (item.holdsStart) timeText(stay.start, zone) else null
+                val arrival = when {
+                    showOriginalArrival -> timeText(item.originalArrivalAt, zone)
+                    item.holdsStart -> timeText(stay.start, zone)
+                    else -> null
+                }
                 TimelineVisitTimeGutter(displayOptions.showVisitTime, arrival)
                 TimelinePlaceGlyph(
                     category = category,
@@ -1757,6 +1791,7 @@ internal fun StayCard(
             if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
         ),
         titleColor = placeTitleColor(named),
+        titleMaxLines = 2,
         subtitle = AnnotatedString(reportableText.orEmpty()),
     )
 }
@@ -1775,6 +1810,21 @@ private fun TimelineVisitTimeGutter(show: Boolean, time: String? = null) {
             }
         }
     }
+}
+
+@Composable
+private fun timelineLocationColor(
+    category: io.github.valeronm.breadcrumb.domain.PlaceCategory?,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    colorPalette: TimelineColorPalette,
+    lastTripActivity: ActivityType?,
+): Color = when (displayOptions.locationColorMode) {
+    AppSettings.TimelineLocationColorMode.LOCATION_COLORS ->
+        category?.let(::categoryColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
+    AppSettings.TimelineLocationColorMode.LAST_TRIP_TYPE ->
+        lastTripActivity?.let { timelineActivityColor(it, colorPalette) }
+            ?: category?.let(::categoryColor)
+            ?: MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
@@ -1840,11 +1890,16 @@ private fun GapRow(
     onOpenPlace: (String) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
+    displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+    lastTripActivity: ActivityType? = null,
 ) {
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace, onAddTrip) }
+    MergeSwipeable(item.merge, shape, onMerge) {
+        GapCard(item, shape, zone, onOpenPlace, onAddTrip, displayOptions, colorPalette, lastTripActivity)
+    }
 }
 
 @Composable
@@ -1854,6 +1909,9 @@ internal fun GapCard(
     zone: ZoneId,
     onOpenPlace: (String) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
+    displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+    lastTripActivity: ActivityType? = null,
 ) {
     val gap = item.gap
     // The whole card is drawn from the two questions the slicer answered when it cut — see
@@ -1910,11 +1968,12 @@ internal fun GapCard(
             else -> error("a gap row holds at least one end; this one was stamped with neither")
         }
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            GapPlaceLine(arrival, arrivalAt, onOpenPlace)
+            GapPlaceLine(arrival, arrivalAt, onOpenPlace, displayOptions, colorPalette, lastTripActivity)
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                TimelineVisitTimeGutter(displayOptions.showVisitTime)
                 // Tertiary marks a mergeable interval throughout the timeline — the same accent
                 // the short-stop row wears, so the swipe is discoverable in both places.
                 val strokeColor = if (item.merge != null) {
@@ -1956,7 +2015,7 @@ internal fun GapCard(
                     )
                 }
             }
-            GapPlaceLine(departure, departureAt, onOpenPlace)
+            GapPlaceLine(departure, departureAt, onOpenPlace, displayOptions, colorPalette, lastTripActivity)
         }
     }
 }
@@ -1978,7 +2037,7 @@ private fun draftEndOf(
 ) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
 
 /**
- * One side of a gap: a full-width tappable line (category disc + place name, ripple across the row
+ * One side of a gap: a full-width tappable line (bare glyph + place name, ripple across the row
  * like every other tappable row) opening the place's detail — stay-less clusters have zero-visit
  * rows (summarize emits every cluster), so every known side opens. An unknown side renders
  * nothing; its position tells the story.
@@ -1992,6 +2051,9 @@ private fun GapPlaceLine(
     place: PlaceResolver.ResolvedStay?,
     at: AnnotatedString?,
     onOpenPlace: (String) -> Unit,
+    displayOptions: AppSettings.TimelineDisplayOptions,
+    colorPalette: TimelineColorPalette,
+    lastTripActivity: ActivityType?,
 ) {
     if (place == null) return
     val category = place.category
@@ -2000,15 +2062,17 @@ private fun GapPlaceLine(
             .fillMaxWidth()
             .clickable { onOpenPlace(place.key) }
             // A floor rather than more padding, which would loosen the connector this row sits
-            // against: the 36.dp disc and 4.dp either side leave the row short of a finger.
+            // against: the 36.dp glyph and 4.dp either side leave the row short of a finger.
             .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconDisc(
-            icon = category.discIcon,
-            style = placeDiscStyle(category),
-            contentDescription = category?.let { stringResource(it.labelRes) },
+        TimelineVisitTimeGutter(displayOptions.showVisitTime)
+        TimelinePlaceGlyph(
+            category = category,
+            tint = timelineLocationColor(category, displayOptions, colorPalette, lastTripActivity),
+            mergeable = false,
+            badgeDescription = null,
         )
         Spacer(Modifier.width(16.dp))
         // A long name truncates here, before the origin glyph.
@@ -2017,7 +2081,7 @@ private fun GapPlaceLine(
                 text = place.name ?: stringResource(R.string.timeline_unnamed_place),
                 style = MaterialTheme.typography.titleMedium,
                 color = placeTitleColor(named = place.isNamed),
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )

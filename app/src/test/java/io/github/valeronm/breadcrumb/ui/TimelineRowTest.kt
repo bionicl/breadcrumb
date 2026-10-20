@@ -154,12 +154,13 @@ class TimelineRowTest {
         holdsEnd = holdsEnd,
     )
 
-    private fun stayRow(item: TimelineItem.StayItem) = row {
+    private fun stayRow(item: TimelineItem.StayItem, showOriginalArrival: Boolean = false) = row {
         StayCard(
             item = item,
             shape = SHAPE,
             named = item.place?.label != null,
             highlighted = false,
+            showOriginalArrival = showOriginalArrival,
             zone = zone,
             onClick = {},
         )
@@ -211,6 +212,18 @@ class TimelineRowTest {
         stayRow(stayItem(start = midnight, end = midnightNext, holdsStart = false, holdsEnd = false))
 
         compose.onNodeWithText(durationTextForTest(midnightNext - midnight)).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(midnight, zone), substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `a lone ongoing stay can show its actual arrival before today's midnight`() {
+        val arrival = noon - 2 * (midnightNext - midnight)
+        stayRow(
+            stayItem(start = midnight, end = null, holdsStart = false).copy(originalArrivalAt = arrival),
+            showOriginalArrival = true,
+        )
+
+        compose.onNodeWithText(clock.time(arrival, zone)).assertIsDisplayed()
         compose.onNodeWithText(clock.time(midnight, zone), substring = true).assertDoesNotExist()
     }
 

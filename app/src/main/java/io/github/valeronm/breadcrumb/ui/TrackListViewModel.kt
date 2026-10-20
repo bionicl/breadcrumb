@@ -276,6 +276,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
         // Slicing keeps cluster ids, so the sliced items look these up directly.
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
+        val arrivalsByTrackId = d.stays.associate { it.afterTrackId to it.start }
         // observeSummaries returns newest first, so a reversed view is chronological without a
         // sort.
         val neighbors = summaries.asReversed().zipWithNext()
@@ -312,6 +313,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 // reads it.
                 is TimelineItem.StayItem -> item.copy(
                     place = clusterPlaces.getOrNull(item.stay.clusterId),
+                    originalArrivalAt = arrivalsByTrackId[item.stay.afterTrackId] ?: item.stay.start,
                     merge = mergePlans[item.stay.afterTrackId],
                 ).takeUnless { it.isBareSeam }
             }

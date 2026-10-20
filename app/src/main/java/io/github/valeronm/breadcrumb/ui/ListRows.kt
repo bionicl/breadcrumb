@@ -87,6 +87,7 @@ internal fun ListRowCard(
     subtitle: AnnotatedString,
     titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
     subtitleStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    titleMaxLines: Int = Int.MAX_VALUE,
     modifier: Modifier = Modifier,
     iconDescription: String? = null,
     /** A second fact about the row, marked on the disc's corner instead of replacing its glyph. */
@@ -123,12 +124,20 @@ internal fun ListRowCard(
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = titleStyle, color = titleColor)
                 Text(
-                    subtitle,
-                    style = subtitleStyle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title,
+                    style = titleStyle,
+                    color = titleColor,
+                    maxLines = titleMaxLines,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        subtitle,
+                        style = subtitleStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (mark != null) {
                 Spacer(Modifier.width(8.dp))
