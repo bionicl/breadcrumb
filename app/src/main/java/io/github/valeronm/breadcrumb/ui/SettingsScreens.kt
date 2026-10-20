@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ImportExport
@@ -84,7 +85,15 @@ internal fun SettingsScreen(say: (String) -> Unit, onOpenPage: (SettingsPage) ->
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
     ) {
         GroupedRows(
-            { NavRow(stringResource(R.string.nav_record), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Record) } },
+            {
+                NavRow(
+                    stringResource(R.string.settings_auto_recording),
+                    icon = Icons.Filled.AutoMode,
+                ) { onOpenPage(SettingsPage.Record) }
+            },
+        )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows(
             { NavRow(stringResource(R.string.settings_group_recording), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Recording) } },
             { NavRow(stringResource(R.string.settings_trips), icon = Icons.Filled.Route) { onOpenPage(SettingsPage.Trips) } },
             { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.Display) } },
@@ -130,7 +139,7 @@ internal fun RecordSettingsScreen(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = { Text(stringResource(R.string.nav_record)) },
+                title = { Text(stringResource(R.string.settings_auto_recording)) },
                 navigationIcon = { BackNavIcon(onBack) },
             )
         },

@@ -3,6 +3,7 @@
 <resources>
     <!-- Hub -->
     <string name="settings_title">Settings</string>
+    <string name="settings_auto_recording">Auto recording</string>
     <string name="settings_group_recording">Recording</string>
     <string name="settings_group_display">Display</string>
     <string name="settings_group_privacy">Privacy</string>
