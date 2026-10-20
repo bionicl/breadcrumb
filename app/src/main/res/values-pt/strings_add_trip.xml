@@ -2,7 +2,6 @@
 <resources>
     <string name="addtrip_title_add">Adicionar viagem em falta</string>
     <string name="addtrip_title_edit">Editar a viagem</string>
-    <string name="addtrip_next">Seguinte</string>
 
     <string name="addtrip_error_order">A chegada tem de ser depois da partida</string>
     <string name="addtrip_error_future">A partida está no futuro</string>
@@ -20,11 +19,16 @@
 
     <string name="addtrip_origin">Origem</string>
     <string name="addtrip_destination">Destino</string>
-    <!-- Quoted, like the base file: the trailing space precedes a drawn clock time. -->
-    <string name="addtrip_departure_at">Partida %1$s, %2$s</string>
-    <string name="addtrip_arrival_at">Chegada %1$s, %2$s</string>
-    <string name="addtrip_set_departure">Definir a hora de partida</string>
-    <string name="addtrip_set_arrival">Definir a hora de chegada</string>
+    <string name="addtrip_departure">Partida</string>
+    <string name="addtrip_arrival">Chegada</string>
+    <string name="addtrip_pick_date">Data</string>
+    <string name="addtrip_pick_time">Hora</string>
+    <string name="addtrip_change_place">Mudar o local</string>
+    <string name="addtrip_estimated">Estimada pelas estradas</string>
+    <string name="addtrip_estimated_was">Estimada pelas estradas · era %s</string>
+    <string name="addtrip_restore_time">Repor</string>
+    <string name="addtrip_estimate">Estimar</string>
+    <string name="addtrip_choose_type">Escolha o tipo de viagem</string>
     <string name="addtrip_departure_time_title">Hora de partida</string>
     <string name="addtrip_arrival_time_title">Hora de chegada</string>
 

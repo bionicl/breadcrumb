@@ -1,5 +1,9 @@
 package io.github.valeronm.breadcrumb.domain
 
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
 /**
  * What a manual trip stores once a router has drawn its path, and how its two times relate: the
  * typed ends at their typed times with the router's shape between them, every fix timed by its
@@ -82,6 +86,30 @@ object ManualPath {
             originTimed && originNamed != destinationNamed -> if (originNamed) End.DESTINATION else End.ORIGIN
             else -> null
         }
+
+    /**
+     * The ends of a trip departing at [departureMs] and arriving at [arrivalMs] that carry straight
+     * on from a recorded track: the departure where the track before it ends at [previousEndMs], the
+     * arrival where the one after starts at [nextStartMs]. An end on its track's bound leaves no stay
+     * between the two; a minute either way does.
+     */
+    fun continuing(departureMs: Long?, arrivalMs: Long?, previousEndMs: Long?, nextStartMs: Long?): Set<End> =
+        buildSet {
+            if (departureMs != null && departureMs == previousEndMs) add(End.ORIGIN)
+            if (arrivalMs != null && arrivalMs == nextStartMs) add(End.DESTINATION)
+        }
+
+    /**
+     * The days on [zone]'s clock an end of a trip can fall on between the track before it, ending at
+     * [previousEndMs], and the one after, starting at [nextStartMs] — the trip may overlap neither.
+     * Open on a side whose track is unknown; null where both are.
+     */
+    fun openDays(previousEndMs: Long?, nextStartMs: Long?, zone: ZoneId): ClosedRange<LocalDate>? {
+        if (previousEndMs == null && nextStartMs == null) return null
+        val from = previousEndMs?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() } ?: LocalDate.MIN
+        val to = nextStartMs?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() } ?: LocalDate.MAX
+        return from..to
+    }
 
     private const val MINUTE_MS = 60_000L
 }

@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.asAndroidPath
@@ -23,9 +25,9 @@ import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 // The bitmaps a map's symbol layers draw: markers loaded from drawables, place pins drawn here
-// because their fill varies per category, and the shadow that lifts either off the basemap.
+// because their fill varies per category, and the shadow that lifts a marker off the basemap.
 
-private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
+internal fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
     val d = AppCompatResources.getDrawable(ctx, resId)!!
     val w = d.intrinsicWidth.coerceAtLeast(1)
     val h = d.intrinsicHeight.coerceAtLeast(1)
@@ -53,7 +55,7 @@ internal data class MarkerShadow(val blurDp: Float, val dropDp: Float, val alpha
     }
 }
 
-/** [withShadow] over a drawable — how every marker that isn't a place pin is built. */
+/** [withShadow] over a drawable. */
 internal fun shadowedBitmap(ctx: Context, resId: Int, shadow: MarkerShadow): Bitmap =
     withShadow(ctx, drawableBitmap(ctx, resId), shadow, scale = 1f)
 
@@ -207,6 +209,17 @@ internal fun addPlacePinImages(ctx: Context, style: Style, pins: PinSet = PinSet
  */
 internal fun glyphedPinBitmap(ctx: Context, category: PlaceCategory?): Bitmap =
     pinImages(ctx).first { it.id == placePinImage(category, withGlyph = true) }.bitmap
+
+/** A spot that is no place: the untagged pin wearing the outline of the place glyph. */
+internal const val SPOT_PIN_IMAGE = "place-pin-spot"
+
+/** Registers [SPOT_PIN_IMAGE], built once for the process as the pin set is ([pinImages]). */
+internal fun addSpotPinImage(ctx: Context, style: Style) {
+    val bitmap = cachedSpotPin ?: placePinBitmap(ctx, untaggedPinColor, Icons.Outlined.Place).also { cachedSpotPin = it }
+    style.addImage(SPOT_PIN_IMAGE, bitmap)
+}
+
+private var cachedSpotPin: Bitmap? = null
 
 /** Which pins a map can name — one name per map rather than a pair of booleans with three of their
  *  four combinations unreachable. */

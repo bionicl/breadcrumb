@@ -503,7 +503,7 @@ private fun frameModernTimelineState(map: org.maplibre.android.maps.MapLibreMap,
             map,
             framePositions(state.points, state.visibleNoisyPoints, GreatCircle.drawsPath(state.points.size, state.activity)),
             singlePointZoom = 15.0,
-            bottomPaddingPx = state.bottomPaddingPx,
+            obscured = MapInsets(top = 0, bottom = state.bottomPaddingPx),
         )
         is ModernTimelineMapState.PlaceTarget -> framePlace(map, state.marker.location, state.radiusM, state.bottomPaddingPx)
         is ModernTimelineMapState.Loading -> Unit

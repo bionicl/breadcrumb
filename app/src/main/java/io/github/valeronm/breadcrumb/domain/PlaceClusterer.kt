@@ -61,9 +61,9 @@ object PlaceClusterer {
      * Which of [seeds] claims ([lat], [lon]): among those whose own radius covers it, the nearest
      * named one, else the nearest unnamed one, or null where none covers it. **The single statement
      * of the rule** — [cluster] admits an endpoint to a seeded cluster by it, [StayDeriver] decides two endpoints are the same place by it through
-     * [SeedIndex], which is tested against it, and a track's ends are named by it ([RoutePlaces]) —
-     * so the inclusive radius, named-before-nearest and the tie-break are settled in one spot rather
-     * than agreeing three times by comment.
+     * [SeedIndex], which is tested against it, and a track's ends are named by it ([RoutePlaces],
+     * and [TripPlaces] for a trip being entered) — so the inclusive radius, named-before-nearest and
+     * the tie-break are settled in one spot rather than agreeing by comment.
      *
      * Scanned in one pass returning an index, not a [Seed]: handing back a pin-with-distance would
      * box a `Double` per call. Seeds out of reach cost coordinate arithmetic, not a distance call

@@ -770,6 +770,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     suspend fun track(trackId: Long): Track? = dao.track(trackId)
 
+    /** The ids of the kept tracks the timeline holds directly before and after track [trackId]. */
+    suspend fun keptTracksAround(trackId: Long): Pair<Long?, Long?> {
+        val track = dao.track(trackId) ?: return null to null
+        val self = listOf(trackId)
+        return dao.keptTrackBefore(track.startedAt, self)?.id to
+            track.endedAt?.let { dao.keptTrackAfter(it, self)?.id }
+    }
+
     suspend fun allTrackIds(): List<Long> = dao.allTrackIds()
 
     /** Finished, kept tracks oldest-first — the backup export's track set. */

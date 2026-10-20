@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import android.graphics.PointF
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,7 +14,6 @@ import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
-import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -136,16 +134,12 @@ private class AppliedJourneyInputs {
 internal fun frameModernTimelineOverview(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>, bottomPaddingPx: Int) {
     // A fully expanded sheet leaves no usable map; frame again when it is lowered.
     if (map.height - bottomPaddingPx < 192) return
-    val positions = framePositions(lines, places).distinct()
-    if (positions.size != 1 || bottomPaddingPx == 0) {
-        frameTo(map, positions, singlePointZoom = 13.0, bottomPaddingPx = bottomPaddingPx)
-    } else {
-        map.moveCamera(CameraUpdateFactory.newLatLngZoom(positions.single(), 13.0))
-        val target = map.projection.fromScreenLocation(
-            PointF(map.width / 2f, (map.height + bottomPaddingPx) / 2f),
-        )
-        map.moveCamera(CameraUpdateFactory.newLatLng(target))
-    }
+    frameTo(
+        map,
+        framePositions(lines, places).distinct(),
+        singlePointZoom = 13.0,
+        obscured = MapInsets(top = 0, bottom = bottomPaddingPx),
+    )
 }
 
 /**

@@ -3,7 +3,6 @@
 <resources>
     <string name="addtrip_title_add">Add missing trip</string>
     <string name="addtrip_title_edit">Edit trip</string>
-    <string name="addtrip_next">Next</string>
 
     <!-- Why the form will not commit -->
     <string name="addtrip_error_order">Arrival must be after departure</string>
@@ -26,18 +25,19 @@
     <string name="addtrip_along_roads">Along roads · %1$s · %2$s</string>
     <string name="addtrip_no_roads">No road path found between these points</string>
 
-    <!-- The two ends. Each phrase is whole: the same word is a card title, a prefix and a
-         dialog heading, and only English lets one string play all three. -->
     <string name="addtrip_origin">Origin</string>
     <string name="addtrip_destination">Destination</string>
-    <!--
-      A date and a clock time, the second drawn with its own zone-shift marks and spliced in by
-      `annotatedStringResource` — so a language is free to order the two however it says this.
-    -->
-    <string name="addtrip_departure_at">Departure %1$s, %2$s</string>
-    <string name="addtrip_arrival_at">Arrival %1$s, %2$s</string>
-    <string name="addtrip_set_departure">Set departure time</string>
-    <string name="addtrip_set_arrival">Set arrival time</string>
+    <!-- Each end's label above its date and time, which stand alone rather than in a sentence. -->
+    <string name="addtrip_departure">Departure</string>
+    <string name="addtrip_arrival">Arrival</string>
+    <string name="addtrip_pick_date">Date</string>
+    <string name="addtrip_pick_time">Time</string>
+    <string name="addtrip_change_place">Change place</string>
+    <string name="addtrip_estimated">Estimated along roads</string>
+    <string name="addtrip_estimated_was">Estimated along roads · was %s</string>
+    <string name="addtrip_restore_time">Restore</string>
+    <string name="addtrip_estimate">Estimate</string>
+    <string name="addtrip_choose_type">Choose the trip type</string>
     <string name="addtrip_departure_time_title">Departure time</string>
     <string name="addtrip_arrival_time_title">Arrival time</string>
 

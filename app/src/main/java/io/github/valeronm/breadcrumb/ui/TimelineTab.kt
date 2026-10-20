@@ -1387,21 +1387,11 @@ internal fun TrackRow(
                 subtitle = AnnotatedString(distanceText(track.distanceMeters)),
             )
         } else {
-            val reader = timelineZone()
-            val shiftColor = zoneShiftColor
-            val readerClock = LocalReaderClock.current
             val length = durationText(track.startedAt, track.endedAt)
-            val subtitle = buildAnnotatedString {
-                if (displayOptions.showVisitTime) {
-                    appendTime(track.startedAt, zone, reader, shiftColor, readerClock)
-                    track.endedAt?.let { endedAt ->
-                        append(" – ")
-                        appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
-                    }
-                    append(" · $length")
-                } else {
-                    append(length)
-                }
+            val subtitle = if (displayOptions.showVisitTime) {
+                trackRowSpan(track.startedAt, zone, track.endedAt, endZone ?: zone, length)
+            } else {
+                AnnotatedString(length)
             }
             ListRowCard(
                 modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
@@ -1411,11 +1401,36 @@ internal fun TrackRow(
                 iconDescription = activityName,
                 colors = containerColor?.let { CardDefaults.cardColors(containerColor = it) },
                 mark = origin?.mark,
-                title = "$activityName · " + distanceText(track.distanceMeters),
+                title = trackRowTitle(activityName, track.distanceMeters),
                 titleColor = MaterialTheme.colorScheme.onSurface,
                 subtitle = subtitle,
             )
         }
+    }
+}
+
+/** A track row's title: what moved, and how far where that is known. */
+@Composable
+internal fun trackRowTitle(activityName: String, lengthM: Double?): String =
+    if (lengthM == null) activityName else "$activityName · " + distanceText(lengthM)
+
+/**
+ * A track row's time line: its two clock times, each on its own end's clock, and how long it ran.
+ * Either time may be missing, on a trip still being entered.
+ */
+@Composable
+internal fun trackRowSpan(startMs: Long?, startZone: ZoneId, endMs: Long?, endZone: ZoneId, length: String?): AnnotatedString {
+    // Resolved here: nothing composable may be read inside the builder (see appendTime).
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    return buildAnnotatedString {
+        startMs?.let { appendTime(it, startZone, reader, shiftColor, readerClock) }
+        endMs?.let {
+            append(if (startMs != null) " – " else "– ")
+            appendTime(it, endZone, reader, shiftColor, readerClock)
+        }
+        length?.let { append(" · $it") }
     }
 }
 
@@ -1816,6 +1831,8 @@ internal fun GapCard(
             day = item.filedOn,
             origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
             destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
+            trackBefore = gap.afterTrackId,
+            trackAfter = item.nextTrackId,
         )
     }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {

@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,9 +12,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarDuration
@@ -36,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -116,11 +120,11 @@ internal fun SwipeDismissSnackbar(data: SnackbarData) {
 }
 
 /**
- * A [DatePickerDialog] speaking [LocalDate]: opens at [initial], and confirm — enabled only once a
- * date is chosen — hands the choice back without closing anything, the caller owning what follows
- * (plain dismissal, or the add-trip form's time picker). Also the one home for the picker's
- * UTC-midnight convention: a date crosses into the picker as millis at UTC midnight and comes
- * back the same way, whatever zone the reader is in.
+ * A [DatePickerDialog] speaking [LocalDate]: opens at [initial], offering only [days] where given,
+ * and confirm — enabled only once a date is chosen — hands the choice back without closing
+ * anything, the caller owning what follows. Also the one home for the picker's UTC-midnight
+ * convention: a date crosses into the picker as millis at UTC midnight and comes back the same
+ * way, whatever zone the reader is in.
  */
 @Composable
 internal fun LocalDateDialog(
@@ -128,9 +132,19 @@ internal fun LocalDateDialog(
     confirmLabel: String,
     onConfirm: (LocalDate) -> Unit,
     onDismiss: () -> Unit,
+    days: ClosedRange<LocalDate>? = null,
 ) {
+    fun LocalDate.millis() = atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    fun Long.utcDate() = Instant.ofEpochMilli(this).atOffset(ZoneOffset.UTC).toLocalDate()
     val dateState = rememberDatePickerState(
-        initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+        initialSelectedDateMillis = (days?.let(initial::coerceIn) ?: initial).millis(),
+        selectableDates = days?.let {
+            object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis.utcDate() in it
+
+                override fun isSelectableYear(year: Int) = year in it.start.year..it.endInclusive.year
+            }
+        } ?: DatePickerDefaults.AllDates,
     )
     DatePickerDialog(
         onDismissRequest = onDismiss,
@@ -138,7 +152,7 @@ internal fun LocalDateDialog(
             TextButton(
                 onClick = {
                     dateState.selectedDateMillis?.let {
-                        onConfirm(Instant.ofEpochMilli(it).atOffset(ZoneOffset.UTC).toLocalDate())
+                        onConfirm(it.utcDate())
                     }
                 },
                 enabled = dateState.selectedDateMillis != null,
@@ -148,6 +162,37 @@ internal fun LocalDateDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     ) { DatePicker(dateState) }
+}
+
+/** The trip-type picker: [options] as rows, [selected] ticked, a tap handing back the one chosen. */
+@Composable
+internal fun ActivityTypeDialog(
+    options: List<ActivityType>,
+    selected: ActivityType?,
+    onDismiss: () -> Unit,
+    onPick: (ActivityType) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(activityIcon(selected), contentDescription = null) },
+        title = { Text(stringResource(R.string.track_type_dialog_title)) },
+        text = {
+            Column {
+                for (option in options) {
+                    OptionRow(
+                        icon = activityIcon(option),
+                        label = stringResource(option.labelRes),
+                        // Each option in its own hue, as the category picker wears its groups'.
+                        tint = activityColor(option),
+                        selected = option == selected,
+                    ) { onPick(option) }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
+    )
 }
 
 /**

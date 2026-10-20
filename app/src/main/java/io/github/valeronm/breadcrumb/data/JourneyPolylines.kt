@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.data
 
+import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -65,15 +66,21 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
             size > MAX_LINES
     }
 
-    private suspend fun lineFor(track: TrackSummary): JourneyLine {
-        val key = track.id to track.endedAt
+    private suspend fun lineFor(track: TrackSummary): JourneyLine =
+        lineFor(track.id, track.endedAt, track.activityType, track.pointCount)
+
+    suspend fun lineFor(track: Track): JourneyLine =
+        lineFor(track.id, track.endedAt, track.activityType, track.pointCount)
+
+    private suspend fun lineFor(id: Long, endedAt: Long?, activityType: String, pointCount: Int): JourneyLine {
+        val key = id to endedAt
         mutex.withLock { cache[key] }?.let { return it }
-        val points = repository.pointsFor(track.id)
+        val points = repository.pointsFor(id)
         val line = withContext(Dispatchers.Default) {
             JourneyLine(
-                trackId = track.id,
-                activityType = track.activityType,
-                greatCircle = GreatCircle.drawsPath(track.pointCount, ActivityType.ofName(track.activityType)),
+                trackId = id,
+                activityType = activityType,
+                greatCircle = GreatCircle.drawsPath(pointCount, ActivityType.ofName(activityType)),
                 segments = SegmentBreaks.split(points).map(::segmentOf),
             )
         }
