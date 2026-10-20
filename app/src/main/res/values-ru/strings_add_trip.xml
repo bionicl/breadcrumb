@@ -24,6 +24,9 @@
     <string name="addtrip_arrival_at">Прибытие %1$s, %2$s</string>
     <string name="addtrip_set_departure">Указать время отправления</string>
     <string name="addtrip_set_arrival">Указать время прибытия</string>
+    <string name="addtrip_keep_departure">Сохранить время отправления</string>
+    <string name="addtrip_keep_arrival">Сохранить время прибытия</string>
+    <string name="addtrip_choose_type">Выберите тип поездки</string>
     <string name="addtrip_departure_time_title">Время отправления</string>
     <string name="addtrip_arrival_time_title">Время прибытия</string>
 

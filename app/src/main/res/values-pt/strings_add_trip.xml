@@ -25,6 +25,9 @@
     <string name="addtrip_arrival_at">Chegada %1$s, %2$s</string>
     <string name="addtrip_set_departure">Definir a hora de partida</string>
     <string name="addtrip_set_arrival">Definir a hora de chegada</string>
+    <string name="addtrip_keep_departure">Manter a hora de partida</string>
+    <string name="addtrip_keep_arrival">Manter a hora de chegada</string>
+    <string name="addtrip_choose_type">Escolha o tipo de viagem</string>
     <string name="addtrip_departure_time_title">Hora de partida</string>
     <string name="addtrip_arrival_time_title">Hora de chegada</string>
 

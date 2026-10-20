@@ -148,7 +148,7 @@ private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
  * [GreatCircle.drawsPath] names is densified along its great circle ([greatCirclePositions]), as
  * the track detail draws it.
  */
-private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
+internal fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
     val features = ArrayList<Feature>()
     val propsByColor = HashMap<Int, JsonObject>()
     for (line in lines) {
@@ -176,4 +176,4 @@ private fun segmentPositions(segment: DoubleArray, greatCircle: Boolean): List<P
 
 private const val JOURNEY_SOURCE = "journey-lines-src"
 private const val JOURNEY_LAYER = "journey-lines-layer"
-private const val JOURNEY_COLOR_KEY = "color"
+internal const val JOURNEY_COLOR_KEY = "color"

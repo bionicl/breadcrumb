@@ -23,9 +23,9 @@ import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 // The bitmaps a map's symbol layers draw: markers loaded from drawables, place pins drawn here
-// because their fill varies per category, and the shadow that lifts either off the basemap.
+// because their fill varies per category, and the shadow that lifts a marker off the basemap.
 
-private fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
+internal fun drawableBitmap(ctx: Context, resId: Int): Bitmap {
     val d = AppCompatResources.getDrawable(ctx, resId)!!
     val w = d.intrinsicWidth.coerceAtLeast(1)
     val h = d.intrinsicHeight.coerceAtLeast(1)
@@ -53,7 +53,7 @@ internal data class MarkerShadow(val blurDp: Float, val dropDp: Float, val alpha
     }
 }
 
-/** [withShadow] over a drawable — how every marker that isn't a place pin is built. */
+/** [withShadow] over a drawable. */
 internal fun shadowedBitmap(ctx: Context, resId: Int, shadow: MarkerShadow): Bitmap =
     withShadow(ctx, drawableBitmap(ctx, resId), shadow, scale = 1f)
 

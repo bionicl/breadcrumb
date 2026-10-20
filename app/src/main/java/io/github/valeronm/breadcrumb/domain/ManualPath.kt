@@ -83,5 +83,17 @@ object ManualPath {
             else -> null
         }
 
+    /**
+     * The ends of a trip departing at [departureMs] and arriving at [arrivalMs] that carry straight
+     * on from a recorded track: the departure where the track before it ends at [previousEndMs], the
+     * arrival where the one after starts at [nextStartMs]. An end on its track's bound leaves no stay
+     * between the two; a minute either way does.
+     */
+    fun continuing(departureMs: Long?, arrivalMs: Long?, previousEndMs: Long?, nextStartMs: Long?): Set<End> =
+        buildSet {
+            if (departureMs != null && departureMs == previousEndMs) add(End.ORIGIN)
+            if (arrivalMs != null && arrivalMs == nextStartMs) add(End.DESTINATION)
+        }
+
     private const val MINUTE_MS = 60_000L
 }

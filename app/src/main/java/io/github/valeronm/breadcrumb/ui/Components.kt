@@ -117,13 +117,19 @@ internal fun ColumnScope.MapStackLegend(content: @Composable ColumnScope.() -> U
 
 /** Elevated on an opaque surface: the default chip tones all but vanish against a basemap. */
 @Composable
-internal fun MapFilterChip(selected: Boolean, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun MapFilterChip(
+    selected: Boolean,
+    label: String,
+    enabled: Boolean = true,
+    leadingIcon: (@Composable () -> Unit)? = selectedCheck(selected),
+    onClick: () -> Unit,
+) {
     ElevatedFilterChip(
         selected = selected,
         onClick = onClick,
         enabled = enabled,
         label = { Text(label) },
-        leadingIcon = selectedCheck(selected),
+        leadingIcon = leadingIcon,
         colors = FilterChipDefaults.elevatedFilterChipColors(
             containerColor = MaterialTheme.colorScheme.surface,
             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,

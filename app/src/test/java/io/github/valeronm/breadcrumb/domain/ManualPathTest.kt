@@ -80,4 +80,15 @@ class ManualPathTest {
             assertEquals(case.toString(), expected, ManualPath.anchor(case[0], case[1], case[2], case[3]))
         }
     }
+
+    @Test fun `an end continues a track only at that track's own bound`() {
+        val o = ManualPath.End.ORIGIN
+        val d = ManualPath.End.DESTINATION
+        val minute = 60_000L
+        assertEquals(setOf(o, d), ManualPath.continuing(1_000L, 9_000L, 1_000L, 9_000L))
+        assertEquals(setOf(o), ManualPath.continuing(1_000L, 9_000L, 1_000L, 9_000L + minute))
+        assertEquals(setOf(d), ManualPath.continuing(1_000L + minute, 9_000L, 1_000L, 9_000L))
+        assertEquals(emptySet<ManualPath.End>(), ManualPath.continuing(1_000L, 9_000L, null, null))
+        assertEquals(emptySet<ManualPath.End>(), ManualPath.continuing(null, null, 1_000L, 9_000L))
+    }
 }

@@ -1090,13 +1090,6 @@ internal fun TrackRow(
         val activity = ActivityType.ofName(track.activityType)
         val activityName = activityLabel(LocalContext.current, track.activityType)
         val origin = TrackOrigin.fromCode(track.source)
-        val reader = timelineZone()
-        // Each end on its own clock where they differ — a track is the one recorded row that can
-        // cross a border, and flattening it onto the departure's clock hides the crossing. The two
-        // times then no longer span the duration beside them, which is why each carries its own
-        // offset: read together they say the drive lost an hour to the border, which is the truth.
-        val shiftColor = zoneShiftColor
-        val readerClock = LocalReaderClock.current
         ListRowCard(
             // Long-press replays the track, which Card's own onClick can't express.
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
@@ -1106,20 +1099,45 @@ internal fun TrackRow(
             iconDescription = activityName,
             mark = origin?.mark,
             // What happened leads; when it happened is the metadata line.
-            title = "$activityName · " + distanceText(track.distanceMeters),
+            title = trackRowTitle(activityName, track.distanceMeters),
             titleColor = MaterialTheme.colorScheme.onSurface,
-            // Worded before the builder, which is not a composable scope.
-            subtitle = durationText(track.startedAt, track.endedAt).let { length ->
-                buildAnnotatedString {
-                    appendTime(track.startedAt, zone, reader, shiftColor, readerClock)
-                    track.endedAt?.let { endedAt ->
-                        append(" – ")
-                        appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
-                    }
-                    append(" · $length")
-                }
-            },
+            // Each end on its own clock where they differ — a track is the one recorded row that can
+            // cross a border, and flattening it onto the departure's clock hides the crossing. The two
+            // times then no longer span the duration beside them, which is why each carries its own
+            // offset: read together they say the drive lost an hour to the border, which is the truth.
+            subtitle = trackRowSpan(
+                track.startedAt,
+                zone,
+                track.endedAt,
+                endZone ?: zone,
+                durationText(track.startedAt, track.endedAt),
+            ),
         )
+    }
+}
+
+/** A track row's title: what moved, and how far where that is known. */
+@Composable
+internal fun trackRowTitle(activityName: String, lengthM: Double?): String =
+    if (lengthM == null) activityName else "$activityName · " + distanceText(lengthM)
+
+/**
+ * A track row's time line: its two clock times, each on its own end's clock, and how long it ran.
+ * Either time may be missing, on a trip still being entered.
+ */
+@Composable
+internal fun trackRowSpan(startMs: Long?, startZone: ZoneId, endMs: Long?, endZone: ZoneId, length: String?): AnnotatedString {
+    // Resolved here: nothing composable may be read inside the builder (see appendTime).
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    return buildAnnotatedString {
+        startMs?.let { appendTime(it, startZone, reader, shiftColor, readerClock) }
+        endMs?.let {
+            append(if (startMs != null) " – " else "– ")
+            appendTime(it, endZone, reader, shiftColor, readerClock)
+        }
+        length?.let { append(" · $it") }
     }
 }
 
@@ -1387,8 +1405,8 @@ internal fun GapCard(
     val draft = remember(item, zone) {
         TripDraft(
             day = item.filedOn,
-            origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
-            destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
+            origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start, gap.afterTrackId) else null,
+            destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end, item.nextTrackId) else null,
         )
     }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
@@ -1479,7 +1497,8 @@ private fun draftEndOf(
     place: PlaceResolver.ResolvedStay?,
     at: Coordinate?,
     atMs: Long,
-) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
+    trackId: Long?,
+) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs, trackId = trackId)
 
 /**
  * One side of a gap: a full-width tappable line (category disc + place name, ripple across the row

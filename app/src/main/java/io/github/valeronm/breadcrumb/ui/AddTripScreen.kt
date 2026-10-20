@@ -9,38 +9,54 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.LocationCity
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.TravelExplore
+import androidx.compose.material.icons.outlined.LockOpen
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +68,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -59,21 +79,26 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.OnlineRouting
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.CityAtlas
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
+import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -81,6 +106,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import kotlin.math.roundToInt
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 /** What the add-trip form offers: every movement type, carried transport first — a trip goes
@@ -150,6 +176,9 @@ internal class TripDraftEnd(
     /** The user's own name for the spot, never a derived one — see [TripEnd.placeName]. */
     val placeName: String?,
     val timeMs: Long,
+    /** The recorded track this end meets — the one before a departure, after an arrival — where the
+     *  caller knows it. */
+    val trackId: Long? = null,
 )
 
 /** One end of the trip being entered — a pin and a time, each settable in any order, and either of
@@ -157,20 +186,24 @@ internal class TripDraftEnd(
 private class TripEnd(drafted: TripDraftEnd?) {
     var pin by mutableStateOf(drafted?.at)
 
-    /** The name the pin was picked *by* — a saved place's label, or an online hit's name — shown
-     *  on the end's card, and what a place created from this end on commit will be called (a spot
-     *  an existing place already covers creates nothing, which is what makes carrying a saved
-     *  place's label here safe). Null for a hand-placed pin, which has no name to give, and for a
-     *  picked *city*, which must not become a 150 m capture circle at its centroid. */
+    /** The name the pin was picked *by* — a saved place's label, or an online hit's name — which
+     *  [TripPlaces.plan] makes a place of. Null for a hand-placed pin, which has no name to give,
+     *  and for a picked *city*, which must not become a capture circle at its centroid. */
     var placeName by mutableStateOf(drafted?.placeName)
     var date by mutableStateOf<LocalDate?>(null)
     var time by mutableStateOf<LocalTime?>(null)
 
     private val draftedAt = drafted?.timeMs
 
-    /** The instant this end names — its wall clock read in [zone] once one is set, until then the
-     *  one it was drafted with (see [TripDraftEnd]); null when it holds no time at all. */
-    fun epochIn(zone: ZoneId): Long? {
+    /** Placed from the other end by a road's duration; held apart from [ownEpochIn] because a lifted
+     *  coupling must give back the time that was recorded or typed. */
+    var coupledMs by mutableStateOf<Long?>(null)
+
+    fun epochIn(zone: ZoneId): Long? = coupledMs ?: ownEpochIn(zone)
+
+    /** Its wall clock read in [zone] once one is set, until then the instant it was drafted with
+     *  (see [TripDraftEnd]); null when it holds no time of its own. */
+    fun ownEpochIn(zone: ZoneId): Long? {
         val d = date ?: return draftedAt
         val t = time ?: return draftedAt
         return ZonedDateTime.of(d, t, zone).toInstant().toEpochMilli()
@@ -211,14 +244,41 @@ private fun TripDraft.storedRoute(): RoutedLeg? {
 }
 
 /** One end's time being edited: which, under which name, on whose clock, and where the pickers
- *  open when the end holds nothing yet ([fallback]). */
+ *  open ([TripEnd.pickerStart]). */
 private class TimeEdit(
     val which: ManualPath.End,
     /** The picker's heading, whole rather than a noun the dialog appends "time" to. */
     @StringRes val titleRes: Int,
     val zone: ZoneId,
-    val fallback: ZonedDateTime,
+    val start: ZonedDateTime,
 )
+
+/**
+ * A recorded track a trip being entered meets at one of its ends: its path, and the fix and the
+ * bound it meets the trip at — its end where it comes before the trip, else its start.
+ */
+internal class TouchingTrack(
+    val line: JourneyLine,
+    val touching: Coordinate,
+    val boundMs: Long,
+) {
+    val activity: ActivityType? get() = ActivityType.ofName(line.activityType)
+}
+
+/** Where the controls floating over the map and the sheet's top edge sit, in window pixels. */
+private class MapCover {
+    var mapTop by mutableFloatStateOf(0f)
+    var mapBottom by mutableFloatStateOf(0f)
+    var headerBottom by mutableFloatStateOf(0f)
+
+    /** Unset until the sheet is first laid out, when nothing is known to cover the map. */
+    var sheetTop by mutableFloatStateOf(Float.NaN)
+
+    fun insets(): MapInsets = MapInsets(
+        top = (headerBottom - mapTop).roundToInt().coerceAtLeast(0),
+        bottom = if (sheetTop.isNaN()) 0 else (mapBottom - sheetTop).roundToInt().coerceAtLeast(0),
+    )
+}
 
 /**
  * Enter a trip nothing recorded — a flight, a leg with the phone dead — as two pins and two times,
@@ -233,6 +293,7 @@ private class TimeEdit(
  * row they came from, since what a hand-entered trip *is* and what the form asks for are the same
  * thing.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
@@ -262,6 +323,13 @@ internal fun AddTripScreen(
     // own, and would otherwise sort around wherever that one was left.
     var mapCenter by remember(draft) { mutableStateOf<Coordinate?>(null) }
     var routed by remember(draft) { mutableStateOf(draft.storedRoute()) }
+    // The tracks the form was opened between, whatever is typed after: a gap's draft names them, and
+    // a trip being edited sits between its neighbors on the timeline.
+    val touching by produceState<Pair<TouchingTrack?, TouchingTrack?>>(null to null, draft) {
+        val (before, after) = draft.editing?.let { viewModel.tracksAround(it.trackId) }
+            ?: (draft.origin?.trackId to draft.destination?.trackId)
+        value = viewModel.touchingTracks(before, after)
+    }
     var fetchingRoute by remember(draft) { mutableStateOf(false) }
     val profile = activity?.let(OnlineRouting.Profile::of)
     val leg = routed?.takeIf { it.profile == profile && it.from == origin.pin && it.to == destination.pin }
@@ -279,17 +347,44 @@ internal fun AddTripScreen(
     val destinationZone = zoneOrDevice(destinationCity?.zoneId)
     val departMs = origin.epochIn(originZone)
     val arriveMs = destination.epochIn(destinationZone)
+    val continuing = ManualPath.continuing(
+        departMs,
+        arriveMs,
+        previousEndMs = touching.first?.boundMs,
+        nextStartMs = touching.second?.boundMs,
+    )
 
     // With a road path attached the two times are one fact and its duration: the end at [from]
-    // keeps its time and the other is moved ([ManualPath.coupledEnd]), on that end's own clock.
+    // keeps its own time and the other is placed from it ([ManualPath.coupledEnd]).
     fun coupleTimes(from: ManualPath.End, durationMs: Long) {
         val forward = from == ManualPath.End.ORIGIN
-        val at = (if (forward) origin.epochIn(originZone) else destination.epochIn(destinationZone)) ?: return
+        val kept = if (forward) origin else destination
         val other = if (forward) destination else origin
-        val target = Instant.ofEpochMilli(ManualPath.coupledEnd(at, durationMs, forward))
-            .atZone(if (forward) destinationZone else originZone)
-        other.date = target.toLocalDate()
-        other.time = target.toLocalTime()
+        val at = kept.ownEpochIn(if (forward) originZone else destinationZone) ?: return
+        kept.coupledMs = null
+        other.coupledMs = ManualPath.coupledEnd(at, durationMs, forward)
+    }
+
+    fun keptEnd(): ManualPath.End? = when {
+        destination.coupledMs != null -> ManualPath.End.ORIGIN
+        origin.coupledMs != null -> ManualPath.End.DESTINATION
+        else -> null
+    }
+
+    // Offered only where both ends hold a time of their own: with one, that one is all the
+    // coupling can keep.
+    val keepChoice = leg?.takeIf {
+        origin.ownEpochIn(originZone) != null && destination.ownEpochIn(destinationZone) != null
+    }
+
+    fun toggleKeep(end: ManualPath.End) {
+        val durationMs = keepChoice?.durationMs ?: return
+        if (keptEnd() == end) {
+            origin.coupledMs = null
+            destination.coupledMs = null
+        } else {
+            coupleTimes(end, durationMs)
+        }
     }
 
     // Resolved here: the result lands outside the composition.
@@ -308,12 +403,14 @@ internal fun AddTripScreen(
             } else {
                 routed = RoutedLeg(by, from, to, found.shape, found.durationMs)
                 frameKey++
-                ManualPath.anchor(
-                    originTimed = origin.epochIn(originZone) != null,
-                    destinationTimed = destination.epochIn(destinationZone) != null,
+                // The end already kept may be the user's choice, which a new road leaves standing.
+                val keep = keptEnd() ?: ManualPath.anchor(
+                    originTimed = origin.ownEpochIn(originZone) != null,
+                    destinationTimed = destination.ownEpochIn(destinationZone) != null,
                     originNamed = origin.placeName != null,
                     destinationNamed = destination.placeName != null,
-                )?.let { coupleTimes(it, found.durationMs) }
+                )
+                keep?.let { coupleTimes(it, found.durationMs) }
             }
         }
     }
@@ -340,6 +437,11 @@ internal fun AddTripScreen(
 
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    // The saved places are on the map to be picked as an end, so they stand only while one is
+    // being placed: an end with no pin, or one whose card was tapped to move it.
+    var repinning by remember(draft) { mutableStateOf(false) }
+    val showPlaces = repinning || origin.pin == null || destination.pin == null
+
     fun placePin(at: Coordinate, placeName: String? = null) {
         // Placing a pin — from a search result, a map pin or a long press — is done with the
         // field: drop its focus and the keyboard with it, or the results list closes onto a
@@ -350,6 +452,7 @@ internal fun AddTripScreen(
         end.pin = at
         end.placeName = placeName
         if (end === origin && destination.pin == null) placingDestination = true
+        repinning = false
     }
 
     // Tapping an end makes it the one the map places, and where it already has a pin takes the
@@ -360,9 +463,112 @@ internal fun AddTripScreen(
     fun activate(end: TripEnd) {
         placingDestination = end === destination
         end.pin?.let { centerRequest = MapCenterRequest(it) }
+        repinning = true
     }
 
-    Scaffold(
+    val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
+    val (originPlace, destinationPlace) = remember(
+        storedPlaces, origin.pin, origin.placeName, destination.pin, destination.placeName,
+    ) {
+        TripPlaces.plan(
+            listOf(TripPlaces.End(origin.pin, origin.placeName), TripPlaces.End(destination.pin, destination.placeName)),
+            storedPlaces,
+            AndroidDistance,
+            // The preview writes nothing, so its rows are never stamped.
+            createdAt = 0,
+        )
+    }
+    val cover = remember { MapCover() }
+    BottomSheetScaffold(
+        scaffoldState = rememberBottomSheetScaffoldState(
+            rememberStandardBottomSheetState(initialValue = SheetValue.Expanded),
+        ),
+        containerColor = MaterialTheme.colorScheme.background,
+        sheetPeekHeight = BottomSheetDefaults.SheetPeekHeight +
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        sheetDragHandle = {
+            BottomSheetDefaults.DragHandle(
+                Modifier.onGloballyPositioned { cover.sheetTop = it.boundsInWindow().top },
+            )
+        },
+        sheetContent = {
+            Column(
+                Modifier
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp)
+                    .navigationBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Owed while a road the servers drew is on the map.
+                if (leg != null) OsmDataCredit(Modifier.padding(horizontal = 4.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    TripEndCard(
+                        shape = groupedRowShape(0, 3),
+                        mark = endMark(originPlace, ManualPath.End.ORIGIN in continuing),
+                        atRes = R.string.addtrip_departure_at,
+                        setTimeRes = R.string.addtrip_set_departure,
+                        end = origin,
+                        city = originCity,
+                        zone = originZone,
+                        active = !placingDestination,
+                        onActivate = { activate(origin) },
+                        onEditTime = {
+                            editing = TimeEdit(
+                                ManualPath.End.ORIGIN, R.string.addtrip_departure_time_title, originZone,
+                                origin.pickerStart(originZone, noonOf(draft.day, originZone)),
+                            )
+                        },
+                        kept = keepChoice?.let { keptEnd() == ManualPath.End.ORIGIN },
+                        keepRes = R.string.addtrip_keep_departure,
+                        onToggleKeep = { toggleKeep(ManualPath.End.ORIGIN) },
+                    )
+                    TripLegRow(
+                        shape = groupedRowShape(1, 3),
+                        activity = activity,
+                        lengthM = leg?.lengthM ?: origin.pin?.let { from ->
+                            destination.pin?.let { to -> ManualPath.lengthM(listOf(from, to), AndroidDistance) }
+                        },
+                        departMs = departMs,
+                        departZone = originZone,
+                        arriveMs = arriveMs,
+                        arriveZone = destinationZone,
+                    )
+                    TripEndCard(
+                        shape = groupedRowShape(2, 3),
+                        mark = endMark(destinationPlace, ManualPath.End.DESTINATION in continuing),
+                        atRes = R.string.addtrip_arrival_at,
+                        setTimeRes = R.string.addtrip_set_arrival,
+                        end = destination,
+                        city = destinationCity,
+                        zone = destinationZone,
+                        active = placingDestination,
+                        onActivate = { activate(destination) },
+                        onEditTime = {
+                            // An hour past the departure, on the arrival's own clock: the pickers open a
+                            // short scroll from any real arrival instead of at an arbitrary noon.
+                            editing = TimeEdit(
+                                ManualPath.End.DESTINATION, R.string.addtrip_arrival_time_title, destinationZone,
+                                destination.pickerStart(
+                                    destinationZone,
+                                    departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
+                                        ?: noonOf(draft.day, destinationZone),
+                                ),
+                            )
+                        },
+                        kept = keepChoice?.let { keptEnd() == ManualPath.End.DESTINATION },
+                        keepRes = R.string.addtrip_keep_arrival,
+                        onToggleKeep = { toggleKeep(ManualPath.End.DESTINATION) },
+                    )
+                }
+                error?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
@@ -415,32 +621,9 @@ internal fun AddTripScreen(
             )
         },
     ) { inner ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                for (type in MANUAL_TRIP_TYPES) {
-                    FilterChip(
-                        selected = activity == type,
-                        onClick = { activity = type },
-                        label = { Text(stringResource(type.labelRes)) },
-                        leadingIcon = {
-                            Icon(activityIcon(type), contentDescription = null, Modifier.size(18.dp))
-                        },
-                    )
-                }
-            }
+        Box(Modifier.fillMaxSize().padding(inner)) {
             val queryState = remember { TextFieldState() }
             val query by remember(queryState) { derivedStateOf { queryState.text.toString() } }
-            val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
             // An unnamed row reads as the unnamed cluster it seeds, which this form neither draws
             // nor offers.
             val savedPlaces = remember(storedPlaces) { storedPlaces.filter { it.isNamed } }
@@ -507,85 +690,135 @@ internal fun AddTripScreen(
                 if (origin.pin != null && destination.pin != null) frameKey++
             }
             val onlineHits by rememberOnlineHits(query, near = origin.pin ?: destination.pin, viewModel)
-            SearchDropdown(
-                query = query,
-                open = query.isNotBlank(),
-                field = { anchor ->
-                    SearchField(
-                        state = queryState,
-                        placeholder = stringResource(R.string.addtrip_search_placeholder),
-                        modifier = Modifier.fillMaxWidth().then(anchor),
-                    )
-                },
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clipToBounds()
+                    .onGloballyPositioned {
+                        val bounds = it.boundsInWindow()
+                        cover.mapTop = bounds.top
+                        cover.mapBottom = bounds.bottom
+                    },
             ) {
-                for (place in placeMatches) {
-                    val label = place.label ?: continue
-                    SearchResultRow(
-                        icon = Icons.Filled.Place,
-                        label = label,
-                        detail = placeCities[place.id]?.let { localityLabel(it) },
-                    ) {
-                        pickResult(place.pin, label)
-                    }
-                }
-                for (hit in cityHits) {
-                    SearchResultRow(
-                        icon = Icons.Filled.LocationCity,
-                        label = hit.name,
-                        detail = countryDisplayName(hit.country),
-                    ) {
-                        pickResult(Coordinate(hit.lat, hit.lon))
-                    }
-                }
-                // Below the local sections, minus what they already show — the
-                // geocoder returns big cities too, and "Lisbon" twice reads as a
-                // glitch, not as two sources.
-                val online = remember(cityHits, onlineHits) {
-                    val cities = cityHits.map { PlaceSearch.fold(it.name) }.toSet()
-                    OnlinePlaceSearch.distinctRows(
-                        onlineHits.filter { PlaceSearch.fold(it.name) !in cities },
-                    )
-                }
-                for (hit in online) {
-                    SearchResultRow(
-                        icon = Icons.Filled.TravelExplore,
-                        label = hit.name,
-                        detail = hit.locality,
-                    ) {
-                        // The one pick that knows its own name — carried so the
-                        // commit can create the place this end will have stayed at.
-                        pickResult(Coordinate(hit.lat, hit.lon), hit.name)
-                    }
-                }
-                if (online.isNotEmpty()) OsmCredit()
-                if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
-                    Text(
-                        stringResource(R.string.addtrip_no_matches),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
-                }
-            }
-            Card(Modifier.weight(1f).fillMaxWidth()) {
-                Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapLibreTripMap(
-                        origin = origin.pin,
-                        destination = destination.pin,
-                        places = placeField,
-                        shape = leg?.shape.orEmpty(),
-                        activity = activity,
-                        onLongPress = ::placePin,
-                        onPlaceTap = ::placePin,
-                        center = centerRequest,
-                        frameKey = frameKey,
-                        onCenterSettled = { mapCenter = it },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                MapLibreTripMap(
+                    origin = origin.pin,
+                    destination = destination.pin,
+                    places = placeField,
+                    showPlaces = showPlaces,
+                    shape = leg?.shape.orEmpty(),
+                    activity = activity,
+                    touching = touching.toList().filterNotNull(),
+                    originCategory = (originPlace as? TripPlaces.Outcome.Held)?.place?.placeCategory,
+                    destinationCategory = (destinationPlace as? TripPlaces.Outcome.Held)?.place?.placeCategory,
+                    continuing = continuing,
+                    onLongPress = ::placePin,
+                    onPlaceTap = ::placePin,
+                    center = centerRequest,
+                    frameKey = frameKey,
+                    onCenterSettled = { mapCenter = it },
+                    obscured = cover::insets,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // Its corner rises with the sheet, which would otherwise cover it.
+                Box(Modifier.fillMaxSize().offset { IntOffset(0, -cover.insets().bottom) }) {
                     FrameControl(stringResource(R.string.addtrip_show_whole_trip)) {
                         frameKey++
                     }
-                    MapFilterChips {
+                }
+                val halo = touchHalo(FilterChipDefaults.Height)
+                Column(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(top = MapInset)
+                        .onGloballyPositioned { cover.headerBottom = it.boundsInWindow().bottom },
+                    // Negative where the halos exceed the gap: the touch targets overlap, the
+                    // chips do not.
+                    verticalArrangement = Arrangement.spacedBy(8.dp - halo * 2),
+                ) {
+                    SearchDropdown(
+                        query = query,
+                        open = query.isNotBlank(),
+                        field = { anchor ->
+                            SearchField(
+                                state = queryState,
+                                placeholder = stringResource(R.string.addtrip_search_placeholder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = MapInset)
+                                    .padding(bottom = halo)
+                                    .shadow(3.dp, CircleShape)
+                                    .then(anchor),
+                            )
+                        },
+                    ) {
+                        for (place in placeMatches) {
+                            val label = place.label ?: continue
+                            SearchResultRow(
+                                icon = Icons.Filled.Place,
+                                label = label,
+                                detail = placeCities[place.id]?.let { localityLabel(it) },
+                            ) {
+                                pickResult(place.pin, label)
+                            }
+                        }
+                        for (hit in cityHits) {
+                            SearchResultRow(
+                                icon = Icons.Filled.LocationCity,
+                                label = hit.name,
+                                detail = countryDisplayName(hit.country),
+                            ) {
+                                pickResult(Coordinate(hit.lat, hit.lon))
+                            }
+                        }
+                        // Below the local sections, minus what they already show — the
+                        // geocoder returns big cities too, and "Lisbon" twice reads as a
+                        // glitch, not as two sources.
+                        val online = remember(cityHits, onlineHits) {
+                            val cities = cityHits.map { PlaceSearch.fold(it.name) }.toSet()
+                            OnlinePlaceSearch.distinctRows(
+                                onlineHits.filter { PlaceSearch.fold(it.name) !in cities },
+                            )
+                        }
+                        for (hit in online) {
+                            SearchResultRow(
+                                icon = Icons.Filled.TravelExplore,
+                                label = hit.name,
+                                detail = hit.locality,
+                            ) {
+                                // The one pick that knows its own name — carried so the
+                                // commit can create the place this end will have stayed at.
+                                pickResult(Coordinate(hit.lat, hit.lon), hit.name)
+                            }
+                        }
+                        if (online.isNotEmpty()) OsmCredit()
+                        if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
+                            Text(
+                                stringResource(R.string.addtrip_no_matches),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = MapInset),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        for (type in MANUAL_TRIP_TYPES) {
+                            MapFilterChip(
+                                selected = activity == type,
+                                label = stringResource(type.labelRes),
+                                leadingIcon = {
+                                    Icon(activityIcon(type), contentDescription = null, Modifier.size(18.dp))
+                                },
+                            ) { activity = type }
+                        }
+                    }
+                    Column(
+                        Modifier.padding(horizontal = MapInset),
+                        verticalArrangement = Arrangement.spacedBy(8.dp - halo * 2),
+                    ) {
                         // The switch on the Privacy page takes the offer away entirely rather than
                         // leaving a chip that does nothing. On, the chip is the path's own
                         // description.
@@ -627,53 +860,6 @@ internal fun AddTripScreen(
                     }
                 }
             }
-            // Owed while a road the servers drew is on the map above.
-            if (leg != null) OsmDataCredit(Modifier.padding(horizontal = 4.dp))
-            TripEndCard(
-                titleRes = R.string.addtrip_origin,
-                atRes = R.string.addtrip_departure_at,
-                setTimeRes = R.string.addtrip_set_departure,
-                end = origin,
-                city = originCity,
-                zone = originZone,
-                active = !placingDestination,
-                onActivate = { activate(origin) },
-                onEditTime = {
-                    editing = TimeEdit(
-                        ManualPath.End.ORIGIN, R.string.addtrip_departure_time_title, originZone,
-                        origin.pickerStart(originZone, noonOf(draft.day, originZone)),
-                    )
-                },
-            )
-            TripEndCard(
-                titleRes = R.string.addtrip_destination,
-                atRes = R.string.addtrip_arrival_at,
-                setTimeRes = R.string.addtrip_set_arrival,
-                end = destination,
-                city = destinationCity,
-                zone = destinationZone,
-                active = placingDestination,
-                onActivate = { activate(destination) },
-                onEditTime = {
-                    // An hour past the departure, on the arrival's own clock: the pickers open a
-                    // short scroll from any real arrival instead of at an arbitrary noon.
-                    editing = TimeEdit(
-                        ManualPath.End.DESTINATION, R.string.addtrip_arrival_time_title, destinationZone,
-                        destination.pickerStart(
-                            destinationZone,
-                            departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
-                                ?: noonOf(draft.day, destinationZone),
-                        ),
-                    )
-                },
-            )
-            error?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
         }
     }
 
@@ -689,13 +875,13 @@ internal fun AddTripScreen(
             val chosenDate = editingDate
             if (chosenDate == null) {
                 LocalDateDialog(
-                    initial = end.date ?: edit.fallback.toLocalDate(),
+                    initial = edit.start.toLocalDate(),
                     confirmLabel = stringResource(R.string.addtrip_next),
                     onConfirm = { editingDate = it },
                     onDismiss = closeDialogs,
                 )
             } else {
-                val initial = end.time ?: edit.fallback.toLocalTime()
+                val initial = edit.start.toLocalTime()
                 val timeState = rememberTimePickerState(
                     initialHour = initial.hour,
                     initialMinute = initial.minute,
@@ -708,6 +894,7 @@ internal fun AddTripScreen(
                             onClick = {
                                 end.date = chosenDate
                                 end.time = LocalTime.of(timeState.hour, timeState.minute)
+                                end.coupledMs = null
                                 leg?.let { coupleTimes(edit.which, it.durationMs) }
                                 closeDialogs()
                             },
@@ -724,6 +911,26 @@ internal fun AddTripScreen(
     }
 }
 
+/**
+ * How an end's row is marked, as the timeline will mark the stay there: the place it will show, if
+ * any ([TripPlaces.plan]) — or a point where it carries straight on from a recorded track and no
+ * stay will stand.
+ */
+private class EndMark(val icon: ImageVector, val disc: DiscStyle, val name: String?)
+
+@Composable
+private fun endMark(place: TripPlaces.Outcome, continues: Boolean): EndMark {
+    val neutral = placeDiscStyle(null)
+    val name = place.name
+    return when {
+        continues -> EndMark(Icons.Filled.FiberManualRecord, neutral, name)
+        place is TripPlaces.Outcome.Held ->
+            EndMark(place.place.placeCategory.discIcon, placeDiscStyle(place.place.placeCategory), name)
+        name != null -> EndMark(Icons.Filled.Place, neutral, name)
+        else -> EndMark(Icons.Outlined.Place, neutral, null)
+    }
+}
+
 /** Where a spot is, as this form says it throughout: the atlas's city and its country spelled
  *  out. One spelling, so a place named in the results list and the same place named on an end's
  *  card cannot read as two different answers. */
@@ -732,13 +939,13 @@ private fun localityLabel(city: CityAtlas.City): String =
     "${city.name}, ${countryDisplayName(city.country)}"
 
 /**
- * One end of the trip: which city (and so whose clock) its pin resolved to, and its time row.
- * Tapping the card makes it the end the map places; the active one wears the primary border. The
- * time row waits for the pin, because until one is placed there is no zone to read the time in.
+ * One end of the trip as the timeline row of the stay it will leave or arrive at. The time line
+ * waits for the pin, because until one is placed there is no zone to read the time in.
  */
 @Composable
 private fun TripEndCard(
-    @StringRes titleRes: Int,
+    shape: RoundedCornerShape,
+    mark: EndMark,
     /** "Departure %s, " — prefixes the date, ahead of a clock time this card draws itself. */
     @StringRes atRes: Int,
     /** The whole invitation ("Set departure time"), not a noun something appends "time" to. */
@@ -749,87 +956,121 @@ private fun TripEndCard(
     active: Boolean,
     onActivate: () -> Unit,
     onEditTime: () -> Unit,
+    /** Whether this end's time is the one a road's duration places the other from; null where
+     *  there is no choice to offer. */
+    kept: Boolean?,
+    @StringRes keepRes: Int,
+    onToggleKeep: () -> Unit,
 ) {
     val pin = end.pin
-    // What the pin was picked by outranks where it resolved to: "JFK Airport" says more than the
-    // city holding it, and the zone line below still names the clock.
-    val pickedName = end.placeName
-    val locality = when {
-        pickedName != null -> pickedName
+    val title = when {
+        mark.name != null -> mark.name
         city != null -> localityLabel(city)
         pin != null -> stringResource(R.string.addtrip_pin_placed)
         else -> stringResource(R.string.addtrip_no_pin)
     }
-    OutlinedCard(
+    Card(
         onClick = onActivate,
-        border = if (active) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        } else {
-            CardDefaults.outlinedCardBorder()
-        },
+        shape = shape,
+        border = if (active) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+        Row(
+            Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(titleRes), style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.weight(1f))
+            IconDisc(mark.icon, mark.disc, contentDescription = null)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
                 Text(
-                    locality,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = placeTitleColor(mark.name != null),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-            // Rendered off the same instant the row will store, in the app's own formats — the
-            // year included, because a hand-entered trip is usually months old — and the time
-            // marked with its shift from the reader's clock, exactly as the timeline will mark
-            // the committed trip's.
-            val at = end.epochIn(zone)
-            val reader = timelineZone()
-            val shiftColor = zoneShiftColor
-            // The line is a control, not a caption — it opens both pickers — so it takes a row's
-            // worth of height and a bounded ripple rather than the glyph box a clickable Text
-            // would leave for a finger.
-            Text(
-                if (at != null) {
-                    annotatedStringResource(
-                        atRes,
-                        at.toLocalDate(zone).format(compactDayYearFormat),
-                        markedTime(at, zone, reader, shiftColor, LocalReaderClock.current),
-                    )
-                } else {
-                    AnnotatedString(stringResource(setTimeRes))
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (pin != null) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(enabled = pin != null, role = Role.Button, onClick = onEditTime)
-                    .heightIn(min = 48.dp)
-                    .wrapContentHeight(),
-            )
-            // Which clock the pickers will write on, said before a time exists to carry the
-            // mark — as an offset from the reader's own, the way the timeline says it, never as
-            // a zone id. Gone once a time is set (the superscript above takes over), and absent
-            // entirely on the reader's own clock, where there is nothing to warn about.
-            if (pin != null && at == null) {
-                zoneShiftLabel(System.currentTimeMillis(), zone, reader)?.let { shift ->
+                // Rendered off the same instant the row will store, in the app's own formats — the
+                // year included, because a hand-entered trip is usually months old — and the time
+                // marked with its shift from the reader's clock, exactly as the timeline will mark
+                // the committed trip's.
+                val at = end.epochIn(zone)
+                val reader = timelineZone()
+                val shiftColor = zoneShiftColor
+                // The line is a control, not a caption — it opens both pickers — so it takes a row's
+                // worth of height and a bounded ripple rather than the glyph box a clickable Text
+                // would leave for a finger.
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        stringResource(R.string.addtrip_local_clock, shift),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (at != null) {
+                            annotatedStringResource(
+                                atRes,
+                                at.toLocalDate(zone).format(compactDayYearFormat),
+                                markedTime(at, zone, reader, shiftColor, LocalReaderClock.current),
+                            )
+                        } else {
+                            AnnotatedString(stringResource(setTimeRes))
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (pin != null) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = pin != null, role = Role.Button, onClick = onEditTime)
+                            .heightIn(min = 48.dp)
+                            .wrapContentHeight(),
                     )
+                    if (kept != null) {
+                        IconToggleButton(checked = kept, onCheckedChange = { onToggleKeep() }) {
+                            Icon(
+                                if (kept) Icons.Filled.Lock else Icons.Outlined.LockOpen,
+                                contentDescription = stringResource(keepRes),
+                            )
+                        }
+                    }
+                }
+                // Which clock the pickers will write on, said before a time exists to carry the
+                // mark — as an offset from the reader's own, the way the timeline says it, never as
+                // a zone id. Gone once a time is set (the superscript above takes over), and absent
+                // entirely on the reader's own clock, where there is nothing to warn about.
+                if (pin != null && at == null) {
+                    zoneShiftLabel(System.currentTimeMillis(), zone, reader)?.let { shift ->
+                        Text(
+                            stringResource(R.string.addtrip_local_clock, shift),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/** The trip as its timeline track row will read once saved. */
+@Composable
+private fun TripLegRow(
+    shape: RoundedCornerShape,
+    activity: ActivityType?,
+    lengthM: Double?,
+    departMs: Long?,
+    departZone: ZoneId,
+    arriveMs: Long?,
+    arriveZone: ZoneId,
+) {
+    val name = activity?.let { stringResource(it.labelRes) }
+    val length = if (departMs != null && arriveMs != null && arriveMs > departMs) durationText(departMs, arriveMs) else null
+    ListRowCard(
+        shape = shape,
+        icon = activityIcon(activity),
+        disc = activityDiscStyle(activity),
+        iconDescription = name,
+        title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_choose_type),
+        titleColor = MaterialTheme.colorScheme.onSurface,
+        subtitle = trackRowSpan(departMs, departZone, arriveMs, arriveZone, length),
+    )
 }

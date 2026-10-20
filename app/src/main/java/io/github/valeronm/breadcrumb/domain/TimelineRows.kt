@@ -163,6 +163,8 @@ object TimelineRows {
                         arrivalZone = slice.arrivalZone,
                         holdsDeparture = slice.holdsStart,
                         holdsArrival = slice.holdsEnd,
+                        // Newest first, so the track after this absence is the last one placed.
+                        nextTrackId = summaries.getOrNull(t - 1)?.id,
                     )
                 }
             } else {
@@ -317,6 +319,9 @@ sealed interface TimelineItem {
         val holdsDeparture: Boolean = true,
         /** See [holdsDeparture]. */
         val holdsArrival: Boolean = true,
+        /** The track the absence ends at, as [StayDeriver.Gap.afterTrackId] is the one it begins
+         *  after; null where none was recorded since. */
+        val nextTrackId: Long? = null,
     ) : TimelineItem {
         override val startedAt get() = gap.start
 

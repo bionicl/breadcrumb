@@ -222,7 +222,7 @@ private fun LatLngBounds.scaled(factor: Double): LatLngBounds {
 }
 
 /** Whether ([lat], [lon]) sits within the central [fraction] of these bounds. */
-internal fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: Double = 0.8): Boolean =
+internal fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction: Double = 1 - 2 * EDGE_MARGIN): Boolean =
     with(scaled(fraction)) {
         lat in latitudeSouth..latitudeNorth && lon in longitudeWest..longitudeEast
     }
@@ -233,7 +233,13 @@ internal fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction:
  * a caller re-framing a moving position needs: an exact fit lands it on the viewport edge, due to
  * re-frame again on the next fix.
  */
-internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom: Double, headroom: Double = 1.0) {
+internal fun frameTo(
+    map: MapLibreMap,
+    positions: List<LatLng>,
+    singlePointZoom: Double,
+    headroom: Double = 1.0,
+    obscured: MapInsets = MapInsets.NONE,
+) {
     when {
         // moveCamera (not easeCamera): the map should open already framed, with no zoom animation.
         positions.size >= 2 -> {
@@ -241,12 +247,55 @@ internal fun frameTo(map: MapLibreMap, positions: List<LatLng>, singlePointZoom:
             positions.forEach { b.include(it) }
             var bounds = b.build()
             if (headroom > 1.0) bounds = bounds.scaled(headroom)
-            map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 96))
+            map.moveCamera(
+                CameraUpdateFactory.newLatLngBounds(
+                    bounds,
+                    FRAME_MARGIN_PX,
+                    FRAME_MARGIN_PX + obscured.top,
+                    FRAME_MARGIN_PX,
+                    FRAME_MARGIN_PX + obscured.bottom,
+                ),
+            )
         }
         positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
-            .target(positions[0]).zoom(singlePointZoom).build()
+            .target(positions[0])
+            .zoom(singlePointZoom)
+            .padding(0.0, obscured.top.toDouble(), 0.0, obscured.bottom.toDouble())
+            .build()
     }
 }
+
+/** Puts [at] at the middle of the part of the map [obscured] leaves showing, keeping the zoom. */
+internal fun centerOn(map: MapLibreMap, at: LatLng, obscured: MapInsets) {
+    map.moveCamera(
+        CameraUpdateFactory.newLatLngPadding(at, 0.0, obscured.top.toDouble(), 0.0, obscured.bottom.toDouble()),
+    )
+}
+
+/** Whether every one of [positions] sits inside the middle of the part of the map [obscured] leaves
+ *  showing, [EDGE_MARGIN] in from each edge. */
+internal fun showsWell(map: MapLibreMap, positions: List<LatLng>, obscured: MapInsets): Boolean {
+    val top = obscured.top.toFloat()
+    val bottom = map.height - obscured.bottom
+    val marginX = map.width * EDGE_MARGIN.toFloat()
+    val marginY = (bottom - top) * EDGE_MARGIN.toFloat()
+    return positions.all {
+        val at = map.projection.toScreenLocation(it)
+        at.x in marginX..(map.width - marginX) && at.y in (top + marginY)..(bottom - marginY)
+    }
+}
+
+/** How far, in pixels, a screen's own controls cover a map from its top and bottom edges. */
+internal data class MapInsets(val top: Int, val bottom: Int) {
+    companion object {
+        val NONE = MapInsets(0, 0)
+    }
+}
+
+private const val FRAME_MARGIN_PX = 96
+
+/** How far in from each edge, as a share of the view, a position still reads as comfortably on screen. */
+private const val EDGE_MARGIN = 0.1
 
 internal enum class MapShade(@StringRes val labelRes: Int, val dark: Boolean?) {
     THEME(R.string.settings_map_shade_theme, null),

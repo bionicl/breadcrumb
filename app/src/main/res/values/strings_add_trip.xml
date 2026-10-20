@@ -38,6 +38,9 @@
     <string name="addtrip_arrival_at">Arrival %1$s, %2$s</string>
     <string name="addtrip_set_departure">Set departure time</string>
     <string name="addtrip_set_arrival">Set arrival time</string>
+    <string name="addtrip_keep_departure">Keep the departure time</string>
+    <string name="addtrip_keep_arrival">Keep the arrival time</string>
+    <string name="addtrip_choose_type">Choose the trip type</string>
     <string name="addtrip_departure_time_title">Departure time</string>
     <string name="addtrip_arrival_time_title">Arrival time</string>
 

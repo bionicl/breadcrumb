@@ -36,7 +36,7 @@ import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
-import io.github.valeronm.breadcrumb.domain.isNamed
+import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.Deferred
@@ -531,40 +531,22 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { placeRepository.setCategory(id, category) }
     }
 
-    /**
-     * An end inside an existing place's capture radius is that place, since a second row there
-     * would split its stays. Accepted ends join the seeds as they are judged, so a round trip's two
-     * ends make one place. Written in one call because each create re-derives the history.
-     */
-    private suspend fun createTripPlaces(named: List<Pair<String, Coordinate>>) {
+    /** Written in one call because each create re-derives the history. */
+    private suspend fun createTripPlaces(ends: List<ManualTripEnd>) {
         // Current only while collected, which the add-trip form does.
         val stored = storedPlaces.value
-        val seeds = PlaceClusterer.seedsOf(stored).toMutableList()
-        val now = System.currentTimeMillis()
-        val rows = mutableListOf<Place>()
-        val renamed = mutableListOf<Place>()
-        for ((label, at) in named) {
-            val trimmed = label.trim()
-            if (trimmed.isEmpty()) continue
-            val holder = PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, AndroidDistance)
-            if (holder != null) {
-                // An unnamed row takes the name, where a new row would sit on top of it.
-                val unnamed = stored.getOrNull(holder)?.takeUnless { it.isNamed }
-                if (unnamed != null && renamed.none { it.id == unnamed.id }) renamed += unnamed.copy(label = trimmed, source = PlaceOrigin.MANUAL.code)
-                continue
-            }
-            val row = Place(
-                label = trimmed, lat = at.lat, lon = at.lon,
-                createdAt = now, radiusM = PlaceClusterer.DEFAULT_RADIUS_M, source = PlaceOrigin.MANUAL.code,
-            )
-            rows += row
-            // Through seedOf, the projection every other seed came through.
-            seeds += PlaceClusterer.seedOf(row)
-        }
+        val plan = TripPlaces.plan(
+            ends.map { TripPlaces.End(it.end.at, it.placeName) },
+            stored,
+            AndroidDistance,
+            createdAt = System.currentTimeMillis(),
+        )
+        val rows = plan.mapNotNull { (it as? TripPlaces.Outcome.Creates)?.row }
+        val renamed = plan.mapNotNull { (it as? TripPlaces.Outcome.Names)?.row }
         if (rows.isNotEmpty() || renamed.isNotEmpty()) placeRepository.createAndName(rows, renamed)
     }
 
-    /** [placeName] is non-null exactly when the end should become a place. */
+    /** [placeName] is the name the end was picked by; [TripPlaces.plan] decides what place it makes. */
     class ManualTripEnd(val end: TrackRepository.ManualEnd, val placeName: String?)
 
     /** A trip as the form states it; [path] is the road shape between the ends, or empty. */
@@ -591,12 +573,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 repository.updateManualTrack(editing, trip.activityType, trip.origin.end, trip.destination.end, trip.path)
             }
             if (result is TrackRepository.ManualTrackResult.Saved) {
-                createTripPlaces(
-                    listOfNotNull(
-                        trip.origin.placeName?.let { it to trip.origin.end.at },
-                        trip.destination.placeName?.let { it to trip.destination.end.at },
-                    ),
-                )
+                createTripPlaces(listOf(trip.origin, trip.destination))
             }
             onResult(result)
         }
@@ -667,6 +644,25 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The overrun comes from the stored flags rather than a fresh detection. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
+
+    /** The ids of the tracks the timeline holds directly before and after track [trackId]. */
+    suspend fun tracksAround(trackId: Long): Pair<Long?, Long?> = repository.keptTracksAround(trackId)
+
+    /** Tracks [beforeId] and [afterId] as a trip between them meets them, the one before first. */
+    internal suspend fun touchingTracks(beforeId: Long?, afterId: Long?): Pair<TouchingTrack?, TouchingTrack?> =
+        coroutineScope {
+            val before = beforeId?.let { async { touchingTrack(it, precedes = true) } }
+            val after = afterId?.let { async { touchingTrack(it, precedes = false) } }
+            before?.await() to after?.await()
+        }
+
+    private suspend fun touchingTrack(trackId: Long, precedes: Boolean): TouchingTrack? {
+        val track = repository.track(trackId) ?: return null
+        val lat = (if (precedes) track.endLat else track.startLat) ?: return null
+        val lon = (if (precedes) track.endLon else track.startLon) ?: return null
+        val boundMs = (if (precedes) track.endedAt else track.startedAt) ?: return null
+        return TouchingTrack(journeyPolylines.lineFor(track), Coordinate(lat, lon), boundMs)
+    }
 
     /**
      * The clocks a track's ends ran on, from the same derivation its timeline row reads. A track
