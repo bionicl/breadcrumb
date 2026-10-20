@@ -373,35 +373,17 @@ internal fun TrackDetailScreen(
     }
 
     if (showTypeDialog && summary != null) {
-        AlertDialog(
-            onDismissRequest = { showTypeDialog = false },
-            icon = { Icon(activityIcon(activity), contentDescription = null) },
-            title = { Text(stringResource(R.string.track_type_dialog_title)) },
-            text = {
-                Column {
-                    // Selecting applies immediately: the summary flow re-emits and the title,
-                    // icon, colors and speed scale all follow — and so does the drawn path, on a
-                    // choice that re-derives the overrun (see the point load above).
-                    for (option in ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN }) {
-                        OptionRow(
-                            icon = activityIcon(option),
-                            label = stringResource(option.labelRes),
-                            // Each option in its own hue, as the category picker wears its groups'.
-                            tint = activityColor(option),
-                            selected = option == activity,
-                        ) {
-                            viewModel.setTrackActivity(trackId, option)
-                            showTypeDialog = false
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showTypeDialog = false }) {
-                    Text(stringResource(R.string.common_cancel))
-                }
-            },
-        )
+        ActivityTypeDialog(
+            options = ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN },
+            selected = activity,
+            onDismiss = { showTypeDialog = false },
+        ) { option ->
+            // Selecting applies immediately: the summary flow re-emits and the title, icon, colors
+            // and speed scale all follow — and so does the drawn path, on a choice that re-derives
+            // the overrun (see the point load above).
+            viewModel.setTrackActivity(trackId, option)
+            showTypeDialog = false
+        }
     }
 
     SplitConfirmation(

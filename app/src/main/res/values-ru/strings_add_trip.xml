@@ -2,7 +2,6 @@
 <resources>
     <string name="addtrip_title_add">Добавить поездку</string>
     <string name="addtrip_title_edit">Изменить поездку</string>
-    <string name="addtrip_next">Далее</string>
 
     <string name="addtrip_error_order">Прибытие должно быть позже отправления</string>
     <string name="addtrip_error_future">Отправление в будущем</string>
@@ -20,12 +19,15 @@
 
     <string name="addtrip_origin">Откуда</string>
     <string name="addtrip_destination">Куда</string>
-    <string name="addtrip_departure_at">Отправление %1$s, %2$s</string>
-    <string name="addtrip_arrival_at">Прибытие %1$s, %2$s</string>
-    <string name="addtrip_set_departure">Указать время отправления</string>
-    <string name="addtrip_set_arrival">Указать время прибытия</string>
-    <string name="addtrip_keep_departure">Сохранить время отправления</string>
-    <string name="addtrip_keep_arrival">Сохранить время прибытия</string>
+    <string name="addtrip_departure">Отправление</string>
+    <string name="addtrip_arrival">Прибытие</string>
+    <string name="addtrip_pick_date">Дата</string>
+    <string name="addtrip_pick_time">Время</string>
+    <string name="addtrip_change_place">Изменить место</string>
+    <string name="addtrip_estimated">Рассчитано по дорогам</string>
+    <string name="addtrip_estimated_was">Рассчитано по дорогам · было %s</string>
+    <string name="addtrip_restore_time">Вернуть</string>
+    <string name="addtrip_estimate">Рассчитать</string>
     <string name="addtrip_choose_type">Выберите тип поездки</string>
     <string name="addtrip_departure_time_title">Время отправления</string>
     <string name="addtrip_arrival_time_title">Время прибытия</string>

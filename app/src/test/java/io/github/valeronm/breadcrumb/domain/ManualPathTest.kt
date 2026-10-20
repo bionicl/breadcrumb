@@ -81,6 +81,21 @@ class ManualPathTest {
         }
     }
 
+    @Test fun `an end's open days run between its neighbours' bounds, on that end's clock`() {
+        val utc = java.time.ZoneOffset.UTC
+        val ahead = java.time.ZoneOffset.ofHours(10)
+        val evening = java.time.LocalDate.of(2020, 1, 1).atTime(20, 0).toInstant(utc).toEpochMilli()
+        val morning = java.time.LocalDate.of(2020, 1, 3).atTime(8, 0).toInstant(utc).toEpochMilli()
+        val day = { d: Int -> java.time.LocalDate.of(2020, 1, d) }
+
+        assertEquals(day(1)..day(3), ManualPath.openDays(evening, morning, utc))
+        assertEquals(day(2)..day(3), ManualPath.openDays(evening, morning, ahead))
+        assertEquals(day(1)..java.time.LocalDate.MAX, ManualPath.openDays(evening, null, utc))
+        assertEquals(java.time.LocalDate.MIN..day(3), ManualPath.openDays(null, morning, utc))
+        assertEquals(null, ManualPath.openDays(null, null, utc))
+        assertEquals(day(1)..day(1), ManualPath.openDays(evening - 3_600_000L, evening, utc))
+    }
+
     @Test fun `an end continues a track only at that track's own bound`() {
         val o = ManualPath.End.ORIGIN
         val d = ManualPath.End.DESTINATION

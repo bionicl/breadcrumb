@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import androidx.appcompat.content.res.AppCompatResources
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.asAndroidPath
@@ -207,6 +209,17 @@ internal fun addPlacePinImages(ctx: Context, style: Style, pins: PinSet = PinSet
  */
 internal fun glyphedPinBitmap(ctx: Context, category: PlaceCategory?): Bitmap =
     pinImages(ctx).first { it.id == placePinImage(category, withGlyph = true) }.bitmap
+
+/** A spot that is no place: the untagged pin wearing the outline of the place glyph. */
+internal const val SPOT_PIN_IMAGE = "place-pin-spot"
+
+/** Registers [SPOT_PIN_IMAGE], built once for the process as the pin set is ([pinImages]). */
+internal fun addSpotPinImage(ctx: Context, style: Style) {
+    val bitmap = cachedSpotPin ?: placePinBitmap(ctx, untaggedPinColor, Icons.Outlined.Place).also { cachedSpotPin = it }
+    style.addImage(SPOT_PIN_IMAGE, bitmap)
+}
+
+private var cachedSpotPin: Bitmap? = null
 
 /** Which pins a map can name — one name per map rather than a pair of booleans with three of their
  *  four combinations unreachable. */

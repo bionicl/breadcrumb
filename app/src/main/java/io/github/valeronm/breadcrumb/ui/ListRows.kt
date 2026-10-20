@@ -96,6 +96,8 @@ internal fun ListRowCard(
     mark: OriginMark? = null,
     colors: CardColors? = null,
     onClick: (() -> Unit)? = null,
+    /** Drawn at the end of the row, centered beside the text. */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val cardColors = colors ?: CardDefaults.cardColors()
     val rowContent: @Composable ColumnScope.() -> Unit = {
@@ -124,6 +126,10 @@ internal fun ListRowCard(
             if (mark != null) {
                 Spacer(Modifier.width(8.dp))
                 OriginGlyph(mark, Modifier.align(Alignment.Top))
+            }
+            if (trailing != null) {
+                Spacer(Modifier.width(8.dp))
+                trailing()
             }
         }
     }

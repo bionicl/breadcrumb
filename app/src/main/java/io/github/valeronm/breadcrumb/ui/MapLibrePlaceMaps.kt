@@ -3,7 +3,10 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import android.graphics.Color
 import android.graphics.RectF
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -24,6 +27,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
@@ -882,6 +886,7 @@ private const val TOUCHING_LINE_SOURCE = "touching-line-src"
 private const val TOUCHING_LINE_LAYER = "touching-line-layer"
 private const val TOUCHING_END_SOURCE = "touching-end-src"
 private const val TOUCHING_END_LAYER = "touching-end-layer"
+private const val TOUCHING_INDEX_KEY = "touching"
 private const val TOUCHING_OPACITY = 0.45f
 private const val TOUCHING_END_RADIUS = 4f
 private const val TOUCHING_END_STROKE = 1.5f
@@ -923,6 +928,25 @@ private class AppliedTripInputs {
         defaultMargins = with(map.uiSettings) {
             ChromeMargins(attributionMarginBottom, logoMarginBottom, compassMarginTop)
         }
+    }
+
+    /** The trip as last drawn, which a fit run after layout frames. */
+    var trip: List<Coordinate> = emptyList()
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * Fits the trip once the layout that the same change sets off has run: the sheet can grow in
+     * that layout, and a fit taken before it would leave the trip under the sheet.
+     */
+    fun fitAfterLayout(force: Boolean, obscured: () -> MapInsets) {
+        handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force, obscured()) } }
+    }
+
+    /** Drops a fit still waiting on layout, whose map is going with the screen. */
+    fun dispose() {
+        handler.removeCallbacksAndMessages(null)
+        map = null
     }
 
     /**
@@ -969,9 +993,7 @@ internal class MapCenterRequest(val at: Coordinate)
  * The add-trip form's map: the user's places as the field the overview map draws — **the
  * first-class way to pick an end**, a tap selecting one — with the trip's own two labeled pins
  * above them and a long press placing the active pin anywhere else. No capture circles and no
- * endpoint dots, which is why [MapLibrePlaceMap] isn't bent to draw it. The trip pins are place
- * pins: the marker vocabulary already means "a spot the user named", and these are two of those in
- * the making.
+ * endpoint dots, which is why [MapLibrePlaceMap] isn't bent to draw it.
  */
 @Composable
 internal fun MapLibreTripMap(
@@ -986,9 +1008,11 @@ internal fun MapLibreTripMap(
     activity: ActivityType?,
     /** Drawn under the trip as context: faded, unlabeled and left out of every frame. */
     touching: List<TouchingTrack> = emptyList(),
-    /** The category of the saved place an end's pin sits in, which its pin wears as that place's does. */
-    originCategory: PlaceCategory? = null,
-    destinationCategory: PlaceCategory? = null,
+    /** A tap on the dot where one of [touching] meets the trip. */
+    onTouchingTap: (TouchingTrack) -> Unit = {},
+    /** What the timeline will show at each end, which its pin wears ([endPinImage]). */
+    originPlace: TripPlaces.Outcome = TripPlaces.Outcome.None,
+    destinationPlace: TripPlaces.Outcome = TripPlaces.Outcome.None,
     /** The ends carrying on a recorded track, timed at its bound: drawn as a point, not a pin. */
     continuing: Set<ManualPath.End> = emptySet(),
     onLongPress: (Coordinate) -> Unit,
@@ -1012,6 +1036,7 @@ internal fun MapLibreTripMap(
     modifier: Modifier = Modifier,
 ) {
     val applied = remember { AppliedTripInputs() }
+    DisposableEffect(applied) { onDispose(applied::dispose) }
     LaunchedEffect(applied) {
         snapshotFlow { obscured() }.collect(applied::clearChrome)
     }
@@ -1019,6 +1044,8 @@ internal fun MapLibreTripMap(
     // current callbacks, or a press would land on whichever end was active when the map was built.
     val longPress by rememberUpdatedState(onLongPress)
     val placeTap by rememberUpdatedState(onPlaceTap)
+    val touchingTap by rememberUpdatedState(onTouchingTap)
+    val touchingNow by rememberUpdatedState(touching)
     val centerSettled by rememberUpdatedState(onCenterSettled)
     // The two pin labels are resolved here: the style callbacks below are not a composable scope,
     // and one of them has no Context to reach for either.
@@ -1045,14 +1072,14 @@ internal fun MapLibreTripMap(
     }
     val markers = remember(
         origin, destination, continuing,
-        originCategory, destinationCategory, originLabel, destinationLabel,
+        originPlace, destinationPlace, originLabel, destinationLabel,
     ) {
         FeatureCollection.fromFeatures(
             listOfNotNull(
                 origin?.takeUnless { originContinues }
-                    ?.let { endpointFeature(it, placePinImage(originCategory, withGlyph = true), originLabel) },
+                    ?.let { endpointFeature(it, endPinImage(originPlace), originLabel) },
                 destination?.takeUnless { destinationContinues }
-                    ?.let { endpointFeature(it, placePinImage(destinationCategory, withGlyph = true), destinationLabel) },
+                    ?.let { endpointFeature(it, endPinImage(destinationPlace), destinationLabel) },
             ),
         )
     }
@@ -1070,6 +1097,13 @@ internal fun MapLibreTripMap(
                 true
             }
             map.addOnMapClickListener { latLng ->
+                val touched = featureNear(map, latLng, TOUCHING_END_LAYER)
+                    ?.takeIf { it.hasProperty(TOUCHING_INDEX_KEY) }
+                    ?.let { touchingNow.getOrNull(it.getNumberProperty(TOUCHING_INDEX_KEY).toInt()) }
+                if (touched != null) {
+                    touchingTap(touched)
+                    return@addOnMapClickListener true
+                }
                 val feature = featureNear(map, latLng, OVERVIEW_LAYER)
                 val point = feature?.geometry() as? Point
                 if (point != null) {
@@ -1092,6 +1126,7 @@ internal fun MapLibreTripMap(
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewLayers(ctx, style, places, dark)
+            addSpotPinImage(ctx, style)
             applied.showPlaces = showPlaces
             showOverview(style, showPlaces)
             applied.touchingLines = touchingLines
@@ -1146,6 +1181,7 @@ internal fun MapLibreTripMap(
             )
             applied.markers = markers
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
+            applied.trip = trip
             frameTripMap(map, trip, places, force = true, obscured())
             // The opening frame lands before the idle listener is there to hear it, so where the map
             // came up is stated outright — otherwise nothing knows the centre until the first pan.
@@ -1162,9 +1198,6 @@ internal fun MapLibreTripMap(
                 applied.showPlaces = showPlaces
                 showOverview(style, showPlaces)
             }
-            // The insets move on every frame of a sheet drag, and this block needs them only to
-            // place the camera, not to run again.
-            val obscuredNow = Snapshot.withoutReadObservation { obscured() }
             val pinsMoved = applied.pins != origin to destination
             applied.pins = origin to destination
             if (applied.markers !== markers) {
@@ -1173,13 +1206,16 @@ internal fun MapLibreTripMap(
             }
             val frameAsked = applied.frameKey != frameKey
             applied.frameKey = frameKey
-            if (pinsMoved || frameAsked) frameTripMap(map, trip, places, force = frameAsked, obscuredNow)
+            applied.trip = trip
+            if (pinsMoved || frameAsked) applied.fitAfterLayout(force = frameAsked, obscured)
             if (applied.center !== center) {
                 applied.center = center
                 // The zoom is left where the user put it: they asked to go somewhere, not to see it
                 // at some particular scale, and a map that re-zooms on every tap fights the hand
                 // that framed it.
-                center?.let { centerOn(map, it.at.toLatLng(), obscuredNow) }
+                // The insets move on every frame of a sheet drag, and are read here only to place
+                // the camera, not to run this block again.
+                center?.let { centerOn(map, it.at.toLatLng(), Snapshot.withoutReadObservation(obscured)) }
             }
             if (applied.touchingLines !== touchingLines) {
                 applied.touchingLines = touchingLines
@@ -1198,6 +1234,13 @@ internal fun MapLibreTripMap(
             }
         },
     )
+}
+
+/** A trip end's pin, matching its row in the form's sheet. */
+private fun endPinImage(place: TripPlaces.Outcome): String = when (place) {
+    is TripPlaces.Outcome.Held -> placePinImage(place.place.placeCategory, withGlyph = true)
+    TripPlaces.Outcome.None -> SPOT_PIN_IMAGE
+    else -> placePinImage(null, withGlyph = true)
 }
 
 private fun colorProps(argb: Int) = JsonObject().apply {
@@ -1219,8 +1262,10 @@ private fun touchingEndCollection(
 ): FeatureCollection {
     val tripColor = colorProps(tripArgb)
     return FeatureCollection.fromFeatures(
-        touching.map { Feature.fromGeometry(it.touching.toPoint(), colorProps(mapActivityArgb(it.activity, dark))) } +
-            continuing.map { Feature.fromGeometry(it.toPoint(), tripColor) },
+        touching.mapIndexed { i, track ->
+            val props = colorProps(mapActivityArgb(track.activity, dark)).apply { addProperty(TOUCHING_INDEX_KEY, i) }
+            Feature.fromGeometry(track.touching.toPoint(), props)
+        } + continuing.map { Feature.fromGeometry(it.toPoint(), tripColor) },
     )
 }
 

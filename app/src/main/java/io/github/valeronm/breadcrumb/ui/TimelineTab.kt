@@ -1405,8 +1405,10 @@ internal fun GapCard(
     val draft = remember(item, zone) {
         TripDraft(
             day = item.filedOn,
-            origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start, gap.afterTrackId) else null,
-            destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end, item.nextTrackId) else null,
+            origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
+            destination = if (holdsArrival) draftEndOf(arrival, gap.to, gap.end) else null,
+            trackBefore = gap.afterTrackId,
+            trackAfter = item.nextTrackId,
         )
     }
     Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
@@ -1497,8 +1499,7 @@ private fun draftEndOf(
     place: PlaceResolver.ResolvedStay?,
     at: Coordinate?,
     atMs: Long,
-    trackId: Long?,
-) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs, trackId = trackId)
+) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
 
 /**
  * One side of a gap: a full-width tappable line (category disc + place name, ripple across the row
