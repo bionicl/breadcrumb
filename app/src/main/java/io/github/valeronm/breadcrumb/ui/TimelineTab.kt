@@ -84,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -518,6 +519,12 @@ private fun ModernTimelineLayout(
             }
         }
         val sheetOffset = sheetState.offset.takeUnless { it.isNaN() } ?: peekHeightPx
+        val sheetColors = MaterialTheme.colorScheme
+        val sheetContainerColor = lerp(
+            sheetColors.surfaceContainerLow,
+            sheetColors.surfaceContainerLowest,
+            0.35f,
+        )
         val visibleHeight = with(LocalDensity.current) {
             (fullHeightPx - sheetOffset).coerceAtLeast(1f).toDp()
         }
@@ -550,9 +557,12 @@ private fun ModernTimelineLayout(
                     }
                     .nestedScroll(nestedScroll),
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                color = sheetContainerColor,
+                contentColor = sheetColors.onSurface,
                 tonalElevation = 0.dp,
             ) {
-                Column(Modifier.fillMaxSize()) {
+                MaterialTheme(colorScheme = sheetColors.copy(surfaceContainerHighest = sheetContainerColor)) {
+                    Column(Modifier.fillMaxSize().background(sheetContainerColor)) {
                     Box(
                         Modifier.fillMaxWidth().height(28.dp).anchoredDraggable(
                             state = sheetState,
@@ -612,6 +622,7 @@ private fun ModernTimelineLayout(
                             colorPalette = colorPalette,
                             listStateOverride = listState,
                         )
+                    }
                     }
                 }
             }
