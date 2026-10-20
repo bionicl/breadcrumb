@@ -8,6 +8,7 @@ import androidx.core.graphics.ColorUtils
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 
 // A qualitative (categorical) palette for activity type. M3 has no categorical roles, so this is a
 // derived set: one fixed saturation + lightness, only the hue rotates, so every activity carries
@@ -40,6 +41,23 @@ internal fun activityColorOr(activity: ActivityType?, fallback: Color): Color = 
     ActivityType.RUNNING -> Color.hsl(30f, ACTIVITY_SAT, ACTIVITY_LUM)  // orange
     ActivityType.WALKING -> Color.hsl(275f, ACTIVITY_SAT, ACTIVITY_LUM) // violet
     else -> fallback
+}
+
+internal fun timelineActivityColorOr(
+    activity: ActivityType?,
+    palette: TimelineColorPalette,
+    fallback: Color,
+): Color = when (palette) {
+    TimelineColorPalette.CLASSIC -> activityColorOr(activity, fallback)
+    TimelineColorPalette.ARC_TIMELINE -> when (activity) {
+        ActivityType.WALKING -> Color(0xFF4CAF50)
+        ActivityType.RUNNING -> Color(0xFFFF9800)
+        ActivityType.CYCLING -> Color(0xFF2196F3)
+        ActivityType.DRIVING -> Color(0xFF777777)
+        ActivityType.TAXI -> Color(0xFFFFC107)
+        ActivityType.TRANSIT -> Color(0xFF9C27B0)
+        else -> activityColorOr(activity, fallback)
+    }
 }
 
 // The places' categorical palette: what a place was for, by category group rather than by category —

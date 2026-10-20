@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.geometry.LatLng
@@ -44,12 +45,13 @@ internal fun MapLibreJourneyMap(
     /** Reports a tapped place's detail key, as the all-places map does. */
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
+    colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
     // Only the unknown-type fallback depends on the map's shade.
     val dark = isMapDark()
-    val colorByType = remember(lines, dark) {
+    val colorByType = remember(lines, dark, colorPalette) {
         lines.map { it.activityType }.distinct()
-            .associateWith { mapActivityArgb(ActivityType.ofName(it), dark) }
+            .associateWith { mapActivityArgb(ActivityType.ofName(it), dark, colorPalette) }
     }
     val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
     val applied = remember { AppliedJourneyInputs() }

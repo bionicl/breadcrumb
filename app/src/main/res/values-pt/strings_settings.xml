@@ -25,6 +25,9 @@
     <string name="settings_time_format_system">Sistema</string>
     <string name="settings_time_format_12">12 horas</string>
     <string name="settings_time_format_24">24 horas</string>
+    <string name="settings_timeline_color_palette">Cores da linha temporal</string>
+    <string name="settings_timeline_palette_classic">Clássica</string>
+    <string name="settings_timeline_palette_arc">Linha temporal em arco</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">

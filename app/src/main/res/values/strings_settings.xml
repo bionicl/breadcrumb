@@ -29,6 +29,9 @@
     <string name="settings_time_format_system">System</string>
     <string name="settings_time_format_12">12-hour</string>
     <string name="settings_time_format_24">24-hour</string>
+    <string name="settings_timeline_color_palette">Timeline colours</string>
+    <string name="settings_timeline_palette_classic">Classic</string>
+    <string name="settings_timeline_palette_arc">Arc timeline</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_online_services">Online services</string>
     <plurals name="settings_recently_deleted_sub">

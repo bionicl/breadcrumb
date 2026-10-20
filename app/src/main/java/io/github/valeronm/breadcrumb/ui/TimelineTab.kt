@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.SweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -189,6 +190,7 @@ internal fun TimelineTab(
     /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
     onOpenRecording: () -> Unit,
     onOpenData: () -> Unit,
+    timelineColorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
 ) {
     // No list, no day — the empty and restoring branches below return before a real reader is
     // installed, and a closure left over from a previous composition would read dead state.
@@ -344,6 +346,7 @@ internal fun TimelineTab(
                     onSelectDay = { mapDay = it },
                     onOpenPlace = onOpenPlace,
                     onOpenJourney = onOpenJourney,
+                    colorPalette = timelineColorPalette,
                 )
             }
         }
@@ -592,6 +595,7 @@ private fun TimelineMapPage(
     onOpenPlace: (String) -> Unit,
     /** Open the journey detail — the band over a day inside one is the way in, as on the list. */
     onOpenJourney: (TravelNaming.Summary) -> Unit,
+    colorPalette: TimelineColorPalette,
 ) {
     // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
     // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
@@ -658,6 +662,7 @@ private fun TimelineMapPage(
                         frameKey = day,
                         linesComplete = lines.size == dayTracks.size,
                         onOpenPlace = onOpenPlace,
+                        colorPalette = colorPalette,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }

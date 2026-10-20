@@ -8,6 +8,7 @@ import androidx.core.content.edit
 object Settings {
 
     enum class ClockTimeFormat { SYSTEM, HOUR_12, HOUR_24 }
+    enum class TimelineColorPalette { CLASSIC, ARC_TIMELINE }
 
     private const val FILE = "settings"
     private const val KEY_AUTO_RECORD = "auto_record"
@@ -32,6 +33,7 @@ object Settings {
     private const val KEY_MAP_DARK = "places_map_dark"
     private const val KEY_TIMELINE_VIEW_MAP = "timeline_view_map"
     private const val KEY_CLOCK_TIME_FORMAT = "clock_time_format"
+    private const val KEY_TIMELINE_COLOR_PALETTE = "timeline_color_palette"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
     private const val KEY_UNIT_CHOICE = "unit_choice"
@@ -404,6 +406,15 @@ object Settings {
 
     fun setClockTimeFormat(context: Context, format: ClockTimeFormat) {
         prefs(context).edit { putString(KEY_CLOCK_TIME_FORMAT, format.name) }
+    }
+
+    fun timelineColorPalette(context: Context): TimelineColorPalette =
+        prefs(context).getString(KEY_TIMELINE_COLOR_PALETTE, null)
+            ?.let { runCatching { TimelineColorPalette.valueOf(it) }.getOrNull() }
+            ?: TimelineColorPalette.CLASSIC
+
+    fun setTimelineColorPalette(context: Context, palette: TimelineColorPalette) {
+        prefs(context).edit { putString(KEY_TIMELINE_COLOR_PALETTE, palette.name) }
     }
 
     fun setTimelineViewMap(context: Context, map: Boolean) {

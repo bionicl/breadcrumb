@@ -111,6 +111,7 @@ class MainActivity : FragmentActivity() {
                 var unitChoice by remember { mutableStateOf(storedUnitChoice(this)) }
                 var mapShade by remember { mutableStateOf(MapShade.of(AppSettings.mapDark(this))) }
                 var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(this)) }
+                var timelineColorPalette by remember { mutableStateOf(AppSettings.timelineColorPalette(this)) }
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
@@ -157,6 +158,11 @@ class MainActivity : FragmentActivity() {
                             onClockTimeFormat = {
                                 clockTimeFormat = it
                                 AppSettings.setClockTimeFormat(this, it)
+                            },
+                            timelineColorPalette = timelineColorPalette,
+                            onTimelineColorPalette = {
+                                timelineColorPalette = it
+                                AppSettings.setTimelineColorPalette(this, it)
                             },
                         )
                     }
@@ -215,6 +221,8 @@ private fun MainScreen(
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
     onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
@@ -540,6 +548,7 @@ private fun MainScreen(
                             },
                             onOpenRecording = { selectedTab = HomeTab.RECORD },
                             onOpenData = { settingsPage = SettingsPage.Data },
+                            timelineColorPalette = timelineColorPalette,
                         )
 
                         HomeTab.PLACES -> PlacesTab(
@@ -654,6 +663,8 @@ private fun MainScreen(
             onUnitChoice = onUnitChoice,
             onMapShade = onMapShade,
             onClockTimeFormat = onClockTimeFormat,
+            timelineColorPalette = timelineColorPalette,
+            onTimelineColorPalette = onTimelineColorPalette,
             onOpenTrack = { discardedTrackId = it },
         )
 
@@ -1015,6 +1026,8 @@ private fun SettingsPagesOverlay(
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
     onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
@@ -1027,6 +1040,8 @@ private fun SettingsPagesOverlay(
                 onUnitChoice,
                 onMapShade,
                 onClockTimeFormat,
+                timelineColorPalette,
+                onTimelineColorPalette,
             )
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)

@@ -35,6 +35,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.data.Settings.TimelineColorPalette
 import io.github.valeronm.breadcrumb.util.FixUnit
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
@@ -136,8 +137,11 @@ internal fun mapNeutral(dark: Boolean): Color = Color.hsl(0f, 0f, if (dark) 0.6f
 
 /** An activity's line on a map, [mapNeutral] where the type is unknown. [dark] is [isMapDark], read
  *  by the caller since a batch of lines reads it once. */
-internal fun mapActivityArgb(activity: ActivityType?, dark: Boolean): Int =
-    activityColorOr(activity, mapNeutral(dark)).toArgb()
+internal fun mapActivityArgb(
+    activity: ActivityType?,
+    dark: Boolean,
+    palette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
+): Int = timelineActivityColorOr(activity, palette, mapNeutral(dark)).toArgb()
 
 private fun noDataArgb(dark: Boolean) = mapNeutral(dark).toArgb()
 

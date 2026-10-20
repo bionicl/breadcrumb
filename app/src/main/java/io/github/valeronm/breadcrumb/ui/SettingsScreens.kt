@@ -670,6 +670,8 @@ internal fun DisplaySettingsScreen(
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
     onClockTimeFormat: (AppSettings.ClockTimeFormat) -> Unit,
+    timelineColorPalette: AppSettings.TimelineColorPalette,
+    onTimelineColorPalette: (AppSettings.TimelineColorPalette) -> Unit,
 ) {
     val context = LocalContext.current
     var clockTimeFormat by remember { mutableStateOf(AppSettings.clockTimeFormat(context)) }
@@ -701,6 +703,20 @@ internal fun DisplaySettingsScreen(
                     clockTimeFormat = it
                     onClockTimeFormat(it)
                 }
+            },
+            {
+                ChoiceChipsRow(
+                    stringResource(R.string.settings_timeline_color_palette),
+                    AppSettings.TimelineColorPalette.entries,
+                    timelineColorPalette,
+                    {
+                        when (it) {
+                            AppSettings.TimelineColorPalette.CLASSIC -> R.string.settings_timeline_palette_classic
+                            AppSettings.TimelineColorPalette.ARC_TIMELINE -> R.string.settings_timeline_palette_arc
+                        }
+                    },
+                    onTimelineColorPalette,
+                )
             },
         )
     }
