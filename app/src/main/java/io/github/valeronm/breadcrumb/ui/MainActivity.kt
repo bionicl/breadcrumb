@@ -29,8 +29,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
@@ -208,17 +208,15 @@ private enum class HomeTab(
      */
     @StringRes val titleRes: Int = labelRes,
 ) {
-    // The Record tab heads the app rather than itself, so its title is the product's name.
-    RECORD(R.string.nav_record, Icons.Filled.MyLocation, titleRes = R.string.title_record),
     TIMELINE(R.string.nav_timeline, Icons.Filled.Route),
     PLACES(R.string.nav_places, Icons.Filled.Place),
     INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),
+    SETTINGS(R.string.action_settings, Icons.Filled.Settings, titleRes = R.string.settings_title),
 }
 
-/** Track detail or the Settings hub: the full-screen destinations a tab opens directly onto. */
+/** Track detail: the full-screen destination a tab opens directly onto. */
 private sealed interface MainDestination {
     data class TrackDetail(val id: Long) : MainDestination
-    data object Settings : MainDestination
 }
 
 @Composable
@@ -261,7 +259,7 @@ private fun MainScreen(
     // Everything recording needs from Android, and the toggle that asks for it — see [RecorderSetup].
     val setup = rememberRecorderSetup()
     var mainDestination by remember { mutableStateOf<MainDestination?>(null) }
-    var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
+    var selectedTab by remember { mutableStateOf(HomeTab.TIMELINE) }
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
     // not a reliable keyboard dismissal — drop the focus with the tab that owned it.
     val tabFocusManager = LocalFocusManager.current
@@ -270,8 +268,7 @@ private fun MainScreen(
     // Full-screen destinations stack above the tabs as overlay layers, each animated in on open and
     // scaled/shifted by the predictive back gesture (Android 14+), previewing what's underneath.
 
-    // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
-    // while a layer is stacked above it.
+    // Track details preview the tabs underneath. Its back handler yields while a layer is stacked above it.
     var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
     // A deleted track's full detail, stacked above the Recently deleted list.
     var discardedTrackId by remember { mutableStateOf<Long?>(null) }
@@ -322,10 +319,10 @@ private fun MainScreen(
         over = tabsLayer,
         dismiss = { mainDestination = null },
     )
-    // Back from a Settings page previews the hub rather than the tabs.
+    // A Settings page previews the tab it was opened from.
     val settingsLayer = rememberOverlayLayer(
         content = settingsPage,
-        over = mainLayer,
+        over = tabsLayer,
         dismiss = { settingsPage = null },
     )
     // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
@@ -493,11 +490,10 @@ private fun MainScreen(
                                         )
                                     }
                                 }
-                                IconButton(onClick = { mainDestination = MainDestination.Settings }) {
-                                    Icon(
-                                        Icons.Filled.Settings,
-                                        contentDescription = stringResource(R.string.action_settings),
-                                    )
+                                if (selectedTab == HomeTab.SETTINGS) {
+                                    IconButton(onClick = { settingsPage = SettingsPage.About }) {
+                                        Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.settings_about))
+                                    }
                                 }
                             },
                         )
@@ -536,20 +532,6 @@ private fun MainScreen(
             ) { inner ->
                 Box(modifier = Modifier.fillMaxSize().padding(inner)) {
                     when (selectedTab) {
-                        HomeTab.RECORD -> RecordTab(
-                            setup = setup.state,
-                            autoOn = setup.autoOn,
-                            charging = charging,
-                            keepScreenOn = keepScreenOn,
-                            onToggleKeepScreenOn = { enabled ->
-                                keepScreenOn = enabled
-                                AppSettings.setKeepScreenOnCharging(context, enabled)
-                            },
-                            viewModel = viewModel,
-                            onGrantSetupStep = setup::grant,
-                            onToggleAuto = setup::toggleAuto,
-                        )
-
                         HomeTab.TIMELINE -> TimelineTab(
                             items = timeline,
                             viewModel = viewModel,
@@ -563,13 +545,17 @@ private fun MainScreen(
                             onAddTrip = { tripDraft = it },
                             onReplay = { track ->
                                 TrackReplayer.start(context, track.id)
-                                selectedTab = HomeTab.RECORD
+                                settingsPage = SettingsPage.Record
+                                selectedTab = HomeTab.SETTINGS
                             },
-                            onOpenRecording = { selectedTab = HomeTab.RECORD },
+                            onOpenRecording = {
+                                settingsPage = SettingsPage.Record
+                                selectedTab = HomeTab.SETTINGS
+                            },
                             onOpenData = { settingsPage = SettingsPage.Data },
                             timelineColorPalette = timelineColorPalette,
                             displayOptions = timelineDisplayOptions,
-                            onOpenSettings = { mainDestination = MainDestination.Settings },
+                            onOpenSettings = { selectedTab = HomeTab.SETTINGS },
                         )
 
                         HomeTab.PLACES -> PlacesTab(
@@ -584,6 +570,11 @@ private fun MainScreen(
                             onOpenJourney = { journeyKey = it.travel.firstNightAt },
                             onOpenData = { settingsPage = SettingsPage.Data },
                         )
+
+                        HomeTab.SETTINGS -> SettingsScreen(
+                            say = viewModel::say,
+                            onOpenPage = { settingsPage = it },
+                        )
                     }
                 }
             }
@@ -595,7 +586,6 @@ private fun MainScreen(
             layer = mainLayer,
             viewModel = viewModel,
             undo = undo,
-            onOpenSettingsPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
         )
 
@@ -680,6 +670,16 @@ private fun MainScreen(
         SettingsPagesOverlay(
             layer = settingsLayer,
             viewModel = viewModel,
+            setup = setup.state,
+            autoOn = setup.autoOn,
+            charging = charging,
+            keepScreenOn = keepScreenOn,
+            onToggleKeepScreenOn = { enabled ->
+                keepScreenOn = enabled
+                AppSettings.setKeepScreenOnCharging(context, enabled)
+            },
+            onGrantSetupStep = setup::grant,
+            onToggleAuto = setup::toggleAuto,
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             onMapShade = onMapShade,
@@ -804,7 +804,6 @@ private fun MainDestinationOverlay(
     layer: OverlayLayerState<MainDestination>,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
-    onOpenSettingsPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
@@ -832,8 +831,6 @@ private fun MainDestinationOverlay(
                     onEditTrip = onEditTrip,
                 )
             }
-
-            MainDestination.Settings -> SettingsScreen(viewModel::say, onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
         }
     }
 }
@@ -1045,6 +1042,13 @@ private fun rememberPlaceSummary(
 private fun SettingsPagesOverlay(
     layer: OverlayLayerState<SettingsPage>,
     viewModel: TrackListViewModel,
+    setup: SetupState,
+    autoOn: Boolean,
+    charging: Boolean,
+    keepScreenOn: Boolean,
+    onToggleKeepScreenOn: (Boolean) -> Unit,
+    onGrantSetupStep: (SetupStep) -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
@@ -1057,6 +1061,17 @@ private fun SettingsPagesOverlay(
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
+            SettingsPage.Record -> RecordSettingsScreen(
+                onBack = layer.dismiss,
+                setup = setup,
+                autoOn = autoOn,
+                charging = charging,
+                keepScreenOn = keepScreenOn,
+                onToggleKeepScreenOn = onToggleKeepScreenOn,
+                viewModel = viewModel,
+                onGrantSetupStep = onGrantSetupStep,
+                onToggleAuto = onToggleAuto,
+            )
             SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
             SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
             SettingsPage.Display -> DisplaySettingsScreen(

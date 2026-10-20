@@ -30,7 +30,6 @@ import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ImportExport
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Route
@@ -80,17 +79,12 @@ import kotlinx.coroutines.withContext
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
 @Composable
-internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPage: (SettingsPage) -> Unit) {
-    SettingsSubScreen(
-        stringResource(R.string.settings_title),
-        onBack,
-        actions = {
-            IconButton(onClick = { onOpenPage(SettingsPage.About) }) {
-                Icon(Icons.Filled.Info, contentDescription = stringResource(R.string.settings_about))
-            }
-        },
+internal fun SettingsScreen(say: (String) -> Unit, onOpenPage: (SettingsPage) -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
     ) {
         GroupedRows(
+            { NavRow(stringResource(R.string.nav_record), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Record) } },
             { NavRow(stringResource(R.string.settings_group_recording), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Recording) } },
             { NavRow(stringResource(R.string.settings_trips), icon = Icons.Filled.Route) { onOpenPage(SettingsPage.Trips) } },
             { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.Display) } },
@@ -117,6 +111,42 @@ internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPag
         )
         Spacer(Modifier.height(32.dp))
         VersionText(MaterialTheme.typography.bodySmall, say)
+    }
+}
+
+@Composable
+internal fun RecordSettingsScreen(
+    onBack: () -> Unit,
+    setup: SetupState,
+    autoOn: Boolean,
+    charging: Boolean,
+    keepScreenOn: Boolean,
+    onToggleKeepScreenOn: (Boolean) -> Unit,
+    viewModel: TrackListViewModel,
+    onGrantSetupStep: (SetupStep) -> Unit,
+    onToggleAuto: (Boolean) -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                colors = canvasTopBarColors(),
+                title = { Text(stringResource(R.string.nav_record)) },
+                navigationIcon = { BackNavIcon(onBack) },
+            )
+        },
+    ) { inner ->
+        Box(Modifier.fillMaxSize().padding(inner)) {
+            RecordTab(
+                setup = setup,
+                autoOn = autoOn,
+                charging = charging,
+                keepScreenOn = keepScreenOn,
+                onToggleKeepScreenOn = onToggleKeepScreenOn,
+                viewModel = viewModel,
+                onGrantSetupStep = onGrantSetupStep,
+                onToggleAuto = onToggleAuto,
+            )
+        }
     }
 }
 
@@ -661,7 +691,7 @@ internal fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
+internal enum class SettingsPage { Record, Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
 
 @Composable
 internal fun DisplaySettingsScreen(
