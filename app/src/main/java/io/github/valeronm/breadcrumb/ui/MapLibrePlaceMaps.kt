@@ -118,7 +118,6 @@ internal fun MapLibrePlaceMap(
     /** A long press on the map, in map coordinates — how the center is placed by hand. */
     onLongPress: (Coordinate) -> Unit,
     camera: CameraCarry? = null,
-    cameraBottomPaddingPx: Int = 0,
 ) {
     val applied = remember { AppliedPlaceInputs() }
     // The listener is attached once, to a map that outlives every recomposition, so it must read the
@@ -151,18 +150,13 @@ internal fun MapLibrePlaceMap(
             applied.rivalAreas = rivalAreas
             addPlaceLayers(ctx, style, placeContent(), dark)
             val carried = camera?.takeCarried()
-            if (carried != null) map.cameraPosition = carried else framePlace(map, center.location, radiusM, cameraBottomPaddingPx)
-            applied.framePadding = cameraBottomPaddingPx
+            if (carried != null) map.cameraPosition = carried else framePlace(map, center.location, radiusM)
         },
         onUpdate = { map, style ->
             if (applied.circleCenter != center.location || applied.circleRadiusM != radiusM) {
                 applied.circleCenter = center.location
                 style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
                     ?.setGeoJson(circleFeature(center.location, radiusM))
-            }
-            if (applied.framePadding != cameraBottomPaddingPx) {
-                applied.framePadding = cameraBottomPaddingPx
-                framePlace(map, center.location, radiusM, cameraBottomPaddingPx)
             }
             if (applied.circleRadiusM != radiusM) {
                 applied.circleRadiusM = radiusM
@@ -210,8 +204,6 @@ private class PlaceMapContent(
 
 /** Last-applied inputs of the place map — value comparisons, the inputs are rebuilt lists. */
 private class AppliedPlaceInputs {
-    var framePadding = 0
-
     /** Where the circle is drawn and how wide, tracked apart because the two have different
      *  consequences: either redraws the ring, but only a *resize* re-fits the camera and re-decides
      *  which side of the radius each dot falls on. */

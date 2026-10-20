@@ -10,8 +10,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.JourneyLine
@@ -79,10 +77,6 @@ internal fun MapLibreTrackMap(
     // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
-    cameraBottomPaddingPx: Int = 0,
-    legendBottomPadding: Dp = 0.dp,
-    contextLines: List<JourneyLine> = emptyList(),
-    showContextLines: Boolean = false,
 ) {
     // Display geometry only: the coloring, seams and markers stay on the stored fixes.
     val greatCircleLegs = GreatCircle.drawsPath(points.size, activity)
@@ -110,7 +104,6 @@ internal fun MapLibreTrackMap(
                 // pins over it so it can't cover them.
                 addEndPlaceAreas(style, endPlaces)
                 addDwellLayers(style, dwells)
-                addContextTrackLines(style, contextLines, mapDark, showContextLines)
                 addTrackLine(style, points, colors, greatCircleLegs)
                 addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
                 addMarkers(ctx, style, points, noisyPoints, directionalEnd)
@@ -123,7 +116,6 @@ internal fun MapLibreTrackMap(
                     map,
                     framePositions(points, noisyPoints, greatCircleLegs),
                     singlePointZoom = 15.0,
-                    bottomPaddingPx = cameraBottomPaddingPx,
                 )
                 // Stamped here as well as drawn: otherwise the first update sees no applied input
                 // and rebuilds every source the load just built.
@@ -132,9 +124,6 @@ internal fun MapLibreTrackMap(
                 applied.colors = colors
                 applied.endPlaces = endPlaces
                 applied.framed = true
-                applied.framePadding = cameraBottomPaddingPx
-                applied.contextLines = contextLines
-                applied.showContextLines = showContextLines
             },
             onUpdate = { map, style ->
                 // The line's features carry their colors, so a color switch rebuilds that source —
@@ -147,13 +136,6 @@ internal fun MapLibreTrackMap(
                     applied.colors = colors
                     style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)
                         ?.setGeoJson(trackLineFeature(points, colors, greatCircleLegs))
-                }
-                if (applied.contextLines !== contextLines || applied.showContextLines != showContextLines) {
-                    applied.contextLines = contextLines
-                    applied.showContextLines = showContextLines
-                    style.getSourceAs<GeoJsonSource>(CONTEXT_TRACK_SOURCE)?.setGeoJson(
-                        contextTrackFeature(contextLines, showContextLines),
-                    )
                 }
                 // Refresh geometry when the track grows (the live "current track" preview).
                 if (moved) {
@@ -183,7 +165,7 @@ internal fun MapLibreTrackMap(
                     selectedPoint?.let { point ->
                         val screen = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
                         val target = mapSelectionTarget(
-                            Offset(screen.x, screen.y), map.width.toInt(), map.height.toInt(), cameraBottomPaddingPx,
+                            Offset(screen.x, screen.y), map.width.toInt(), map.height.toInt(), 0,
                         ) ?: return@let
                         if (screen.x != target.x || screen.y != target.y) {
                             // scrollBy moves the map under the marker; the zoom level is unchanged.
@@ -217,18 +199,8 @@ internal fun MapLibreTrackMap(
                         map,
                         framePositions(points, noisyPoints, greatCircleLegs),
                         singlePointZoom = 15.0,
-                        bottomPaddingPx = cameraBottomPaddingPx,
                     )
                     applied.framed = true
-                    applied.framePadding = cameraBottomPaddingPx
-                } else if (applied.framePadding != cameraBottomPaddingPx) {
-                    applied.framePadding = cameraBottomPaddingPx
-                    frameTo(
-                        map,
-                        framePositions(points, noisyPoints, greatCircleLegs),
-                        singlePointZoom = 15.0,
-                        bottomPaddingPx = cameraBottomPaddingPx,
-                    )
                 }
             },
         )
@@ -237,7 +209,7 @@ internal fun MapLibreTrackMap(
             TrackLegend(
                 coloring.legend,
                 Modifier.align(Alignment.BottomEnd)
-                    .padding(end = MapInset, bottom = MapInset + legendBottomPadding),
+                    .padding(end = MapInset, bottom = MapInset),
             )
         }
     }
@@ -250,9 +222,6 @@ internal fun MapLibreTrackMap(
  */
 private class AppliedTrackInputs {
     var points: List<TrackPoint>? = null
-    var framePadding = 0
-    var contextLines: List<JourneyLine>? = null
-    var showContextLines = false
     var noisy: List<TrackPoint>? = null
 
     /** The line's colours: a metric switch rebuilds the source, the legs carrying their own. */
@@ -373,7 +342,6 @@ internal fun MapLibreModernTimelineMap(
                 setModernTimelineLayers(style, state)
                 frameModernTimelineState(map, state)
                 applied.state = state
-                applied.overviewLines = lines
                 applied.overviewPlaces = places
                 applied.overviewCollection = overviewCollection
                 applied.track = track
@@ -393,7 +361,6 @@ internal fun MapLibreModernTimelineMap(
                     applied.overviewPlaces = places
                     updateOverviewSource(style, places)
                 }
-                if (applied.overviewLines !== lines) applied.overviewLines = lines
 
                 val trackGeometryChanged =
                     previousTrack?.id != track?.id ||
@@ -485,7 +452,6 @@ private class ModernTimelineMapCallbacks {
 
 private class ModernTimelineMapApplied {
     var state: ModernTimelineMapState = ModernTimelineMapState.Loading(0)
-    var overviewLines: List<JourneyLine>? = null
     var overviewPlaces: List<OverviewPlace>? = null
     var overviewCollection: FeatureCollection? = null
     var track: ModernTimelineMapState.Track? = null

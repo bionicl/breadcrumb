@@ -54,7 +54,6 @@ internal fun MapLibreJourneyMap(
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
-    bottomPaddingPx: Int = 0,
 ) {
     // Only the unknown-type fallback depends on the map's shade.
     val dark = isMapDark()
@@ -81,7 +80,6 @@ internal fun MapLibreJourneyMap(
             applied.places = places
             applied.frameKey = frameKey
             applied.framedComplete = linesComplete
-            applied.bottomPaddingPx = bottomPaddingPx
             applied.hasFramedPositions = framePositions(lines, places).isNotEmpty()
             style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
             style.addLayer(
@@ -93,7 +91,7 @@ internal fun MapLibreJourneyMap(
                 ),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
-            frameModernTimelineOverview(map, lines, places, bottomPaddingPx)
+            frameModernTimelineOverview(map, lines, places, bottomPaddingPx = 0)
         },
         onUpdate = { map, style ->
             val placesJustArrived = applied.places.orEmpty().isEmpty() && places.isNotEmpty()
@@ -108,15 +106,14 @@ internal fun MapLibreJourneyMap(
             val hasPositions = framePositions(lines, places).isNotEmpty()
             val completed = linesComplete && !applied.framedComplete
             val contentArrived = !applied.hasFramedPositions && hasPositions
-            val viewportChanged = applied.viewportSize != viewportSize || applied.bottomPaddingPx != bottomPaddingPx
+            val viewportChanged = applied.viewportSize != viewportSize
             val contentChanged = applied.frameKey != frameKey || completed || contentArrived || placesJustArrived
             if (contentChanged || viewportChanged) {
                 applied.viewportSize = viewportSize
                 applied.frameKey = frameKey
                 applied.framedComplete = linesComplete
-                applied.bottomPaddingPx = bottomPaddingPx
                 applied.hasFramedPositions = hasPositions
-                frameModernTimelineOverview(map, lines, places, bottomPaddingPx)
+                frameModernTimelineOverview(map, lines, places, bottomPaddingPx = 0)
             }
         },
     )
@@ -127,7 +124,6 @@ private class AppliedJourneyInputs {
     var places: List<OverviewPlace>? = null
     var frameKey: Any? = null
     var viewportSize = IntSize.Zero
-    var bottomPaddingPx = 0
     var hasFramedPositions = false
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
