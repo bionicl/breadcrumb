@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
@@ -92,7 +93,7 @@ internal fun MapLibreJourneyMap(
                 ),
             )
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
-            frame(map, lines, places, bottomPaddingPx)
+            frameModernTimelineOverview(map, lines, places, bottomPaddingPx)
         },
         onUpdate = { map, style ->
             val placesJustArrived = applied.places.orEmpty().isEmpty() && places.isNotEmpty()
@@ -115,7 +116,7 @@ internal fun MapLibreJourneyMap(
                 applied.framedComplete = linesComplete
                 applied.bottomPaddingPx = bottomPaddingPx
                 applied.hasFramedPositions = hasPositions
-                frame(map, lines, places, bottomPaddingPx)
+                frameModernTimelineOverview(map, lines, places, bottomPaddingPx)
             }
         },
     )
@@ -136,7 +137,7 @@ private class AppliedJourneyInputs {
     var framedComplete = false
 }
 
-private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>, bottomPaddingPx: Int) {
+internal fun frameModernTimelineOverview(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>, bottomPaddingPx: Int) {
     // A fully expanded sheet leaves no usable map; frame again when it is lowered.
     if (map.height - bottomPaddingPx < 192) return
     val positions = framePositions(lines, places).distinct()
@@ -185,7 +186,7 @@ private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
  * [GreatCircle.drawsPath] names is densified along its great circle ([greatCirclePositions]), as
  * the track detail draws it.
  */
-private fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
+internal fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
     val features = ArrayList<Feature>()
     val propsByColor = HashMap<Int, JsonObject>()
     for (line in lines) {
@@ -211,6 +212,12 @@ private fun segmentPositions(segment: DoubleArray, greatCircle: Boolean): List<P
     return greatCirclePositions(coords).map { it.toPoint() }
 }
 
-private const val JOURNEY_SOURCE = "journey-lines-src"
-private const val JOURNEY_LAYER = "journey-lines-layer"
-private const val JOURNEY_COLOR_KEY = "color"
+internal const val JOURNEY_SOURCE = "journey-lines-src"
+internal const val JOURNEY_LAYER = "journey-lines-layer"
+internal const val JOURNEY_COLOR_KEY = "color"
+
+internal fun setModernTimelineOverviewLinesVisible(style: Style, visible: Boolean) {
+    style.getLayer(JOURNEY_LAYER)?.setProperties(
+        PropertyFactory.visibility(if (visible) Property.VISIBLE else Property.NONE),
+    )
+}

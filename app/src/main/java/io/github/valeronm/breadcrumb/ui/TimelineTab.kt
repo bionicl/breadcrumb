@@ -676,46 +676,68 @@ private fun ModernTimelineLayout(
         }
         val sheetHidden = sheetState.currentValue == TimelineSheetAnchor.Hidden
         Box(Modifier.fillMaxSize()) {
-            if (selectedTarget == null) {
-                TimelineMapPage(
-                    items = items,
-                    viewModel = viewModel,
-                    day = mapDay,
-                    away = awayDays[mapDay],
-                    onSelectDay = { mapDay = it },
-                    onOpenPlace = openPlaceDetail,
-                    onOpenJourney = onOpenJourney,
-                    colorPalette = colorPalette,
-                    displayOptions = displayOptions,
-                    backgroundOnly = true,
-                    mapBottomPaddingPx = settledBottomPadding,
-                )
-            } else if (selectedTrackSummary != null && selectedTrackPoints != null) {
-                val track = selectedTrackPoints!!
-                val trackActivity = ActivityType.ofName(selectedTrackSummary.activityType)
-                val source = TrackOrigin.fromCode(selectedTrackSummary.source)
-                val modes = remember(track.good, source) { availableColorModes(track.good, source) }
-                LaunchedEffect(selectedTrackId, modes) {
-                    if (selectedColorMode.value !in modes && modes.isNotEmpty()) selectedColorMode.value = modes.first()
+            val modernMapState = when (selectedTarget) {
+                null -> null
+                is ModernDetailTarget.Track -> {
+                    val summary = selectedTrackSummary
+                    val loaded = selectedTrackPoints
+                    if (summary == null || loaded == null) {
+                        ModernTimelineMapState.Loading(settledBottomPadding)
+                    } else {
+                        val activity = ActivityType.ofName(summary.activityType)
+                        val source = TrackOrigin.fromCode(summary.source)
+                        val modes = remember(loaded.good, source) { availableColorModes(loaded.good, source) }
+                        LaunchedEffect(selectedTrackId, modes) {
+                            if (selectedColorMode.value !in modes && modes.isNotEmpty()) {
+                                selectedColorMode.value = modes.first()
+                            }
+                        }
+                        ModernTimelineMapState.Track(
+                            id = summary.id,
+                            points = loaded.good,
+                            noisyPoints = loaded.noisy,
+                            activity = activity,
+                            colorMode = selectedColorMode.value,
+                            selectedPoint = selectedGraphPoint,
+                            dwells = routeDwells,
+                            overruns = routeOverruns,
+                            endPlaces = routeEndPlaces,
+                            coloring = sharedTrackColoring.value,
+                            seams = sharedTrackSeams.value,
+                            contextLines = dayContextLines.filter { it.trackId != summary.id },
+                            showContextLines = showDayContext,
+                            showLegend = modes.isNotEmpty(),
+                            legendBottomPadding = visibleHeight + 20.dp,
+                            bottomPaddingPx = settledBottomPadding,
+                        )
+                    }
                 }
-                MapLibreTrackMap(
-                    points = track.good,
-                    noisyPoints = track.noisy,
-                    activity = trackActivity,
-                    colorMode = selectedColorMode.value,
-                    precomputedColoring = sharedTrackColoring.value,
-                    precomputedSeams = sharedTrackSeams.value,
-                    showLegend = modes.isNotEmpty(),
-                    selectedPoint = selectedGraphPoint,
-                    endPlaces = routeEndPlaces,
-                    dwells = routeDwells,
-                    overruns = routeOverruns,
-                    cameraBottomPaddingPx = settledBottomPadding,
-                    legendBottomPadding = visibleHeight + 20.dp,
-                    contextLines = dayContextLines.filter { it.trackId != selectedTrackId },
-                    showContextLines = showDayContext,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                is ModernDetailTarget.Place -> {
+                    selectedPlaceSummary?.let { summary ->
+                        ModernTimelineMapState.PlaceTarget(
+                            key = selectedTarget.key,
+                            marker = PlaceMarker(summary.anchor, summary.place),
+                            radiusM = summary.radiusM,
+                            bottomPaddingPx = settledBottomPadding,
+                        )
+                    } ?: ModernTimelineMapState.Loading(settledBottomPadding)
+                }
+            }
+            TimelineMapPage(
+                items = items,
+                viewModel = viewModel,
+                day = mapDay,
+                away = awayDays[mapDay],
+                onSelectDay = { mapDay = it },
+                onOpenPlace = openPlaceDetail,
+                onOpenJourney = onOpenJourney,
+                colorPalette = colorPalette,
+                displayOptions = displayOptions,
+                backgroundOnly = true,
+                mapBottomPaddingPx = settledBottomPadding,
+                modernDetailState = modernMapState,
+            )
+            if (selectedTrackSummary != null && selectedTarget is ModernDetailTarget.Track) {
                 Surface(
                     modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
                     shape = RoundedCornerShape(20.dp),
@@ -729,15 +751,6 @@ private fun ModernTimelineLayout(
                         Switch(checked = showDayContext, onCheckedChange = { showDayContext = it })
                     }
                 }
-            } else if (selectedPlaceSummary != null) {
-                MapLibrePlaceMap(
-                    center = PlaceMarker(selectedPlaceSummary.anchor, selectedPlaceSummary.place),
-                    radiusM = selectedPlaceSummary.radiusM,
-                    endpoints = emptyList(),
-                    modifier = Modifier.fillMaxSize(),
-                    onLongPress = {},
-                    cameraBottomPaddingPx = settledBottomPadding,
-                )
             }
             Surface(
                 modifier = Modifier
@@ -1179,6 +1192,7 @@ private fun TimelineMapPage(
     displayOptions: AppSettings.TimelineDisplayOptions,
     backgroundOnly: Boolean = false,
     mapBottomPaddingPx: Int = 0,
+    modernDetailState: ModernTimelineMapState? = null,
 ) {
     // Indexed once per emission rather than filtered per day step: filing is time-zone arithmetic
     // per row, and an arrow tap re-asking it of the whole history would pay O(history) for a
@@ -1265,14 +1279,16 @@ private fun TimelineMapPage(
     val mapPlaces = rememberStayPlaces(dayItems, placeSummaries)
 
     if (backgroundOnly) {
-        MapLibreJourneyMap(
-            lines = mapLines,
-            bottomPaddingPx = mapBottomPaddingPx,
-            places = mapPlaces,
-            frameKey = day to (liveLine != null),
-            linesComplete = lines.size == dayTracks.size,
+        MapLibreModernTimelineMap(
+            state = modernDetailState ?: ModernTimelineMapState.Overview(
+                lines = mapLines,
+                places = mapPlaces,
+                frameKey = day to (liveLine != null),
+                linesComplete = lines.size == dayTracks.size,
+                colorPalette = colorPalette,
+                bottomPaddingPx = mapBottomPaddingPx,
+            ),
             onOpenPlace = onOpenPlace,
-            colorPalette = colorPalette,
             modifier = Modifier.fillMaxSize(),
         )
     } else {
