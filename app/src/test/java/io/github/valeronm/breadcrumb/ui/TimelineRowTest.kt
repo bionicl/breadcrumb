@@ -7,8 +7,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
@@ -127,6 +129,8 @@ class TimelineRowTest {
         }
     }
 
+    private fun durationTextForTest(milliseconds: Long): String = formatDurationMs(milliseconds, durationSymbols(context))
+
     // --- Stay rows -----------------------------------------------------------
 
     private fun stayItem(
@@ -192,20 +196,22 @@ class TimelineRowTest {
     }
 
     @Test
-    fun `a stay running to midnight states only the bound it has`() {
-        // The whole point of the sentence resources: this row names one clock time, and the wording
-        // around it has to come from the one-bound resource rather than the two-bound one.
-        stayRow(stayItem(start = noon, end = midnightNext, holdsEnd = false))
+    fun `a stay shows its arrival once in the gutter and only duration below the name`() {
+        stayRow(stayItem(start = noon, end = noon + HOUR))
 
-        val from = context.getString(R.string.timeline_stay_from, clock.time(noon, zone))
-        compose.onNodeWithText(from).assertIsDisplayed()
+        compose.onAllNodesWithText(clock.time(noon, zone)).assertCountEquals(1)
+        compose.onNodeWithText(clock.time(noon + HOUR, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(durationTextForTest(HOUR)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.timeline_stay_between, clock.time(noon, zone), clock.time(noon + HOUR, zone)))
+            .assertDoesNotExist()
     }
 
     @Test
-    fun `a stay filling a whole day names no clock time at all`() {
+    fun `a stay filling a whole day shows its duration without an arrival time`() {
         stayRow(stayItem(start = midnight, end = midnightNext, holdsStart = false, holdsEnd = false))
 
-        compose.onNodeWithText(context.getString(R.string.timeline_all_day)).assertIsDisplayed()
+        compose.onNodeWithText(durationTextForTest(midnightNext - midnight)).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(midnight, zone), substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -235,8 +241,6 @@ class TimelineRowTest {
                 endPlaceId = null,
             ),
             shape = SHAPE,
-            zone = zone,
-            endZone = null,
             onOpen = {},
             onDelete = {},
         )
@@ -249,6 +253,16 @@ class TimelineRowTest {
         val cycling = context.getString(R.string.activity_cycling)
         compose.onNodeWithText(cycling, substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription(cycling).assertIsDisplayed()
+    }
+
+    @Test
+    fun `movement shows duration and distance without departure or arrival clock times`() {
+        trackRow(ActivityType.WALKING)
+
+        compose.onNodeWithText(clock.time(noon, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(clock.time(noon + HOUR, zone), substring = true).assertDoesNotExist()
+        compose.onNodeWithText(durationTextForTest(HOUR), substring = true).assertIsDisplayed()
+        compose.onNodeWithText(measures().distance(5_000.0)).assertIsDisplayed()
     }
 
     @Test

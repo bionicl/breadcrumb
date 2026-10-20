@@ -71,7 +71,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -105,7 +104,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -206,7 +204,17 @@ private enum class TimelinePage(@StringRes val labelRes: Int) {
     MAP(R.string.timeline_view_map),
 }
 
-private enum class TimelineSheetAnchor { Hidden, PartiallyExpanded, Expanded }
+internal enum class TimelineSheetAnchor { Hidden, PartiallyExpanded, Expanded }
+
+/** Keep map framing fixed throughout a drag and its settling animation. */
+internal fun settledMapBottomPadding(
+    state: AnchoredDraggableState<TimelineSheetAnchor>,
+    fullHeightPx: Float,
+    fallbackOffsetPx: Float,
+): Int {
+    val offset = state.anchors.positionOf(state.settledValue).takeUnless { it.isNaN() } ?: fallbackOffsetPx
+    return (fullHeightPx - offset).roundToInt().coerceAtLeast(0)
+}
 
 /** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
 private val timelinePageLabels = TimelinePage.entries.map { it.labelRes }
@@ -551,7 +559,7 @@ private fun ModernTimelineLayout(
                 colorPalette = colorPalette,
                 displayOptions = displayOptions,
                 backgroundOnly = true,
-                mapBottomPaddingPx = (fullHeightPx - sheetOffset).roundToInt().coerceAtLeast(0),
+                mapBottomPaddingPx = settledMapBottomPadding(sheetState, fullHeightPx, peekHeightPx),
             )
             Surface(
                 modifier = Modifier
@@ -843,8 +851,6 @@ private fun TimelineListPage(
                                 showVisitTime = displayOptions.showVisitTime,
                                 colorPalette = colorPalette,
                                 shape = shape,
-                                zone = item.clock,
-                                endZone = item.endZone,
                                 onOpen = { onOpen(item.summary.id) },
                                 onDelete = {
                                     val id = item.summary.id
@@ -1531,9 +1537,6 @@ private fun MovementTimelineLine(color: Color, description: String) {
 internal fun TrackRow(
     track: TrackSummary,
     shape: RoundedCornerShape,
-    zone: ZoneId,
-    /** Where it arrived, when that is a different clock — see [TimelineItem.TrackItem.endZone]. */
-    endZone: ZoneId?,
     onOpen: () -> Unit,
     onDelete: () -> Unit,
     onReplay: (() -> Unit)? = null,
@@ -1553,13 +1556,6 @@ internal fun TrackRow(
         val activity = ActivityType.ofName(track.activityType)
         val activityName = activityLabel(LocalContext.current, track.activityType)
         val origin = TrackOrigin.fromCode(track.source)
-        val reader = timelineZone()
-        // Each end on its own clock where they differ — a track is the one recorded row that can
-        // cross a border, and flattening it onto the departure's clock hides the crossing. The two
-        // times then no longer span the duration beside them, which is why each carries its own
-        // offset: read together they say the drive lost an hour to the border, which is the truth.
-        val shiftColor = zoneShiftColor
-        val readerClock = LocalReaderClock.current
         ListRowCard(
             // Long-press replays the track, which Card's own onClick can't express.
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onReplay),
@@ -1569,28 +1565,18 @@ internal fun TrackRow(
             iconDescription = activityName,
             leadingContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TimelineVisitTimeGutter(showVisitTime, timeText(track.startedAt, zone))
+                    TimelineVisitTimeGutter(showVisitTime)
                     MovementTimelineLine(timelineActivityColor(activity, colorPalette), activityName)
                 }
             },
             contentVerticalPadding = 8.dp,
             mark = origin?.mark,
-            // What happened leads; when it happened is the metadata line.
+            // Movement states its type and duration, followed by distance, without clock times.
             title = "$activityName · ${durationText(track.startedAt, track.endedAt)}",
             titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
             titleStyle = MaterialTheme.typography.bodySmall,
             subtitleStyle = MaterialTheme.typography.bodySmall,
-            // Worded before the builder, which is not a composable scope.
-            subtitle = run {
-                buildAnnotatedString {
-                    appendTime(track.startedAt, zone, reader, shiftColor, readerClock)
-                    track.endedAt?.let { endedAt ->
-                        append(" – ")
-                        appendTime(endedAt, endZone ?: zone, reader, shiftColor, readerClock)
-                    }
-                    append(" · " + distanceText(track.distanceMeters))
-                }
-            },
+            subtitle = AnnotatedString(distanceText(track.distanceMeters)),
         )
     }
 }
@@ -1735,39 +1721,7 @@ internal fun StayCard(
     // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
     // the same place can't read as accented on one screen and neutral on the other.
     val disc = placeDiscStyle(category)
-    val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
-    // Worded here: the annotated-string builder below is not a composable scope, and every one of
-    // these brackets a clock time it draws rather than interpolates.
-    val visitsText = visits?.let { visitCountLabel(it) }
-    val stated = stayBounds(stay.start, stay.end, item.holdsStart, item.holdsEnd)
-    // Which bounds carry a duration beside them is [StayBounds.withDuration]'s to say. What this row
-    // adds is the other floor: a stay spanning less than StayDeriver.REPORTABLE_DURATION_MS shows
-    // none either, the stop having been longer than its bounds say, so "0m" is worse than silence.
-    val reportableText = stay.reportableDurationMs(System.currentTimeMillis())
-        ?.takeIf { stated.withDuration }
-        ?.let { durationText(it) }
-    val reader = timelineZone()
-    val shiftColor = zoneShiftColor
-    val readerClock = LocalReaderClock.current
-    fun marked(atMs: Long) = markedTime(atMs, zone, reader, shiftColor, readerClock)
-    // Whichever bounds the row states, marked, spliced into a whole sentence — so the wording around
-    // a time is the language's to arrange, not this `when`'s. Each bound is formatted inside the
-    // branch that states it: most branches state one, and a row that names no clock time formats none.
-    val bounds = when (stated) {
-        StayBounds.AllDay -> AnnotatedString(stringResource(R.string.timeline_all_day))
-        is StayBounds.Since ->
-            annotatedStringResource(R.string.timeline_stay_since, marked(stated.start))
-        is StayBounds.Until ->
-            annotatedStringResource(R.string.timeline_stay_until, marked(stated.end))
-        is StayBounds.From ->
-            annotatedStringResource(R.string.timeline_stay_from, marked(stated.start))
-        is StayBounds.At -> marked(stated.moment)
-        is StayBounds.Between -> annotatedStringResource(
-            R.string.timeline_stay_between,
-            marked(stated.start),
-            marked(stated.end),
-        )
-    }
+    val reportableText = stay.reportableDurationMs(System.currentTimeMillis())?.let { durationText(it) }
     ListRowCard(
         shape = shape,
         onClick = onClick,
@@ -1795,7 +1749,7 @@ internal fun StayCard(
         },
         contentVerticalPadding = 8.dp,
         mark = place?.place?.mark,
-        // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
+        // The place leads; the subtitle states only the duration of the visit. The
         // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
         // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't
         // reach names the situation instead.
@@ -1803,16 +1757,7 @@ internal fun StayCard(
             if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
         ),
         titleColor = placeTitleColor(named),
-        subtitle = buildAnnotatedString {
-            append(bounds)
-            if (reportableText != null) {
-                append(" · ")
-                append(reportableText)
-            }
-            if (visitsText != null) {
-                append(" · $visitsText")
-            }
-        },
+        subtitle = AnnotatedString(reportableText.orEmpty()),
     )
 }
 
@@ -2092,7 +2037,3 @@ private fun GapPlaceLine(
         }
     }
 }
-
-@Composable
-@ReadOnlyComposable
-private fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.timeline_visits, n, n)
