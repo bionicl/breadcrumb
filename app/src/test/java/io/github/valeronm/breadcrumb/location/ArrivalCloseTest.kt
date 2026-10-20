@@ -97,6 +97,7 @@ class ArrivalCloseTest : ActivityIngestFixture() {
             out,
         )
         assertFalse("the close winds GPS down, so no resume signals on top", noFixGuard.suspended)
+        assertEquals(ActivityIngest.GiveUp.ClosedUnnamed, core.giveUp)
     }
 
     @Test fun `a give-up closes a trigger-opened track at the last fix it did get`() {

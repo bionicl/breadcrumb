@@ -353,7 +353,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertEquals(
             listOf(
                 Effect.StopGps,
-                Effect.ArmResumeSignals(NoFixGuard.RETRY_BASE_MS, noFixAtAll = true),
+                Effect.ArmResumeSignals,
                 Effect.ArmDepartureFence(null),
                 Effect.StartDepartureProbe(DepartureTriggers.MOTION_INTERVAL_MS, DepartureTriggers.ANCHOR_WINDOW_MS),
                 Effect.ArmSignificantMotion,
@@ -361,6 +361,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
             ),
             out,
         )
+        assertEquals(ActivityIngest.GiveUp.KeptOpen(NoFixGuard.RETRY_BASE_MS, noFixAtAll = true), core.giveUp)
         assertTrue(noFixGuard.suspended)
         assertTrue("the track stays open", core.recording)
     }
@@ -751,6 +752,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
         assertTrue(out.none { it is Effect.ArmResumeSignals })
         assertNull(core.parked)
         assertFalse(core.recording)
+        assertEquals(ActivityIngest.GiveUp.ClosedByRelease, core.giveUp)
     }
 
     /** The verdict the cap exists to wait for — and the one job [Motion.Stopped] has. */

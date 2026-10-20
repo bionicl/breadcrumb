@@ -44,10 +44,9 @@ sealed interface Effect {
      * GPS is off for want of a fix rather than for want of a journey — arm the cheap signals that
      * say conditions may have changed. Deliberately not folded into [StopGps]: a stop turns GPS off
      * too, and arms only the departure triggers. A give-up arms both, and the open track is what
-     * makes a departure resume GPS rather than open a track. [retryGatedMs] is how long a blind
-     * motion-triggered retry is held off; [noFixAtAll] is set when the probe never saw the sky.
+     * makes a departure resume GPS rather than open a track.
      */
-    data class ArmResumeSignals(val retryGatedMs: Long, val noFixAtAll: Boolean = false) : Effect
+    data object ArmResumeSignals : Effect
 
     /**
      * Re-arm the one-shot motion trigger alone. It has just fired and disarmed itself while the

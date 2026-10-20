@@ -56,7 +56,9 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("motion_fired", r"motion trigger fired$"),
     ("wifi_lost", r"wifi lost(?: \([^)]*\))?$"),
     ("wifi_switch", r"wifi lost \([^)]*\) — still on net "),
-    ("gave_up", r"no-fix guard: probe gave up(?P<nofix> with no fix at all)? — GPS off"),
+    ("gave_up", r"no-fix guard: (?:probe gave up(?P<nofix> with no fix at all)? — GPS off"
+                r"|(?P<released>giving up — released the held \w+)$"
+                r"|(?P<triggers>nothing left to measure — closed the track the triggers opened)$)"),
     ("first_fix", r"no-fix guard: first fix after (?P<s>\d+)s$"),
     ("probing_again", r"no-fix guard: probing again \((?P<signal>\w+)\)$"),
     ("wait_restarted", r"no-fix guard: waiting again for a first fix \((?P<signal>\w+)\)$"),
@@ -195,6 +197,7 @@ class Report:
 
     def _run(self, events):
         armed, prev_dt, pending, cur = False, None, None, None
+        first_stamped = last_apply = None
         gps_on = probe_start = hold_at = last_stop = None
         probe_gaps = []
         burst_bought_by = WATCH_START
@@ -225,6 +228,12 @@ class Report:
                 self.gps_gave_up_s += secs
             return secs
 
+        def end_hold(at):
+            nonlocal hold_at
+            if hold_at:
+                self.holds.append((at - hold_at).total_seconds())
+                hold_at = None
+
         day, d = None, None
         for i, e in enumerate(events):
             g, k = e.g, e.kind
@@ -251,7 +260,7 @@ class Report:
             elif k == "deaf":
                 self.deaf += 1
             elif k == "apply":
-                tid, pair = g["track"], None
+                tid, pair, last_apply = g["track"], None, e.dt
                 if tid == "null":
                     cause = "Activity Recognition"
                 elif g["paused"] == "true":
@@ -261,6 +270,7 @@ class Report:
                     t = self.tracks.get(tid)
                     if t and t.cause in TRIGGERS and t.first_reading is None:
                         t.first_reading = (g["act"], (e.dt - t.opened).total_seconds())
+                        first_stamped = (e.dt, t)
                 pending = {"cause": cause, "pair": pair, "dt": e.dt}
             elif k == "fence_open":
                 d["departures"] += 1
@@ -354,11 +364,25 @@ class Report:
                 if last_stop and (e.dt - last_stop[0]).total_seconds() < 2:
                     self.gps_gave_up_n += 1
                     self.gps_gave_up_s += last_stop[1]
-                self.gave_up_kinds["no fix at all" if g["nofix"]
-                                   else "after a fix" if "first_fix" in logs else "(build logs no kind)"] += 1
-                if g["nofix"] and cur in self.tracks:
-                    self.tracks[cur].gave_up_unfixed = True
-                given_up, resume_cause = e.dt, None
+                if g["triggers"]:
+                    self.gave_up_kinds["closed a trigger-opened track"] += 1
+                    end_hold(e.dt)
+                    # The STILL this close adopts is logged as a transition, and no reading sent it.
+                    if first_stamped and (e.dt - first_stamped[0]).total_seconds() < 2:
+                        first_stamped[1].first_reading = None
+                elif g["released"]:
+                    self.gave_up_kinds["closed by releasing a held reading"] += 1
+                    end_hold(e.dt)
+                else:
+                    # A reading released without closing the track is logged only as its transition.
+                    if last_apply and (e.dt - last_apply).total_seconds() < 2:
+                        end_hold(e.dt)
+                    self.gave_up_kinds["no fix at all" if g["nofix"]
+                                       else "after a fix" if "first_fix" in logs else "(build logs no kind)"] += 1
+                    if g["nofix"] and cur in self.tracks:
+                        self.tracks[cur].gave_up_unfixed = True
+                    # Only a give-up that leaves the track open waits for a resume.
+                    given_up, resume_cause = e.dt, None
             elif k == "probing_again":
                 self.retries[g["signal"]] += 1
                 resume_cause = {"MOTION": "motion retry", "PASSIVE_FIX": "passive fix", "WIFI_LOST": "wifi lost"}.get(g["signal"], g["signal"])
@@ -399,9 +423,8 @@ class Report:
                 hold_at = e.dt
                 if gps_on is None and cur in self.tracks:
                     self.tracks[cur].still_held_with_gps_off = g["act"] == "STILL"
-            elif k == "release" and hold_at:
-                self.holds.append((e.dt - hold_at).total_seconds())
-                hold_at = None
+            elif k == "release":
+                end_hold(e.dt)
             prev_dt = e.dt
         if events:
             gps_close(events[-1].dt)

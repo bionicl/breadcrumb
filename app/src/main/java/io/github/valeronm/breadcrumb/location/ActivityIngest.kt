@@ -107,12 +107,8 @@ class ActivityIngest(
     var arrivalStoppedSinceMs: Long = 0L
         private set
 
-    /**
-     * Whether the last [onGnssTick] ended a track the triggers opened, the give-up having found no
-     * ground left to measure. Its effects are those of any other close, including the one a landed
-     * reading makes in the same pass.
-     */
-    var closedAtGiveUp: Boolean = false
+    /** What the last [onGnssTick] gave up into, or null when it decided nothing. */
+    var giveUp: GiveUp? = null
         private set
 
     /** Whether the last [onResumeSignal] restarted the open track's wait for its first fix. */
@@ -273,7 +269,7 @@ class ActivityIngest(
         giveUpMs: Long,
         settings: ActivitySettings,
     ): List<Effect> {
-        closedAtGiveUp = false
+        giveUp = null
         // The phase is what says a track exists, as it is in [close] — not the id the dispatcher
         // holds, which after a failed insert says the opposite and would hold the give-up off for
         // the rest of the outing.
@@ -286,16 +282,20 @@ class ActivityIngest(
         // The promotion may have closed the track, which stops GPS and re-arms the cheap signals on
         // its own way down. Asked of the phase rather than of the effects, since it is the same
         // question [close] answers: nothing is recording, so there is nothing left to wind down.
-        if (!recording) return out
+        if (!recording) {
+            giveUp = GiveUp.ClosedByRelease
+            return out
+        }
         // The give-up says the ground cannot be measured, and the reporter that stayed silent
         // through the departure owes this track no stop, so nothing is left for it to wait for.
         if (watchingArrival) {
-            closedAtGiveUp = true
+            giveUp = GiveUp.ClosedUnnamed
             adoptAndApply(ActivityType.STILL, nowMs, settings, out)
             return out
         }
         out += Effect.StopGps
-        out += Effect.ArmResumeSignals(noFixGuard.onGaveUp(elapsedMs), noFixGuard.waitingForFirstFix)
+        out += Effect.ArmResumeSignals
+        giveUp = GiveUp.KeptOpen(noFixGuard.onGaveUp(elapsedMs), noFixGuard.waitingForFirstFix)
         // Watched from where the phone is now rather than from the last good fix: in a tunnel that
         // fix is the entrance, and a watch anchored there would resume GPS underground at once.
         watchForDeparture(null, nowMs, settings.triggers, out)
@@ -719,6 +719,20 @@ class ActivityIngest(
         ingest.onTrackClosed()
         noFixGuard.onStopped()
         out += Effect.CloseTrack(endedAt, renameTo)
+    }
+
+    sealed interface GiveUp {
+        /**
+         * [retryGatedMs] is how long a blind motion-triggered retry is held off; [noFixAtAll] is set
+         * when the probe never saw the sky.
+         */
+        data class KeptOpen(val retryGatedMs: Long, val noFixAtAll: Boolean) : GiveUp
+
+        /** The held reading the give-up let through ended the track. */
+        data object ClosedByRelease : GiveUp
+
+        /** No reading had named the track, and nothing was left to measure it with. */
+        data object ClosedUnnamed : GiveUp
     }
 
     companion object {

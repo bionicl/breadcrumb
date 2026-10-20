@@ -431,15 +431,7 @@ class LocationRecordingService : Service() {
 
                 Effect.StopGps -> withContext(Dispatchers.Main) { stopLocationUpdates() }
 
-                is Effect.ArmResumeSignals -> {
-                    DebugLog.i(
-                        TAG,
-                        "no-fix guard: probe gave up" +
-                            (if (effect.noFixAtAll) " with no fix at all" else "") +
-                            " — GPS off (motion retry gated ${effect.retryGatedMs / 1000}s)",
-                    )
-                    withContext(Dispatchers.Main) { resumeSignals.armAll() }
-                }
+                Effect.ArmResumeSignals -> withContext(Dispatchers.Main) { resumeSignals.armAll() }
 
                 Effect.ArmSignificantMotion -> withContext(Dispatchers.Main) { resumeSignals.armMotionOnly() }
 
@@ -719,12 +711,26 @@ class LocationRecordingService : Service() {
             // GPS is this service's own resource, so its own guard; whether the recording rules
             // the give-up out is the recorder's, and [ActivityIngest.onGnssTick] keeps it.
             if (gpsListener == null) return@launchArmed
+            val was = core.confirmed
             val effects =
                 core.onGnssTick(now(), SystemClock.elapsedRealtime(), giveUpMs, activitySettings())
-            if (core.closedAtGiveUp) {
-                DebugLog.i(TAG, "no-fix guard: nothing left to measure — closing the track the triggers opened")
-            }
+            if (core.confirmed != was) logTransition(was, core.confirmed, readingLagMs = 0L, ground = null)
             dispatch(effects)
+            // After the dispatch, so it follows the GPS stop it explains.
+            when (val giveUp = core.giveUp) {
+                is ActivityIngest.GiveUp.KeptOpen ->
+                    DebugLog.i(
+                        TAG,
+                        "no-fix guard: probe gave up" +
+                            (if (giveUp.noFixAtAll) " with no fix at all" else "") +
+                            " — GPS off (motion retry gated ${giveUp.retryGatedMs / 1000}s)",
+                    )
+                ActivityIngest.GiveUp.ClosedByRelease ->
+                    DebugLog.i(TAG, "no-fix guard: giving up — released the held ${core.confirmed}")
+                ActivityIngest.GiveUp.ClosedUnnamed ->
+                    DebugLog.i(TAG, "no-fix guard: nothing left to measure — closed the track the triggers opened")
+                null -> Unit
+            }
         }
     }
 
