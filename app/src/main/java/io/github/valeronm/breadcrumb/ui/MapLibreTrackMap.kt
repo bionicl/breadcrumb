@@ -319,7 +319,6 @@ internal fun MapLibreModernTimelineMap(
                 }
             },
             onStyleLoaded = { ctx, map, style, dark ->
-                addOverviewLayers(ctx, style, places, dark, fullSize = true)
                 style.addSource(GeoJsonSource(JOURNEY_SOURCE, overviewCollection))
                 style.addLayer(
                     LineLayer(JOURNEY_LAYER, JOURNEY_SOURCE).withProperties(
@@ -329,6 +328,8 @@ internal fun MapLibreModernTimelineMap(
                         PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
                     ),
                 )
+                // Place pins and labels sit above the day's routes, as on the standalone journey map.
+                addOverviewLayers(ctx, style, places, dark, fullSize = true)
                 addEndPlaceAreas(style, track?.endPlaces.orEmpty())
                 addDwellLayers(style, track?.dwells.orEmpty())
                 addContextTrackLines(style, track?.contextLines.orEmpty(), dark, track?.showContextLines == true)
