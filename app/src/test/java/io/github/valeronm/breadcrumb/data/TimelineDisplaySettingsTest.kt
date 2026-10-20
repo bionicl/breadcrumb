@@ -25,6 +25,7 @@ class TimelineDisplaySettingsTest {
     @Test
     fun `timeline display defaults show visit times and summaries`() {
         assertEquals(TimelineDisplayOptions(), Settings.timelineDisplayOptions(context))
+        assertEquals(true, Settings.timelineDisplayOptions(context).showPauseIcon)
         assertEquals(TimelineColorPalette.CLASSIC, Settings.timelineColorPalette(context))
     }
 
@@ -33,6 +34,7 @@ class TimelineDisplaySettingsTest {
         val options = TimelineDisplayOptions(
             showVisitTime = false,
             showDaySummary = false,
+            showPauseIcon = false,
             locationColorMode = TimelineLocationColorMode.LOCATION_COLORS,
             modernTimelineLayout = false,
         )

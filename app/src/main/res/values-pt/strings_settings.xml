@@ -29,11 +29,16 @@
     <string name="settings_time_format_12">12 horas</string>
     <string name="settings_time_format_24">24 horas</string>
     <string name="settings_path_location_colours">Cores do percurso e dos locais</string>
+    <string name="settings_path_location_colours_sub">Escolher uma paleta e como os locais recebem as suas cores.\n%1$s · %2$s</string>
     <string name="settings_timeline_color_palette">Cores da linha temporal</string>
     <string name="settings_timeline_palette_classic">Clássica</string>
     <string name="settings_timeline_palette_arc">Linha temporal em arco</string>
     <string name="settings_timeline_visit_time">Mostrar horas das visitas</string>
+    <string name="settings_timeline_visit_time_sub">Mostrar as horas de chegada junto aos locais.</string>
     <string name="settings_timeline_day_summary">Mostrar resumo do dia</string>
+    <string name="settings_timeline_day_summary_sub">Mostrar a distância diária, o tempo de viagem e o tempo passado nos locais.</string>
+    <string name="settings_timeline_pause_icon">Mostrar ícone de pausa</string>
+    <string name="settings_timeline_pause_icon_sub">Assinalar paragens curtas onde as viagens adjacentes podem ser unidas.</string>
     <string name="settings_timeline_location_colors">Cores dos locais</string>
     <string name="settings_timeline_location_colors_category">Categoria do local</string>
     <string name="settings_timeline_location_colors_trip">Tipo da última viagem</string>

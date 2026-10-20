@@ -751,6 +751,7 @@ internal fun DisplaySettingsScreen(
             {
                 SwitchSettingRow(
                     title = stringResource(R.string.settings_timeline_visit_time),
+                    subtitle = stringResource(R.string.settings_timeline_visit_time_sub),
                     checked = timelineDisplayOptions.showVisitTime,
                     onCheckedChange = {
                         onTimelineDisplayOptions(timelineDisplayOptions.copy(showVisitTime = it))
@@ -760,6 +761,7 @@ internal fun DisplaySettingsScreen(
             {
                 SwitchSettingRow(
                     title = stringResource(R.string.settings_timeline_day_summary),
+                    subtitle = stringResource(R.string.settings_timeline_day_summary_sub),
                     checked = timelineDisplayOptions.showDaySummary,
                     onCheckedChange = {
                         onTimelineDisplayOptions(timelineDisplayOptions.copy(showDaySummary = it))
@@ -767,11 +769,23 @@ internal fun DisplaySettingsScreen(
                 )
             },
             {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_timeline_pause_icon),
+                    subtitle = stringResource(R.string.settings_timeline_pause_icon_sub),
+                    checked = timelineDisplayOptions.showPauseIcon,
+                    onCheckedChange = {
+                        onTimelineDisplayOptions(timelineDisplayOptions.copy(showPauseIcon = it))
+                    },
+                )
+            },
+            {
                 NavRow(
                     label = stringResource(R.string.settings_path_location_colours),
-                    subtitle = stringResource(locationColorModeLabelRes(timelineDisplayOptions.locationColorMode)) +
-                        " · " +
+                    subtitle = stringResource(
+                        R.string.settings_path_location_colours_sub,
+                        stringResource(locationColorModeLabelRes(timelineDisplayOptions.locationColorMode)),
                         stringResource(timelinePaletteLabelRes(timelineColorPalette)),
+                    ),
                     // A switch reserves the minimum touch height; this row sits in that group, so it
                     // takes the same height rather than reading as the short one.
                     modifier = Modifier.minimumInteractiveComponentSize(),

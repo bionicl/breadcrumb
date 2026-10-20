@@ -1546,6 +1546,7 @@ internal fun StayCard(
     // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
     // stay, while the glyph answers where the user was, and neither should cost the other.
     val mergeable = item.merge != null
+    val showPauseIcon = mergeable && displayOptions.showPauseIcon
     // A categorized place says what the stop was for in the icon column alone — its glyph and its
     // group's tint — where an untagged one shows the generic pin. Deliberately not repeated as text
     // in the subtitle: the row would then name in words what it has just drawn, and the line is
@@ -1565,8 +1566,8 @@ internal fun StayCard(
             icon = category.discIcon,
             disc = disc,
             iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
-            badge = if (mergeable) Icons.Filled.Pause else null,
-            badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+            badge = if (showPauseIcon) Icons.Filled.Pause else null,
+            badgeDescription = if (showPauseIcon) stringResource(R.string.timeline_short_stop_mergeable) else null,
             leadingContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val arrival = when {
@@ -1578,8 +1579,8 @@ internal fun StayCard(
                     TimelinePlaceGlyph(
                         category = category,
                         tint = locationTint,
-                        mergeable = mergeable,
-                        badgeDescription = if (mergeable) {
+                        mergeable = showPauseIcon,
+                        badgeDescription = if (showPauseIcon) {
                             stringResource(R.string.timeline_short_stop_mergeable)
                         } else {
                             null
@@ -1627,8 +1628,8 @@ internal fun StayCard(
             icon = category.discIcon,
             disc = disc,
             iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
-            badge = if (mergeable) Icons.Filled.Pause else null,
-            badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+            badge = if (showPauseIcon) Icons.Filled.Pause else null,
+            badgeDescription = if (showPauseIcon) stringResource(R.string.timeline_short_stop_mergeable) else null,
             mark = place?.place?.mark,
             title = title,
             titleColor = placeTitleColor(named),

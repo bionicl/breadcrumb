@@ -29,11 +29,16 @@
     <string name="settings_time_format_12">12-часовой формат</string>
     <string name="settings_time_format_24">24-часовой формат</string>
     <string name="settings_path_location_colours">Цвета пути и мест</string>
+    <string name="settings_path_location_colours_sub">Выбрать палитру и способ окрашивания мест.\n%1$s · %2$s</string>
     <string name="settings_timeline_color_palette">Цвета хронологии</string>
     <string name="settings_timeline_palette_classic">Классическая</string>
     <string name="settings_timeline_palette_arc">Дуговая хронология</string>
     <string name="settings_timeline_visit_time">Показывать время посещения</string>
+    <string name="settings_timeline_visit_time_sub">Показывать время прибытия рядом с местами.</string>
     <string name="settings_timeline_day_summary">Показывать сводку за день</string>
+    <string name="settings_timeline_day_summary_sub">Показывать расстояние за день, время в пути и время, проведённое в местах.</string>
+    <string name="settings_timeline_pause_icon">Показывать значок паузы</string>
+    <string name="settings_timeline_pause_icon_sub">Отмечать короткие остановки, где соседние поездки можно объединить.</string>
     <string name="settings_timeline_location_colors">Цвет мест</string>
     <string name="settings_timeline_location_colors_category">Категория места</string>
     <string name="settings_timeline_location_colors_trip">Тип последней поездки</string>

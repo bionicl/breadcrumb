@@ -33,11 +33,16 @@
     <string name="settings_time_format_12">12-hour</string>
     <string name="settings_time_format_24">24-hour</string>
     <string name="settings_path_location_colours">Path and location colours</string>
+    <string name="settings_path_location_colours_sub">Choose a palette and how places get their colours.\n%1$s · %2$s</string>
     <string name="settings_timeline_color_palette">Timeline colours</string>
     <string name="settings_timeline_palette_classic">Classic</string>
     <string name="settings_timeline_palette_arc">Arc timeline</string>
     <string name="settings_timeline_visit_time">Show visit times</string>
+    <string name="settings_timeline_visit_time_sub">Show arrival times next to places.</string>
     <string name="settings_timeline_day_summary">Show day summary</string>
+    <string name="settings_timeline_day_summary_sub">Show daily distance, travel time and time spent at places.</string>
+    <string name="settings_timeline_pause_icon">Show pause icon</string>
+    <string name="settings_timeline_pause_icon_sub">Mark short stops where the adjacent trips can be merged.</string>
     <string name="settings_timeline_location_colors">Location colours</string>
     <string name="settings_timeline_location_colors_category">Place category</string>
     <string name="settings_timeline_location_colors_trip">Last trip type</string>

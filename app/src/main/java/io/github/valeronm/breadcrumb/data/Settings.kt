@@ -16,6 +16,7 @@ object Settings {
         val showDaySummary: Boolean = true,
         val locationColorMode: TimelineLocationColorMode = TimelineLocationColorMode.LAST_TRIP_TYPE,
         val modernTimelineLayout: Boolean = true,
+        val showPauseIcon: Boolean = true,
     )
 
     private const val FILE = "settings"
@@ -43,6 +44,7 @@ object Settings {
     private const val KEY_CLOCK_TIME_FORMAT = "clock_time_format"
     private const val KEY_TIMELINE_COLOR_PALETTE = "timeline_color_palette"
     private const val KEY_TIMELINE_SHOW_VISIT_TIME = "timeline_show_visit_time"
+    private const val KEY_TIMELINE_SHOW_PAUSE_ICON = "timeline_show_pause_icon"
     private const val KEY_TIMELINE_SHOW_DAY_SUMMARY = "timeline_show_day_summary"
     private const val KEY_TIMELINE_LOCATION_COLOR_MODE = "timeline_location_color_mode"
     private const val KEY_MODERN_TIMELINE_LAYOUT = "modern_timeline_layout"
@@ -433,6 +435,7 @@ object Settings {
         val preferences = prefs(context)
         return TimelineDisplayOptions(
             showVisitTime = preferences.getBoolean(KEY_TIMELINE_SHOW_VISIT_TIME, true),
+            showPauseIcon = preferences.getBoolean(KEY_TIMELINE_SHOW_PAUSE_ICON, true),
             showDaySummary = preferences.getBoolean(KEY_TIMELINE_SHOW_DAY_SUMMARY, true),
             locationColorMode = preferences.getString(KEY_TIMELINE_LOCATION_COLOR_MODE, null)
                 ?.let { runCatching { TimelineLocationColorMode.valueOf(it) }.getOrNull() }
@@ -444,6 +447,7 @@ object Settings {
     fun setTimelineDisplayOptions(context: Context, options: TimelineDisplayOptions) {
         prefs(context).edit {
             putBoolean(KEY_TIMELINE_SHOW_VISIT_TIME, options.showVisitTime)
+            putBoolean(KEY_TIMELINE_SHOW_PAUSE_ICON, options.showPauseIcon)
             putBoolean(KEY_TIMELINE_SHOW_DAY_SUMMARY, options.showDaySummary)
             putString(KEY_TIMELINE_LOCATION_COLOR_MODE, options.locationColorMode.name)
             putBoolean(KEY_MODERN_TIMELINE_LAYOUT, options.modernTimelineLayout)
