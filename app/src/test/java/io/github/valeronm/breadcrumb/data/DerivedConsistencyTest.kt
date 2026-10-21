@@ -171,10 +171,25 @@ class DerivedConsistencyTest {
     @Test fun `splitting a track and undoing it agrees at each step`() = runTest {
         val ids = recordedHistory()
 
+        // The history's walks are short enough that the keep rule would drop both halves.
+        test.keepEveryTrack()
         val split = checkNotNull(repository.splitTrack(ids[4], hours(54) + 25_000L))
         assertExact()
 
         repository.unsplitTracks(ids[4], split)
+        assertExact()
+    }
+
+    @Test fun `a split that trims a half off, and its undo, stay coherent`() = runTest {
+        val ids = recordedHistory()
+
+        val split = checkNotNull(repository.splitTrack(ids[4], hours(54) + 10_000L))
+        assertTrue(split.trimmed)
+        assertCoherent()
+
+        repository.unsplitTracks(ids[4], split)
+        assertCoherent()
+        store.rebuild()
         assertExact()
     }
 
@@ -195,6 +210,7 @@ class DerivedConsistencyTest {
         store.rebuild()
         assertExact()
 
+        test.keepEveryTrack()
         val split = checkNotNull(repository.splitTrack(ids[4], hours(54) + 25_000L))
         assertExact()
         repository.unsplitTracks(ids[4], split)
@@ -245,9 +261,10 @@ class DerivedConsistencyTest {
         repository.deleteTrack(ids[2])
         val merged = checkNotNull(repository.mergeTracks(ids[4], ids[5]))
         repository.setActivityType(ids[6], ActivityType.DRIVING)
-        val split = checkNotNull(repository.splitTrack(ids[7], hours(84) + 15_000L))
+        test.keepEveryTrack()
+        val split = checkNotNull(repository.splitTrack(ids[0], hours(0) + 25_000L))
         repository.restoreTrack(ids[2])
-        repository.unsplitTracks(ids[7], split)
+        repository.unsplitTracks(ids[0], split)
         repository.unmergeTracks(merged, ids[4], ids[5])
 
         assertCoherent()

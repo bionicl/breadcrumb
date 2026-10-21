@@ -524,12 +524,7 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 endZone = item.endZone,
                                 onOpen = { onOpen(item.summary.id) },
-                                onDelete = {
-                                    val id = item.summary.id
-                                    viewModel.delete(id) {
-                                        undo.show(deletedMessage) { viewModel.restoreTrack(id) }
-                                    }
-                                },
+                                onDelete = { undo.deleteTrack(viewModel, item.summary.id, deletedMessage) },
                                 // DEBUG: long-press replays the track through the Record tab's live view.
                                 onReplay = if (BuildConfig.DEV_TOOLS) {
                                     { onReplay(item.summary) }

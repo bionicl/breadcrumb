@@ -28,7 +28,20 @@
     <string name="track_split_explainer">Both trips keep every point, and the stay between them appears on the timeline. Undo puts the trip back.</string>
     <string name="track_split_confirm">Split</string>
     <string name="track_split_here">Split here</string>
-    <string name="track_split_too_close">Too close to the end</string>
+    <string name="track_split_too_close">Too close to the start</string>
+    <string name="track_split_gap">%1$s between them</string>
+    <string name="track_split_too_short">Too short to split</string>
+    <string name="track_trim_here">Trim here</string>
+    <string name="track_trim_start_title">Trim the start?</string>
+    <string name="track_trim_end_title">Trim the end?</string>
+    <string name="track_trim_starts_later">Starts %1$s later · %2$s shorter</string>
+    <string name="track_trim_ends_earlier">Ends %1$s earlier · %2$s shorter</string>
+    <string name="track_trim_shorter_start">%1$s shorter at the start</string>
+    <string name="track_trim_shorter_end">%1$s shorter at the end</string>
+    <string name="track_trim_explainer">Undo puts the trip back.</string>
+    <string name="track_trim_confirm">Trim</string>
+    <string name="track_split_drops_both_title">Both pieces would be too short</string>
+    <string name="track_split_drops_both_explainer">Neither piece would stay on the timeline. You can delete the trip instead.</string>
 
     <!-- How the track line is coloured, and what each metric says when no fix carries it. -->
     <string name="color_mode_speed">Speed</string>

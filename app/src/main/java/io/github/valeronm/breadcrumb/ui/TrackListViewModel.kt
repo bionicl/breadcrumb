@@ -591,6 +591,11 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** What [splitTrack] at [atTs] would leave, for its confirmation to show; [points] are the
+     *  track's, good and ignored, as the screen already holds them. */
+    suspend fun previewSplit(trackId: Long, atTs: Long, points: List<TrackPoint>): TrackRepository.SplitPreview? =
+        repository.previewSplit(trackId, atTs, points)
+
     /**
      * The track keeps its id as the first half. [onSplit] is not called when the cut is refused.
      */

@@ -20,7 +20,20 @@
     <string name="track_split_explainer">As duas viagens mantêm todos os pontos, e a permanência entre elas passa a aparecer na cronologia. Anular repõe a viagem.</string>
     <string name="track_split_confirm">Dividir</string>
     <string name="track_split_here">Dividir aqui</string>
-    <string name="track_split_too_close">Demasiado perto do fim</string>
+    <string name="track_split_too_close">Demasiado perto do início</string>
+    <string name="track_split_gap">%1$s entre elas</string>
+    <string name="track_split_too_short">Demasiado curta para dividir</string>
+    <string name="track_trim_here">Encurtar aqui</string>
+    <string name="track_trim_start_title">Encurtar o início?</string>
+    <string name="track_trim_end_title">Encurtar o fim?</string>
+    <string name="track_trim_starts_later">Começa %1$s mais tarde · %2$s mais curta</string>
+    <string name="track_trim_ends_earlier">Termina %1$s mais cedo · %2$s mais curta</string>
+    <string name="track_trim_shorter_start">%1$s mais curta no início</string>
+    <string name="track_trim_shorter_end">%1$s mais curta no fim</string>
+    <string name="track_trim_explainer">Anular repõe a viagem.</string>
+    <string name="track_trim_confirm">Encurtar</string>
+    <string name="track_split_drops_both_title">As duas partes seriam demasiado curtas</string>
+    <string name="track_split_drops_both_explainer">Nenhuma parte ficaria na cronologia. Pode eliminar a viagem em vez disso.</string>
 
     <string name="color_mode_speed">Velocidade</string>
     <string name="color_mode_elevation">Altitude</string>

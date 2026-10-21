@@ -250,29 +250,12 @@ class TrackRepositoryTest {
     private fun drivePoints(trackId: Long, fromIndex: Int, count: Int, fromLat: Double) =
         test.linePoints(trackId, fromIndex, count, fromLat, stepLat = 0.000809, speed = 9f)
 
-    /** A fix every 10 s jittering ±15 m around [lat] at standstill Doppler speed. */
-    private fun lingerPoints(trackId: Long, fromIndex: Int, count: Int, lat: Double) =
-        (0 until count).map { i ->
-            test.point(trackId, fromIndex + i, lat = lat + if (i % 2 == 0) 0.000135 else -0.000135)
-                .copy(speed = 0.1f)
-        }
-
     private suspend fun discardedTracks(): List<Track> =
         dao.observeDiscardedSummaries().first().map { dao.track(it.track.id)!! }
 
-    /** 10 min of walking (840 m) then [lingerFixes] × 10 s lingering where the walk ended — the
-     *  AR-lag tail. Returns the track's raw end time (one fix per 10 s throughout). */
-    private suspend fun addWalkThenLingerTail(id: Long, lingerFixes: Int = 36): Long {
-        repository.addPoints(
-            test.walkPoints(id, 0, 60, fromLat = 1.0) +
-                lingerPoints(id, 60, lingerFixes, lat = 1.0 + 60 * 0.000126),
-        )
-        return TEST_START + (60 + lingerFixes) * 10_000L
-    }
-
     @Test fun `finishing a track takes its lingering tail off the path`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        val rawEnd = addWalkThenLingerTail(id)
+        val rawEnd = test.addWalkThenLingerTail(id)
         repository.finishTrack(id, rawEnd)
 
         val track = dao.track(id)!!
@@ -313,7 +296,7 @@ class TrackRepositoryTest {
         // along the walk, and only a long span dilutes that below the drift gate — a short
         // start-stay followed by walking away is deliberately not detectable (transit-shaped).
         repository.addPoints(
-            lingerPoints(id, 0, 90, lat = 1.0) +
+            test.lingerPoints(id, 0, 90, lat = 1.0) +
                 test.walkPoints(id, 90, 60, fromLat = 1.0),
         )
         repository.finishTrack(id, TEST_START + 150 * 10_000L)
@@ -380,7 +363,7 @@ class TrackRepositoryTest {
 
     @Test fun `retyping within the same tuning leaves the stored verdict alone`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.finishTrack(id, addWalkThenLingerTail(id))
+        repository.finishTrack(id, test.addWalkThenLingerTail(id))
         val before = dao.track(id)!!
 
         repository.setActivityType(id, ActivityType.RUNNING)
@@ -435,7 +418,7 @@ class TrackRepositoryTest {
 
     @Test fun `the track screen's load splits a track's points three ways`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        val rawEnd = addWalkThenLingerTail(id)
+        val rawEnd = test.addWalkThenLingerTail(id)
         // A rejected fix among the good ones — a bad reading, which the map marks, as against the
         // overrun, which it grays. The two must not land in the same slice.
         repository.addPoints(
@@ -486,7 +469,7 @@ class TrackRepositoryTest {
 
     @Test fun `merging hands back the overrun the earlier track lost in the middle`() = runTest {
         val first = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.finishTrack(first, addWalkThenLingerTail(first))
+        repository.finishTrack(first, test.addWalkThenLingerTail(first))
         val trimmed = dao.track(first)!!.ignoredCount
         assertTrue(trimmed > 0)
         val secondStart = TEST_START + 200 * 10_000L
@@ -569,96 +552,6 @@ class TrackRepositoryTest {
             assertNull(track.discardReason)
             test.assertStatsMatchPoints(id)
         }
-    }
-
-    /**
-     * One journey the recorder never broke: [addWalkThenLingerTail]'s walk and stop, walked out of again
-     * — the stop sits mid-track, beyond any edge rule. It is 10 min to the tail's 6 so a cut through its
-     * middle leaves an edge **either** side can see: the rule is far less sensitive at a start than an
-     * end (a minute-long stay is found at an end, a start needs several), so a shorter stop cut in half
-     * is caught arriving, missed departing — tuning, not the split. Don't shorten it to match the tail.
-     */
-    private suspend fun addWalkStopWalk(id: Long): Long {
-        addWalkThenLingerTail(id, lingerFixes = 60)
-        repository.addPoints(test.walkPoints(id, 120, 60, fromLat = 1.0 + 60 * 0.000126))
-        return TEST_START + 180 * 10_000L
-    }
-
-    /** A finished walk of [count] fixes at walking pace — unlike [finishedWalk]'s coarse 111 m
-     *  steps, the pace is what keeps the overrun rule from finding a stay to flag. */
-    private suspend fun finishedPacedWalk(count: Int): Long {
-        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.addPoints(test.walkPoints(id, 0, count, fromLat = 1.0))
-        repository.finishTrack(id, TEST_START + count * 10_000L)
-        return id
-    }
-
-    @Test fun `splitting keeps the original as the first half and rehomes the rest`() = runTest {
-        val id = finishedPacedWalk(40)
-        val cut = TEST_START + 20 * 10_000L
-
-        val split = repository.splitTrack(id, cut)!!
-
-        // Reassigned, not copied: the 40 fixes are spread over the two rows, not duplicated across
-        // them, and no third row is left holding the period both now cover.
-        assertEquals(20, dao.allPointsFor(id).size)
-        assertEquals(20, dao.allPointsFor(split.secondId).size)
-        assertNull("the original stays on the timeline", dao.track(id)!!.discardedAt)
-        assertEquals("and keeps its start", TEST_START, dao.track(id)!!.startedAt)
-        // The cut fix opens the second track rather than closing the first.
-        assertEquals(cut, dao.track(split.secondId)!!.startedAt)
-        assertTrue(dao.allPointsFor(id).last().timestamp < cut)
-        test.assertStatsMatchPoints(id)
-        test.assertStatsMatchPoints(split.secondId)
-    }
-
-    @Test fun `a cut at a stop takes the parked fixes off both halves' paths`() = runTest {
-        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
-        repository.finishTrack(id, addWalkStopWalk(id))
-        // No edge rule reaches a stop sitting mid-track, so the recorder's own track holds none.
-        assertTrue(dao.allPointsFor(id).none { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
-
-        // Halfway through the stop, so each half keeps 5 min of it — see addWalkStopWalk for why
-        // the arrival side alone would be satisfied by much less.
-        val split = repository.splitTrack(id, TEST_START + 90 * 10_000L)!!
-
-        // Cutting inside the stop turns it into an edge on both halves — the end of one journey
-        // and the start of the next — which is exactly where the overrun rule applies.
-        for (halfId in listOf(id, split.secondId)) {
-            val ignored = dao.allPointsFor(halfId).filter { it.ignored }
-            assertTrue("the parked fixes come off the path", ignored.isNotEmpty())
-            assertTrue(ignored.all { it.ignoreReason == IgnoreReason.EDGE_STAY.code })
-            test.assertStatsMatchPoints(halfId)
-        }
-    }
-
-    @Test fun `a cut with too little on one side is refused`() = runTest {
-        val id = finishedPacedWalk(10)
-        val endedAt = dao.track(id)!!.endedAt
-
-        assertNull("one point is not a track", repository.splitTrack(id, TEST_START + 10_000L))
-        assertNull("nor is nothing at all", repository.splitTrack(id, TEST_START))
-        assertEquals("the row is left alone", endedAt, dao.track(id)!!.endedAt)
-        assertEquals(10, dao.allPointsFor(id).size)
-    }
-
-    @Test fun `unsplitting hands the fixes back and drops the second half`() = runTest {
-        val id = finishedPacedWalk(40)
-        val before = dao.track(id)!!
-        val split = repository.splitTrack(id, TEST_START + 20 * 10_000L)!!
-
-        repository.unsplitTracks(id, split)
-
-        assertNull("the second half's row is gone", dao.track(split.secondId))
-        assertEquals("every fix is back on the original", 40, dao.allPointsFor(id).size)
-        val reunited = dao.track(id)!!
-        // The overrun rule reads the raw recording, so the reunited track re-derives to exactly what
-        // it was — the end included, the second half having carried it on its own row until purged.
-        assertEquals(before.endedAt, reunited.endedAt)
-        assertEquals(before.startedAt, reunited.startedAt)
-        assertEquals(before.pointCount, reunited.pointCount)
-        assertEquals(before.distanceMeters, reunited.distanceMeters, 0.5)
-        test.assertStatsMatchPoints(id)
     }
 
     @Test fun `a user delete is soft, and restore undoes it`() = runTest {
