@@ -609,7 +609,7 @@ private fun GapRowContent(
             } else {
                 // Worded before the builder, which is not a composable scope.
                 val farName = far.name ?: stringResource(far.unnamedInlineRes)
-                val farColor = placeTitleColor(named = far.isNamed)
+                val farColor = statedTitleColor(stated = far.isNamed)
                 annotatedStringResource(
                     if (gap.fromHere) R.string.places_gap_missing_to else R.string.places_gap_missing_from,
                     lasting,

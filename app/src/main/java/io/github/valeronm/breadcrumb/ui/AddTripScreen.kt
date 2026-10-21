@@ -1122,7 +1122,7 @@ private fun TripEndCard(
                         Text(
                             title,
                             style = MaterialTheme.typography.titleMedium,
-                            color = placeTitleColor(mark.name != null),
+                            color = statedTitleColor(mark.name != null),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1225,7 +1225,7 @@ private fun TripLegRow(
         disc = activityDiscStyle(activity),
         iconDescription = name,
         title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_no_type),
-        titleColor = placeTitleColor(named = activity != null),
+        titleColor = statedTitleColor(stated = activity != null),
         subtitle = span,
         onClick = onClick,
         outlined = activity == null,

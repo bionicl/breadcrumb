@@ -1317,7 +1317,7 @@ internal fun StayCard(
         title = place?.name ?: stringResource(
             if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
         ),
-        titleColor = placeTitleColor(named),
+        titleColor = statedTitleColor(named),
         subtitle = buildAnnotatedString {
             append(bounds)
             if (reportableText != null) {
@@ -1540,7 +1540,7 @@ private fun GapPlaceLine(
             Text(
                 text = place.name ?: stringResource(R.string.timeline_unnamed_place),
                 style = MaterialTheme.typography.titleMedium,
-                color = placeTitleColor(named = place.isNamed),
+                color = statedTitleColor(stated = place.isNamed),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
