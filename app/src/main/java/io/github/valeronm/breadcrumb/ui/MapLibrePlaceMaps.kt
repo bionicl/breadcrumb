@@ -9,12 +9,9 @@ import android.os.Looper
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
@@ -656,8 +653,8 @@ internal fun MapLibrePlacesMap(
 
 /** The overview map's one fit — on open and on [MapLibrePlacesMap]'s frameKey alike, so the home
  *  gesture lands exactly the frame the map opened with. */
-private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>, obscured: MapInsets = MapInsets.NONE) =
-    frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0, obscured = obscured)
+private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>) =
+    frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = 13.0)
 
 /**
  * The zoom from which the overview map draws what a place reaches. A default capture radius is about
@@ -938,12 +935,8 @@ private class AppliedTripInputs {
     var markers: FeatureCollection? = null
     private var map: MapLibreMap? = null
 
-    /** MapLibre's own top margin for its compass, which [clearCompass] adds to. */
-    private var defaultCompassTop: Int? = null
-
     fun attach(map: MapLibreMap) {
         this.map = map
-        defaultCompassTop = map.uiSettings.compassMarginTop
     }
 
     /** The trip as last drawn, which a fit run after layout frames. */
@@ -955,23 +948,14 @@ private class AppliedTripInputs {
      * Fits the trip once the layout that the same change sets off has run: the sheet can grow in
      * that layout, and a fit taken before it would leave the trip under the sheet.
      */
-    fun fitAfterLayout(force: Boolean, obscured: () -> MapInsets) {
-        handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force, obscured()) } }
+    fun fitAfterLayout(force: Boolean) {
+        handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force) } }
     }
 
     /** Drops a fit still waiting on layout, whose map is going with the screen. */
     fun dispose() {
         handler.removeCallbacksAndMessages(null)
         map = null
-    }
-
-    /** Moves MapLibre's compass below what covers the map's top. */
-    fun clearCompass(obscuredTop: Int) {
-        val ui = map?.uiSettings ?: return
-        val default = defaultCompassTop ?: return
-        with(ui) {
-            setCompassMargins(compassMarginLeft, default + obscuredTop, compassMarginRight, compassMarginBottom)
-        }
     }
 }
 
@@ -1026,15 +1010,12 @@ internal fun MapLibreTripMap(
     onCenterSettled: (Coordinate) -> Unit = {},
     /** How much of the map the screen's own controls cover right now: every frame and centering
      *  keeps the trip out of it, and the credit and [controls] are lifted clear of it. */
-    obscured: () -> MapInsets = { MapInsets.NONE },
+    obscured: () -> MapInsets,
     modifier: Modifier = Modifier,
     controls: @Composable BoxScope.() -> Unit = {},
 ) {
     val applied = remember { AppliedTripInputs() }
     DisposableEffect(applied) { onDispose(applied::dispose) }
-    LaunchedEffect(applied) {
-        snapshotFlow { obscured().top }.collect(applied::clearCompass)
-    }
     // Both listeners are attached once to a map outliving recompositions — they must read the
     // current callbacks, or a press would land on whichever end was active when the map was built.
     val longPress by rememberUpdatedState(onLongPress)
@@ -1080,11 +1061,10 @@ internal fun MapLibreTripMap(
     }
     MapLibreStyledMap(
         modifier = modifier,
-        obscuredBottom = { obscured().bottom },
+        obscured = obscured,
         controls = controls,
         onMapReady = { map ->
             applied.attach(map)
-            applied.clearCompass(obscured().top)
             map.addOnCameraIdleListener {
                 val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
                 centerSettled(at.toCoordinate())
@@ -1179,7 +1159,7 @@ internal fun MapLibreTripMap(
             applied.markers = markers
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             applied.trip = trip
-            frameTripMap(map, trip, places, force = true, obscured())
+            frameTripMap(map, trip, places, force = true)
             // The opening frame lands before the idle listener is there to hear it, so where the map
             // came up is stated outright — otherwise nothing knows the centre until the first pan.
             map.cameraPosition.target?.let {
@@ -1204,15 +1184,13 @@ internal fun MapLibreTripMap(
             val frameAsked = applied.frameKey != frameKey
             applied.frameKey = frameKey
             applied.trip = trip
-            if (pinsMoved || frameAsked) applied.fitAfterLayout(force = frameAsked, obscured)
+            if (pinsMoved || frameAsked) applied.fitAfterLayout(force = frameAsked)
             if (applied.center !== center) {
                 applied.center = center
                 // The zoom is left where the user put it: they asked to go somewhere, not to see it
                 // at some particular scale, and a map that re-zooms on every tap fights the hand
                 // that framed it.
-                // The insets move on every frame of a sheet drag, and are read here only to place
-                // the camera, not to run this block again.
-                center?.let { centerOn(map, it.at.toLatLng(), Snapshot.withoutReadObservation(obscured)) }
+                center?.let { centerOn(map, it.at.toLatLng()) }
             }
             if (applied.touchingLines !== touchingLines) {
                 applied.touchingLines = touchingLines
@@ -1285,14 +1263,13 @@ private fun frameTripMap(
     trip: List<Coordinate>,
     places: List<OverviewPlace>,
     force: Boolean,
-    obscured: MapInsets,
 ) {
     val positions = trip.map { it.toLatLng() }
     if (positions.isEmpty()) {
-        if (force) frameAllPlaces(map, places, obscured)
+        if (force) frameAllPlaces(map, places)
         return
     }
-    if (!force && showsWell(map, positions, obscured)) return
+    if (!force && showsWell(map, positions)) return
     val framed = trip.singleOrNull()?.let { squareAround(it, LONE_END_REACH_M) } ?: positions
-    frameTo(map, framed, singlePointZoom = 9.0, obscured = obscured)
+    frameTo(map, framed, singlePointZoom = 9.0)
 }
