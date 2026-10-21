@@ -481,8 +481,9 @@ private fun TimelineListPage(
         }
     }
     val onDissolve = { plan: StaySuppress.Plan ->
-        viewModel.dissolveStay(plan)
-        undo.show(dissolvedMessage) { viewModel.undoDissolveStay(plan) }
+        viewModel.dissolveStay(plan) { deleted ->
+            undo.show(dissolvedMessage) { viewModel.restoreStay(deleted) }
+        }
     }
     Box(Modifier.fillMaxSize()) {
         // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading

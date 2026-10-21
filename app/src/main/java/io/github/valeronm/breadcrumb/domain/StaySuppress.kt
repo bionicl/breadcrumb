@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.domain
 
+import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 
 /**
@@ -9,25 +10,36 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
  */
 object StaySuppress {
 
-    /** Stable key for one stay — the same pair [TimelineJump.Visit] matches on. */
-    fun key(afterTrackId: Long, start: Long): String = "$afterTrackId:$start"
+    /** Pair identity survives backup import even when settling changes a track's bounds. */
+    data class Plan(val afterTrackId: Long, val laterTrackId: Long)
 
-    data class Plan(val afterTrackId: Long, val start: Long)
+    /** A zero date means permanently hidden, outside the local recovery bin. */
+    data class Deleted(val plan: Plan, val deletedAt: Long) {
+        fun recoverable(now: Long): Boolean =
+            deletedAt > 0 && now - deletedAt < DISCARDED_RETENTION_DAYS * 86_400_000L
+    }
+
+    fun visibleIntervals(
+        intervals: List<StayDeriver.Interval>,
+        successors: Map<Long, Long>,
+        hidden: Set<Plan>,
+    ): List<StayDeriver.Interval> = intervals.filterNot {
+        it is StayDeriver.Stay && successors[it.afterTrackId]?.let { next -> Plan(it.afterTrackId, next) in hidden } == true
+    }
 
     /**
-     * A plan to hide the stay after [anchorTrackId], or null when [TrackMerge] already offers a
+     * A plan to hide the stay after [before], or null when [TrackMerge] already offers a
      * merge or the stay is still open. When [TrackMerge.plan] would refuse (unlike activity or
      * writer, not because the stop is long) the reader may hide the row without joining tracks.
      */
     fun plan(
         before: TrackSummary,
         after: TrackSummary,
-        intervalStart: Long,
         intervalEnd: Long?,
         mergeOffered: Boolean,
     ): Plan? {
         if (mergeOffered || intervalEnd == null) return null
-        return Plan(afterTrackId = before.id, start = intervalStart)
+        return Plan(before.id, after.id)
     }
 
     fun plansByAnchor(
@@ -39,7 +51,7 @@ object StaySuppress {
             if (interval !is StayDeriver.Stay) continue
             val anchor = interval.afterTrackId
             val n = neighbors[anchor] ?: continue
-            plan(n.before, n.after, interval.start, interval.end, mergePlans[anchor] != null)
+            plan(n.before, n.after, interval.end, mergePlans[anchor] != null)
                 ?.let { put(anchor, it) }
         }
     }
