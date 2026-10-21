@@ -278,11 +278,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val clusterPlaces = PlaceResolver.resolveClusters(d.stays, d.derivation.clusters, d.places, d.cities)
         // observeSummaries returns newest first, so a reversed view is chronological without a
         // sort.
-        val neighbors = summaries.asReversed().zipWithNext()
-            .associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }
-
         // Decided over the intervals: the rows below are per-day slices, bounded by the display.
-        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
+        val mergePlans = mergePlansByAnchor(summaries, d)
         // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
         // day it landed.
         val zoneOfCluster = { id: Int? -> d.zoneOfCluster(id) }
@@ -591,6 +588,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repository.unmergeTracks(mergedId, plan.earlierId, plan.laterId)
         }
+    }
+
+    private fun mergePlansByAnchor(summaries: List<TrackSummary>, d: Derived): Map<Long, TrackMerge.Plan> {
+        val neighbors = summaries.asReversed().zipWithNext()
+            .associate { (a, b) -> a.id to TrackMerge.Neighbors(a, b) }
+        return TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
     }
 
     /**
