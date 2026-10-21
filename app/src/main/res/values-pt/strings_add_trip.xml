@@ -33,8 +33,8 @@
     <string name="addtrip_no_type">Ainda sem tipo de viagem</string>
     <string name="addtrip_departure_time_title">Hora de partida</string>
     <string name="addtrip_arrival_time_title">Hora de chegada</string>
+    <string name="addtrip_local_clock_note">Na hora local, %1$s em relação à sua</string>
 
     <string name="addtrip_pin_placed">Ponto colocado</string>
     <string name="addtrip_no_pin">Ainda sem ponto</string>
-    <string name="addtrip_local_clock">Horas no relógio local, %1$s do seu</string>
 </resources>

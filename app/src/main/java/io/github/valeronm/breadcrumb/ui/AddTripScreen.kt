@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -248,12 +247,10 @@ private fun TripDraft.storedRoute(): RoutedLeg? {
     return RoutedLeg(profile, from.at ?: return null, to.at ?: return null, edited.path, to.timeMs - from.timeMs)
 }
 
-/** One end's date or time being edited: which end, under which name, on whose clock, and where
- *  the picker opens ([TripEnd.pickerStart]). */
+/** One end's date or time being edited: which end, on whose clock, and where the picker opens
+ *  ([TripEnd.pickerStart]). */
 private class TimeEdit(
     val which: ManualPath.End,
-    /** The time picker's heading, whole rather than a noun the dialog appends "time" to. */
-    @StringRes val titleRes: Int,
     val zone: ZoneId,
     /** The date rather than the time. */
     val date: Boolean,
@@ -517,7 +514,7 @@ internal fun AddTripScreen(
     }
 
     fun editOrigin(date: Boolean) = TimeEdit(
-        ManualPath.End.ORIGIN, R.string.addtrip_departure_time_title, originZone, date,
+        ManualPath.End.ORIGIN, originZone, date,
         origin.pickerStart(originZone, noonOf(draft.day, originZone)),
         originDays,
     )
@@ -525,7 +522,7 @@ internal fun AddTripScreen(
     // An hour past the departure, on the arrival's own clock: the pickers open a short scroll from
     // any real arrival instead of at an arbitrary noon.
     fun editDestination(date: Boolean) = TimeEdit(
-        ManualPath.End.DESTINATION, R.string.addtrip_arrival_time_title, destinationZone, date,
+        ManualPath.End.DESTINATION, destinationZone, date,
         destination.pickerStart(
             destinationZone,
             departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
@@ -984,7 +981,29 @@ internal fun AddTripScreen(
                 )
                 TimePickerDialog(
                     onDismissRequest = closeDialogs,
-                    title = { Text(stringResource(edit.titleRes)) },
+                    title = {
+                        Column(Modifier.padding(bottom = 16.dp)) {
+                            Text(
+                                // Whole, rather than a noun the dialog appends "time" to.
+                                stringResource(
+                                    when (edit.which) {
+                                        ManualPath.End.ORIGIN -> R.string.addtrip_departure_time_title
+                                        ManualPath.End.DESTINATION -> R.string.addtrip_arrival_time_title
+                                    },
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // The hour typed here is read on the end's clock, not the reader's.
+                            zoneShiftLabel(edit.start.toInstant().toEpochMilli(), edit.zone, timelineZone())?.let {
+                                Text(
+                                    stringResource(R.string.addtrip_local_clock_note, it),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -1173,20 +1192,6 @@ private fun TripEndCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
-                }
-                // Which clock the pickers will write on, said before a time exists to carry the
-                // mark — as an offset from the reader's own, the way the timeline says it, never as
-                // a zone id. Gone once a time is set (the superscript above takes over), and absent
-                // entirely on the reader's own clock, where there is nothing to warn about.
-                if (pin != null && at == null) {
-                    zoneShiftLabel(System.currentTimeMillis(), zone, reader)?.let { shift ->
-                        Text(
-                            stringResource(R.string.addtrip_local_clock, shift),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
                 }
             }
         }
