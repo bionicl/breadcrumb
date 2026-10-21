@@ -17,7 +17,8 @@ object StaySuppress {
 
     /**
      * A plan to hide the stay after [anchorTrackId], or null when [TrackMerge] already offers a
-     * merge or the two tracks share an activity (nothing to dissolve separately from merge).
+     * merge or the stay is still open. When merge is refused — long stop, unlike writers, unlike
+     * activities — the reader may still hide the row without joining the tracks.
      */
     fun plan(
         before: TrackSummary,
@@ -27,7 +28,6 @@ object StaySuppress {
         mergeOffered: Boolean,
     ): Plan? {
         if (mergeOffered || intervalEnd == null) return null
-        if (before.activityType == after.activityType) return null
         return Plan(afterTrackId = before.id, start = intervalStart)
     }
 

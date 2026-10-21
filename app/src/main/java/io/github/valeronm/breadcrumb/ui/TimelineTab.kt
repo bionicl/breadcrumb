@@ -1208,8 +1208,8 @@ private fun StayRow(
 ) {
     val place = item.place
     val named = place?.isNamed == true
-    // Merge when the two tracks match; dissolve when they don't — either way the bracketing tracks
-    // stay separate on dissolve, and only a row with an offer is swipeable.
+    // Merge when offered; otherwise remove stop — bracketing tracks stay separate on dissolve,
+    // and only a row with an offer is swipeable.
     MergeSwipeable(item.merge, item.dissolve, shape, onMerge, onDissolve) {
         StayCard(item, shape, named, highlighted, zone, onClick)
     }

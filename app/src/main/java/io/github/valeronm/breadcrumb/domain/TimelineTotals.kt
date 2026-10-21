@@ -145,9 +145,9 @@ fun activityTotals(tracks: List<TrackSummary>, nowMs: Long): List<ActivityTotal>
  * shape. The floor is on the **summed** total, not on any one stop — several brief errands still
  * add up to an errand-shaped afternoon, which is the case that would be wrong to hide.
  *
- * **Not a sibling of [TrackMerge.MAX_INTERVAL_MS], which happens to hold the same number.** That one
- * bounds a *single* stay, being how long a stop may be and still be absorbed by merging the trips
- * either side; this bounds a *category's whole day*. Three mergeable two-minute stops clear this
+ * **Not a sibling of [TrackMerge.MAX_GAP_MS], which happens to hold the same number.** That one
+ * bounds a *gap* long enough that merging across it would claim a leg the recorder missed; this
+ * bounds a *category's whole day*. Three mergeable two-minute stops clear this
  * floor together and are meant to. Tying the two would silently make one quantity the other.
  */
 private const val REPORTED_TOTAL_FLOOR_MS = 5 * 60_000L

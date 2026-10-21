@@ -259,7 +259,7 @@ sealed interface TimelineItem {
         val place: PlaceResolver.ResolvedStay? = null,
         /** Non-null when this short same-activity stay can be closed by merging its two tracks. */
         val merge: TrackMerge.Plan? = null,
-        /** Non-null when different activities bracket this stay and it can be hidden without merging. */
+        /** Non-null when merge is not offered and this stay can be hidden without joining tracks. */
         val dissolve: StaySuppress.Plan? = null,
         override val zone: ZoneId? = null,
         /**
