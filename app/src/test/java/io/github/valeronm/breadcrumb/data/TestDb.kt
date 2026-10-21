@@ -70,6 +70,30 @@ class TestDb {
             source = PlaceOrigin.MANUAL.code,
         )
 
+    /** A fix every 10 s jittering ±15 m around [lat] at standstill Doppler speed. */
+    fun lingerPoints(trackId: Long, fromIndex: Int, count: Int, lat: Double) =
+        (0 until count).map { i ->
+            point(trackId, fromIndex + i, lat = lat + if (i % 2 == 0) 0.000135 else -0.000135)
+                .copy(speed = 0.1f)
+        }
+
+    /** 10 min of walking (840 m) then [lingerFixes] × 10 s lingering where the walk ended — the
+     *  AR-lag tail. Returns the track's raw end time (one fix per 10 s throughout). */
+    suspend fun addWalkThenLingerTail(id: Long, lingerFixes: Int = 36): Long {
+        repository.addPoints(
+            walkPoints(id, 0, 60, fromLat = 1.0) +
+                lingerPoints(id, 60, lingerFixes, lat = 1.0 + 60 * 0.000126),
+        )
+        return TEST_START + (60 + lingerFixes) * 10_000L
+    }
+
+    /** Every keep threshold off, for a case about something other than what a short track becomes. */
+    fun keepEveryTrack() {
+        Settings.setMinTrackDurationSec(context, 0)
+        Settings.setMinTrackLengthM(context, 0)
+        Settings.setMinTrackExtentM(context, 0)
+    }
+
     /**
      * A kept walk along the fixture's line, from [fromIndex] to [toIndex] — either direction, so a
      * walk home retraces the one out and its endpoints land in the other's clusters — offset

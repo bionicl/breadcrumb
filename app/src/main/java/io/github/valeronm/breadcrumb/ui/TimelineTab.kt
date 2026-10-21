@@ -59,7 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -531,12 +530,7 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 endZone = item.endZone,
                                 onOpen = { onOpen(item.summary.id) },
-                                onDelete = {
-                                    val id = item.summary.id
-                                    viewModel.delete(id) {
-                                        undo.show(deletedMessage) { viewModel.restoreTrack(id) }
-                                    }
-                                },
+                                onDelete = { undo.deleteTrack(viewModel, item.summary.id, deletedMessage) },
                                 // DEBUG: long-press replays the track through the Record tab's live view.
                                 onReplay = if (BuildConfig.DEV_TOOLS) {
                                     { onReplay(item.summary) }
@@ -658,16 +652,14 @@ private fun TimelineMapPage(
                     .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                 shape = groupedRowShape(0, 1),
             ) {
-                Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapLibreJourneyMap(
-                        lines = lines,
-                        places = mapPlaces,
-                        frameKey = day,
-                        linesComplete = lines.size == dayTracks.size,
-                        onOpenPlace = onOpenPlace,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                MapLibreJourneyMap(
+                    lines = lines,
+                    places = mapPlaces,
+                    frameKey = day,
+                    linesComplete = lines.size == dayTracks.size,
+                    onOpenPlace = onOpenPlace,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
@@ -1337,7 +1329,7 @@ internal fun StayCard(
         title = place?.name ?: stringResource(
             if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
         ),
-        titleColor = placeTitleColor(named),
+        titleColor = statedTitleColor(named),
         subtitle = buildAnnotatedString {
             append(bounds)
             if (reportableText != null) {
@@ -1562,7 +1554,7 @@ private fun GapPlaceLine(
             Text(
                 text = place.name ?: stringResource(R.string.timeline_unnamed_place),
                 style = MaterialTheme.typography.titleMedium,
-                color = placeTitleColor(named = place.isNamed),
+                color = statedTitleColor(stated = place.isNamed),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),

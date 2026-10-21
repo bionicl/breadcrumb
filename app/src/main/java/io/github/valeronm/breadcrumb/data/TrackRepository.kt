@@ -416,6 +416,23 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * on the row would discard real tracks as zero-length.
      */
     private fun keepVerdict(track: Track, startedAt: Long, endedAt: Long, stats: TrackStats.Stats): KeepRule.Verdict {
+        val judged = keepVerdictOf(startedAt, endedAt, stats)
+        val thresholds = judged.thresholds
+        DebugLog.i(
+            TAG,
+            "track ${track.id} (${track.activityType}): ${stats.pointCount} pts, " +
+                "${stats.distanceMeters.toInt()} m, ${judged.durationSec}s vs min " +
+                "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
+                (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
+                " -> ${judged.verdict.name.lowercase()}",
+        )
+        return judged.verdict
+    }
+
+    private class KeepJudgement(val verdict: KeepRule.Verdict, val durationSec: Long, val thresholds: KeepRule.Thresholds)
+
+    /** [keepVerdict]'s judgement without its log line, which records only the decisions written. */
+    private fun keepVerdictOf(startedAt: Long, endedAt: Long, stats: TrackStats.Stats): KeepJudgement {
         val durationSec = (endedAt - startedAt) / 1000
         val thresholds = KeepRule.Thresholds(
             minDurationSec = Settings.minTrackDurationSec(appContext),
@@ -430,15 +447,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             thresholds = thresholds,
             extent = { stats.extentMeters },
         )
-        DebugLog.i(
-            TAG,
-            "track ${track.id} (${track.activityType}): ${stats.pointCount} pts, " +
-                "${stats.distanceMeters.toInt()} m, ${durationSec}s vs min " +
-                "${thresholds.minLengthM} m / ${thresholds.minDurationSec}s" +
-                (if (thresholds.minExtentM > 0) " / extent ${thresholds.minExtentM} m" else "") +
-                " -> ${verdict.name.lowercase()}",
-        )
-        return verdict
+        return KeepJudgement(verdict, durationSec, thresholds)
     }
 
     /**
@@ -638,9 +647,71 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
 
     /** What a [splitTrack] did, and all [unsplitTracks] needs to take it back. */
     data class Split(
-        /** The new track that took everything from the cut onwards. The first half is the original
-         *  row, which keeps its id. */
+        /** The new track that took everything from the cut onwards; the original row is the first
+         *  half, keeping its id, even where a trim discarded it. */
         val secondId: Long,
+        /** One half was discarded, which makes the cut a trim. */
+        val trimmed: Boolean,
+    )
+
+    /** One half of a cut as [splitTrack] leaves it: settled, counted and judged by the keep rule. */
+    data class SplitHalf(
+        val startedAt: Long,
+        val endedAt: Long,
+        val goodPoints: Int,
+        val distanceMeters: Double,
+        val kept: Boolean,
+    )
+
+    data class SplitPreview(val plan: TrackSplit.Plan, val first: SplitHalf, val second: SplitHalf) {
+        /** Exactly one half stays: the cut trims the trip. */
+        val trims: Boolean get() = first.kept != second.kept
+
+        /** Neither half would stay on the timeline: [splitTrack] refuses, deleting the trip being that action. */
+        val dropsBoth: Boolean get() = !first.kept && !second.kept
+    }
+
+    /**
+     * What [splitTrack] at [atTs] would leave, computed by the function the split writes from, so a
+     * confirmation shows what lands. [points] are the track's, good and ignored, as the caller already
+     * holds them — the write re-reads its own. Null where [splitTrack] would refuse for any reason
+     * other than [SplitPreview.dropsBoth].
+     */
+    suspend fun previewSplit(trackId: Long, atTs: Long, points: List<TrackPoint>): SplitPreview? {
+        val track = closedTrack(trackId) ?: return null
+        return withContext(Dispatchers.Default) { previewOf(track, points, atTs) }
+    }
+
+    private fun previewOf(track: Track, points: List<TrackPoint>, atTs: Long): SplitPreview? {
+        val endedAt = track.endedAt ?: return null
+        val plan = TrackSplit.plan(points, atTs) ?: return null
+        val (before, after) = points.partition { it.timestamp < atTs }
+        return SplitPreview(
+            plan = plan,
+            first = halfOf(firstRowOf(track, plan), before),
+            second = halfOf(secondRowOf(track, plan, endedAt), after),
+        )
+    }
+
+    /** Settled as [TrackSettler.settleAndRefresh] will settle the stored half, and judged as a finish is. */
+    private fun halfOf(half: Track, points: List<TrackPoint>): SplitHalf {
+        val settled = settler.settleForInsert(half, points)
+        val span = settled.bounds
+        val stats = TrackStats.of(settled.points)
+        val kept = keepVerdictOf(span.startedAt, span.endedAt, stats).verdict == KeepRule.Verdict.KEEP
+        return SplitHalf(span.startedAt, span.endedAt, stats.pointCount, stats.distanceMeters, kept)
+    }
+
+    // Nothing states where the cut was.
+    private fun firstRowOf(track: Track, plan: TrackSplit.Plan) = track.copy(endedAt = plan.firstEndTs, endPlaceId = null)
+
+    private fun secondRowOf(track: Track, plan: TrackSplit.Plan, endedAt: Long) = Track(
+        activityType = track.activityType,
+        startedAt = plan.secondStartTs,
+        endedAt = endedAt,
+        // The half is the same recording, cut: a split never introduces a writer.
+        source = track.source,
+        endPlaceId = track.endPlaceId,
     )
 
     /**
@@ -651,13 +722,14 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * Recently deleted (two rows become one; the originals are the only record of the pair), but a
      * split's fixes all survive on one row or the other, so a copied original would be a redundant
      * third row over a period two live tracks already cover — and restoring it (offered for
-     * everything on that screen) would lay a duplicate journey over both halves. Nothing is
-     * discarded, and [unsplitTracks] hands the fixes straight back.
+     * everything on that screen) would lay a duplicate journey over both halves. [unsplitTracks]
+     * hands the fixes straight back.
      *
-     * Two things deliberately don't run. The keep verdict: the user chose this cut, so a half below
-     * the thresholds stays on the timeline rather than being silently filed in Recently deleted,
-     * undoing half the action behind their back — only the floor below is enforced, since a
-     * single-point half is not a track anyone can look at. And marking a segment break: a break says
+     * Each half is judged as [previewSplit] judged it, by the keep rule a finish uses: one that fails
+     * it is discarded at the cut rather than purged, so the undo has a row to bring back — a cut near
+     * an end is a trim. It is discarded as [DiscardReason.DELETED] because a return inside the stitch
+     * window may reopen only a [DiscardReason.FILTERED] discard ([StitchRule]), which would put the
+     * piece the user cut off back on the track. A segment break deliberately isn't marked: a break says
      * the recorder wasn't watching across a leg ([SegmentBreaks]), but here there is no leg — the
      * fixes either side of the cut land on different tracks, and that inter-track gap is exactly
      * what puts the stop on the timeline. Both halves do go through the overrun rule, so a cut at a
@@ -666,7 +738,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * asymmetrically, as [EdgeStayDetector] finds a stay of about a minute at a track's end but
      * needs several times that at its start, so a cut through a brief stop comes off the arrival
      * side while the departure side keeps its parked head on the path. Returns null — writing
-     * nothing — if the track is gone, still recording, or [TrackSplit] refuses the cut.
+     * nothing — if the track is gone, still recording, has no fix on one side of the cut, or would
+     * lose both halves.
      */
     suspend fun splitTrack(trackId: Long, atTs: Long): Split? {
         return db.withTransaction {
@@ -674,40 +747,37 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             val track = closedTrack(trackId) ?: return@withTransaction null
             val endedAt = track.endedAt ?: return@withTransaction null
             val points = dao.allPointsFor(trackId)
-            val plan = TrackSplit.plan(points, atTs) ?: return@withTransaction null
+            val preview = previewOf(track, points, atTs) ?: return@withTransaction null
+            if (preview.dropsBoth) return@withTransaction null
+            val plan = preview.plan
             val (before, after) = points.partition { it.timestamp < atTs }
 
             // Each half keeps the original's outer bound and takes the raw fix at the cut as its
-            // inner one; settleTrack below settles all four against the fixes each half keeps.
+            // inner one; settleAndRefresh below settles all four against the fixes each half keeps.
             // Built once and re-read below with its id: a second description of the same row could
             // disagree with this one, and `track.copy` would quietly carry the first half's
             // aggregates onto it — numbers that are not this row's and that nothing would contradict.
-            val secondRow = Track(
-                activityType = track.activityType,
-                startedAt = plan.secondStartTs,
-                endedAt = endedAt,
-                // The half is the same recording, cut: a split never introduces a writer.
-                source = track.source,
-                endPlaceId = track.endPlaceId,
-            )
+            val secondRow = secondRowOf(track, plan, endedAt)
             val secondId = dao.insertTrack(secondRow)
             dao.movePointsFrom(secondId, trackId, atTs)
-            // Nothing states where the cut was.
             dao.closeTrackAtPlace(trackId, plan.firstEndTs, endPlaceId = null)
             // The points are the lists already in hand: the move rewrote one column and left every
             // row id, timestamp and flag alone, so re-reading them would buy nothing.
-            val first = track.copy(endedAt = plan.firstEndTs, endPlaceId = null)
+            val first = firstRowOf(track, plan)
             val second = secondRow.copy(id = secondId)
             // Recomputed per half, not divided: each is its own journey now.
             settler.settleAndRefresh(first, plan.firstEndTs, before, totalsStale = true)
             settler.settleAndRefresh(second, endedAt, after, totalsStale = true)
+            val now = System.currentTimeMillis()
+            if (!preview.first.kept) dao.setDiscarded(trackId, now, DiscardReason.DELETED.code)
+            if (!preview.second.kept) dao.setDiscarded(secondId, now, DiscardReason.DELETED.code)
             derivation.reknit(listOf(trackId, secondId))
             DebugLog.i(
                 TAG,
                 "track $trackId split at $atTs: kept ${before.size} points, " +
                     "moved ${after.size} to new track $secondId",
             )
-            Split(secondId = secondId)
+            Split(secondId = secondId, trimmed = preview.trims)
         }
     }
 
@@ -727,6 +797,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
             // a stop and a return is exactly what reopens it.
             val second = closedTrack(split.secondId) ?: return@withTransaction
             val rejoinedEnd = checkNotNull(second.endedAt)
+            // A first half the cut discarded comes back with the rest.
+            if (original.discardedAt != null) dao.restoreTrack(originalId)
             // Points first: purging the row while they still hang off it would cascade them away.
             dao.movePointsFrom(originalId, split.secondId, Long.MIN_VALUE)
             dao.purgeTrack(split.secondId)

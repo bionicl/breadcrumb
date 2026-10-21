@@ -26,15 +26,16 @@
     <string name="addtrip_pick_date">Data</string>
     <string name="addtrip_pick_time">Hora</string>
     <string name="addtrip_change_place">Mudar o local</string>
+    <string name="addtrip_change_type">Mudar o tipo de viagem</string>
     <string name="addtrip_estimated">Estimada pelas estradas</string>
     <string name="addtrip_estimated_was">Estimada pelas estradas · era %s</string>
     <string name="addtrip_restore_time">Repor</string>
     <string name="addtrip_estimate">Estimar</string>
-    <string name="addtrip_choose_type">Escolha o tipo de viagem</string>
+    <string name="addtrip_no_type">Ainda sem tipo de viagem</string>
     <string name="addtrip_departure_time_title">Hora de partida</string>
     <string name="addtrip_arrival_time_title">Hora de chegada</string>
+    <string name="addtrip_local_clock_note">Na hora local, %1$s em relação à sua</string>
 
     <string name="addtrip_pin_placed">Ponto colocado</string>
     <string name="addtrip_no_pin">Ainda sem ponto</string>
-    <string name="addtrip_local_clock">Horas no relógio local, %1$s do seu</string>
 </resources>

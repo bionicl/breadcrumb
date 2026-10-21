@@ -35,13 +35,16 @@
     <string name="addtrip_pick_date">Date</string>
     <string name="addtrip_pick_time">Time</string>
     <string name="addtrip_change_place">Change place</string>
+    <string name="addtrip_change_type">Change trip type</string>
     <string name="addtrip_estimated">Estimated along roads</string>
     <string name="addtrip_estimated_was">Estimated along roads · was %s</string>
     <string name="addtrip_restore_time">Restore</string>
     <string name="addtrip_estimate">Estimate</string>
-    <string name="addtrip_choose_type">Choose the trip type</string>
+    <string name="addtrip_no_type">No trip type yet</string>
     <string name="addtrip_departure_time_title">Departure time</string>
     <string name="addtrip_arrival_time_title">Arrival time</string>
+    <!-- The offset is rendered as "+2h" style text, the way the timeline says it. -->
+    <string name="addtrip_local_clock_note">On the local clock, %1$s from yours</string>
 
     <!--
       What a trip end is called before anything can name it. A *point*, not a pin: these two become
@@ -49,6 +52,4 @@
     -->
     <string name="addtrip_pin_placed">Point placed</string>
     <string name="addtrip_no_pin">No point yet</string>
-    <!-- The offset is rendered as "+2h" style text, the way the timeline says it. -->
-    <string name="addtrip_local_clock">Times on the local clock, %1$s from yours</string>
 </resources>

@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -53,7 +54,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -63,6 +63,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackQuality
+import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -75,9 +76,9 @@ import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSettle
-import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -94,11 +95,14 @@ internal fun TrackDetailScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     /**
-     * Cut this track in two at the given timestamp; the caller performs the split, offers the undo
-     * and closes this screen. Null where splitting doesn't apply, and required rather than
+     * Cut this track at the given timestamp — a split, or a trim where one half is not kept; the
+     * caller performs it, offers the undo and closes this screen. Null where splitting doesn't apply, and required rather than
      * defaulted so that a new caller has to say which it is instead of inheriting silence.
      */
     onSplit: ((Long) -> Unit)?,
+    /** Delete this track, offered where a cut would discard both halves; the caller offers the undo
+     *  and closes this screen. */
+    onDelete: (() -> Unit)?,
     /**
      * Open the trip form on this track — offered only for a manual one, whose whole content is the
      * two ends the form asks for. Null where the caller has nowhere to open it, and undefaulted for
@@ -162,10 +166,9 @@ internal fun TrackDetailScreen(
         )
     }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is
-    // the same distances whatever metric is displayed, and the graph, the map's colors and the
-    // split preview are all built from it. Switching the metric then re-runs only the ramp, not an
-    // ellipsoidal distance per point. Hoisted this high because the split dialog is a sibling of
-    // the Scaffold, not part of the column that draws the track.
+    // the same distances whatever metric is displayed, and the graph and the map's colors are both
+    // built from it. Switching the metric then re-runs only the ramp, not an ellipsoidal distance
+    // per point.
     val seams = remember(points) { TrackQuality.seams(points.orEmpty()) }
     val activity = remember(summary) {
         summary?.let { ActivityType.ofName(it.activityType) }
@@ -186,6 +189,16 @@ internal fun TrackDetailScreen(
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
     var showTypeDialog by remember(trackId) { mutableStateOf(false) }
     var showSplitDialog by remember(trackId) { mutableStateOf(false) }
+    // The fix a gesture last ended on, and what a cut there does, worked out off the main thread —
+    // a newer gesture's key cancels the older's work. Indices into the same list as the selection,
+    // so keyed alike.
+    var offeredCut by remember(points) { mutableStateOf<Int?>(null) }
+    val cutState by produceState<CutState?>(null, offeredCut, trackPoints) {
+        val index = offeredCut ?: return@produceState
+        val all = trackPoints?.all ?: return@produceState
+        val cutTs = points?.getOrNull(index)?.timestamp ?: return@produceState
+        value = CutState(index, viewModel.previewSplit(trackId, cutTs, all))
+    }
     // Whether this track can be cut at all — a caller that handles the split, and a track that has
     // finished, since a still-recording one's last edge is still moving.
     val splittable = onSplit != null && summary?.endedAt != null
@@ -355,13 +368,11 @@ internal fun TrackDetailScreen(
                                     selectedIndex = selectedIndex,
                                     onSelect = { selectedIndex = it },
                                     // The cut is offered on the scrubber, beside the fix it would
-                                    // cut at. Null where splitting doesn't apply at all.
-                                    onSplitRequested = { showSplitDialog = true }.takeIf { splittable },
-                                    // Both halves of "can this be cut" stay here, with the track
-                                    // they are about: the plot renders the offer it is handed.
-                                    canCutAt = { index ->
-                                        TrackSplit.isLegalCut(index, (points?.size ?: 0) - index)
-                                    },
+                                    // cut at; what it does is worked out here, with the track it
+                                    // is about, and the plot renders the offer it is handed.
+                                    cut = cutState,
+                                    onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
+                                    onCut = { showSplitDialog = true },
                                     modifier = Modifier.fillMaxWidth().height(130.dp),
                                 )
                             }
@@ -386,95 +397,132 @@ internal fun TrackDetailScreen(
         }
     }
 
-    SplitConfirmation(
-        load = trackPoints,
-        seams = seams,
-        summary = summary,
-        // Read only while the dialog is up: the scrubber writes the selection per drag event, so a
-        // read in this scope would recompose the whole Scaffold on every touch move.
-        cutIndex = if (showSplitDialog) selectedIndex else null,
+    CutConfirmation(
+        // Read only while the dialog is up, so a gesture's result recomposes no more than the graph.
+        preview = if (showSplitDialog) cutState?.preview else null,
+        original = summary,
         zone = startZone,
         onSplit = onSplit,
+        onDelete = onDelete,
         onDismiss = { showSplitDialog = false },
     )
 }
 
 /**
- * Confirm a split, showing both halves as they will read on the timeline. Reversible from the undo
- * snackbar, yet the one action here turning one track into two, so it asks first. Draws nothing
- * until every piece of a legal cut is present — hence the preconditions here, not at the call site:
- * a non-null [cutIndex] (dialog up on a selected point), a finished track, a willing caller, and a
- * plan [TrackSplit] accepts.
+ * Confirm a cut as what it does, off the [preview] the scrubber's offer already worked out — the
+ * function the split writes from, so what this shows is what lands. A cut keeping both halves is a
+ * split; one keeping a single half is a trim of the [original] trip, stated as how much shorter it
+ * gets at that end, the discarded half being only how a trim is stored; one keeping neither does
+ * nothing deleting the trip doesn't, so that is what it offers.
  */
 @Composable
-private fun SplitConfirmation(
-    load: TrackPoints?,
-    seams: TrackQuality.Seams,
-    summary: TrackSummary?,
-    cutIndex: Int?,
-    /** The clock the cut and both halves are stated on — the track's start, as the graph's axis
+private fun CutConfirmation(
+    preview: TrackRepository.SplitPreview?,
+    original: TrackSummary?,
+    /** The clock the cut and the halves are stated on — the track's start, as the graph's axis
      *  is: a cut is a point on that axis, not an arrival. */
     zone: ZoneId,
     onSplit: ((Long) -> Unit)?,
+    onDelete: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
-    if (load == null || cutIndex == null || onSplit == null) return
-    if (summary == null) return
-    val trackEnd = summary.endedAt ?: return
-    // The plan runs once per dialog open rather than once per scrub tick.
-    val plan = remember(load, cutIndex) {
-        val cutTs = load.good.getOrNull(cutIndex)?.timestamp ?: return@remember null
-        TrackSplit.plan(load.all, cutTs)
-    } ?: return
-    // The legs either side of the cut, off the walk the screen already did. The leg *across* the cut
-    // is in neither, because after the split it stops being a leg at all — it is the gap between two
-    // tracks. A half whose new inner edge turns out to hold an overrun ends up marginally shorter
-    // than this, the fixes still on it but off its path.
-    val firstMeters = remember(seams, cutIndex) { (1 until cutIndex).sumOf { seams.meters[it] } }
-    val secondMeters = remember(seams, cutIndex) {
-        (cutIndex + 1 until seams.points.size).sumOf { seams.meters[it] }
-    }
+    if (preview == null || original == null || onSplit == null) return
+    val originalEnd = original.endedAt ?: return
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     // All of these resolve before the builders below, none of which is a composable scope.
     val readerClock = LocalReaderClock.current
-    val splitAt = annotatedStringResource(
-        R.string.track_split_at,
-        markedTime(plan.cutTs, zone, reader, shiftColor, readerClock),
-    )
-    val firstPoints = pluralStringResource(R.plurals.track_points, plan.firstGoodPoints, plan.firstGoodPoints)
-    val secondPoints =
-        pluralStringResource(R.plurals.track_points, plan.secondGoodPoints, plan.secondGoodPoints)
-    val firstDistance = distanceText(firstMeters)
-    val secondDistance = distanceText(secondMeters)
-    fun half(from: Long, to: Long, points: String, distance: String) = buildAnnotatedString {
-        appendTime(from, zone, reader, shiftColor, readerClock)
-        append(" – ")
-        appendTime(to, zone, reader, shiftColor, readerClock)
-        append(" · $distance · $points")
+
+    @Composable
+    fun Span(half: TrackRepository.SplitHalf) {
+        val distance = fineDistanceText(half.distanceMeters)
+        Text(
+            buildAnnotatedString {
+                appendTime(half.startedAt, zone, reader, shiftColor, readerClock)
+                append(" – ")
+                appendTime(half.endedAt, zone, reader, shiftColor, readerClock)
+                append(" · $distance")
+            },
+        )
     }
+
+    @Composable
+    fun Note(text: String) = Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val trimmedStart = preview.trims && !preview.first.kept
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Filled.ContentCut, contentDescription = null) },
         title = {
-            Text(splitAt)
+            Text(
+                when {
+                    preview.dropsBoth -> AnnotatedString(stringResource(R.string.track_split_drops_both_title))
+                    preview.trims -> AnnotatedString(
+                        stringResource(if (trimmedStart) R.string.track_trim_start_title else R.string.track_trim_end_title),
+                    )
+                    else -> annotatedStringResource(
+                        R.string.track_split_at,
+                        markedTime(preview.plan.cutTs, zone, reader, shiftColor, readerClock),
+                    )
+                },
+            )
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(half(summary.startedAt, plan.firstEndTs, firstPoints, firstDistance))
-                Text(half(plan.secondStartTs, trackEnd, secondPoints, secondDistance))
-                Text(
-                    stringResource(R.string.track_split_explainer),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                when {
+                    preview.dropsBoth -> {
+                        Span(preview.first)
+                        Span(preview.second)
+                        Note(stringResource(R.string.track_split_drops_both_explainer))
+                    }
+                    preview.trims -> {
+                        val trip = if (trimmedStart) preview.second else preview.first
+                        Span(trip)
+                        val shorter = fineDistanceText((original.distanceMeters - trip.distanceMeters).coerceAtLeast(0.0))
+                        val moved = if (trimmedStart) trip.startedAt - original.startedAt else originalEnd - trip.endedAt
+                        // Under a minute the duration would print as "0m", so only the distance is said.
+                        val change = StayDeriver.reportable(moved)?.let { movedMs ->
+                            stringResource(
+                                if (trimmedStart) R.string.track_trim_starts_later else R.string.track_trim_ends_earlier,
+                                durationText(movedMs),
+                                shorter,
+                            )
+                        } ?: stringResource(
+                            if (trimmedStart) R.string.track_trim_shorter_start else R.string.track_trim_shorter_end,
+                            shorter,
+                        )
+                        Text(change)
+                        Note(stringResource(R.string.track_trim_explainer))
+                    }
+                    else -> {
+                        Span(preview.first)
+                        // The time the two trips leave between them, stated only where the
+                        // timeline's stay row would print a duration.
+                        StayDeriver.reportable(preview.second.startedAt - preview.first.endedAt)?.let {
+                            Note(stringResource(R.string.track_split_gap, durationText(it)))
+                        }
+                        Span(preview.second)
+                        Note(stringResource(R.string.track_split_explainer))
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                onDismiss()
-                onSplit(plan.cutTs)
-            }) { Text(stringResource(R.string.track_split_confirm)) }
+            when {
+                !preview.dropsBoth -> TextButton(onClick = {
+                    onDismiss()
+                    onSplit(preview.plan.cutTs)
+                }) {
+                    Text(stringResource(if (preview.trims) R.string.track_trim_confirm else R.string.track_split_confirm))
+                }
+                onDelete != null -> TextButton(onClick = {
+                    onDismiss()
+                    onDelete()
+                }) { Text(stringResource(R.string.common_delete)) }
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
@@ -587,23 +635,40 @@ private fun MetricPlot(
     )
 }
 
+/** What a cut at [index] does; [preview] is null where no fix lies before it, leaving nothing to
+ *  cut off. */
+private class CutState(val index: Int, val preview: TrackRepository.SplitPreview?)
+
 /**
- * The cut on offer at the scrubbed fix: what is there, and the action on it. Shown only between
- * gestures (see `offerCut`), and **disabled rather than absent** where the cut is illegal — a rule
- * the user meets by aiming at it is worth stating, and an offer that simply fails to appear reads
- * as a missed gesture.
+ * The cut on offer at the scrubbed fix: what is there, and what a tap does — split, trim, or a cut
+ * too short to keep either half, still tappable so its dialog can say why and offer the delete it
+ * amounts to. Shown only between gestures (see `offerCut`), and **disabled rather than absent**
+ * where nothing lies before the fix — a rule the user meets by aiming at it is worth stating, and an
+ * offer that simply fails to appear reads as a missed gesture.
  */
 @Composable
-private fun CutOffer(reading: AnnotatedString, canCut: Boolean, onCut: () -> Unit, modifier: Modifier) {
-    val actionColor =
-        if (canCut) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+private fun CutOffer(reading: AnnotatedString, state: CutState?, onCut: () -> Unit, modifier: Modifier) {
+    val preview = state?.preview
+    val label = when {
+        state == null -> null
+        preview == null -> R.string.track_split_too_close
+        preview.dropsBoth -> R.string.track_split_too_short
+        preview.trims -> R.string.track_trim_here
+        else -> R.string.track_split_here
+    }
+    val tappable = preview != null
+    val actionColor = if (tappable && !preview.dropsBoth) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
     // The surface every other thing that floats over this screen's map already wears — the legends
     // and the ramp — so what it reads against is a property of the app rather than of this one card.
     // The clip is what keeps the ripple inside those corners; it takes the surface's own shape.
     LegendSurface(
         modifier
             .clip(legendShape)
-            .clickable(enabled = canCut, onClick = onCut),
+            .clickable(enabled = tappable, onClick = onCut),
     ) {
         Text(
             reading,
@@ -611,18 +676,18 @@ private fun CutOffer(reading: AnnotatedString, canCut: Boolean, onCut: () -> Uni
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Filled.ContentCut,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = actionColor,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                stringResource(if (canCut) R.string.track_split_here else R.string.track_split_too_close),
-                style = MaterialTheme.typography.labelMedium,
-                color = actionColor,
-            )
+            if (label == null) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    Icons.Filled.ContentCut,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = actionColor,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = actionColor)
+            }
         }
     }
 }
@@ -638,11 +703,13 @@ private fun MetricGraph(
     graph: MetricGraphData,
     selectedIndex: Int?,
     onSelect: (Int?) -> Unit,
-    /** Open the split confirmation for the scrubbed fix; null where the track can't be cut. */
-    onSplitRequested: (() -> Unit)?,
-    /** Whether a cut at this index is one the repository would accept — the caller's rule, since
-     *  the track it applies to is the caller's, not the plot's. */
-    canCutAt: (Int) -> Boolean,
+    /** What a cut at the selection does, as far as the caller has worked it out. */
+    cut: CutState?,
+    /** Raised when a gesture ends on a fix, for the caller to work out [cut] there; null where the
+     *  track can't be cut. */
+    onCutOffered: ((Int) -> Unit)?,
+    /** Open the cut's confirmation. */
+    onCut: () -> Unit,
     /** The clock the time axis is read on — **the track's start**, even where it ended on another.
      *  The axis is one continuum, and labelling its far end on the arrival's clock would make it
      *  read as non-monotonic; the header above states both ends, which is where the crossing shows. */
@@ -791,7 +858,8 @@ private fun MetricGraph(
                             graph.points[sel].timestamp, zone, reader, shiftColor, readerClock,
                         )
                     }
-                    if (offerCut && onSplitRequested != null) {
+                    if (offerCut && onCutOffered != null) {
+                        LaunchedEffect(sel) { onCutOffered(sel) }
                         // Beside the cut line, never over it: the line is what the offer is about,
                         // and a card on top of it hides the answer to "where exactly". It takes the
                         // roomier side, so the cursor's own half decides — and each side is placed
@@ -801,8 +869,8 @@ private fun MetricGraph(
                         val gap = 10.dp
                         CutOffer(
                             reading = reading,
-                            canCut = canCutAt(sel),
-                            onCut = onSplitRequested,
+                            state = cut?.takeIf { it.index == sel },
+                            onCut = onCut,
                             modifier = if (cursor < plotWidth / 2) {
                                 Modifier.align(Alignment.CenterStart).padding(start = cursor + gap, end = gap)
                             } else {

@@ -748,6 +748,7 @@ private fun DiscardedTrackOverlay(
             // No splitting or editing here: these tracks are on their way out of the timeline, not
             // being organized on it. A deleted trip is restored first and edited after.
             onSplit = null,
+            onDelete = null,
             onEditTrip = null,
         )
     }
@@ -767,6 +768,8 @@ private fun MainDestinationOverlay(
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
     val splitUndoMessage = stringResource(R.string.undo_track_split)
+    val trimUndoMessage = stringResource(R.string.undo_track_trimmed)
+    val deletedUndoMessage = stringResource(R.string.timeline_undo_deleted)
     OverlayFrame(layer) { rendered ->
         when (rendered) {
             is MainDestination.TrackDetail -> {
@@ -781,8 +784,14 @@ private fun MainDestinationOverlay(
                     onSplit = { atTs ->
                         val trackId = rendered.id
                         viewModel.splitTrack(trackId, atTs) { split ->
-                            undo.show(splitUndoMessage) { viewModel.unsplitTracks(trackId, split) }
+                            undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
+                                viewModel.unsplitTracks(trackId, split)
+                            }
                         }
+                        layer.dismiss()
+                    },
+                    onDelete = {
+                        undo.deleteTrack(viewModel, rendered.id, deletedUndoMessage)
                         layer.dismiss()
                     },
                     // The form stacks *on* this screen, so it stays open underneath and shows the

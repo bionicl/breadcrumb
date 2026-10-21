@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -121,6 +121,9 @@ private val MANUAL_TRIP_TYPES = listOf(
 )
 
 private const val HOUR_MS = 3_600_000L
+
+/** Material's icon size, which its library keeps internal. */
+private val GlyphSize = 24.dp
 
 /** Where an empty end's pickers open: noon of [day] when the Timeline supplied the day the user
  *  was looking at, today's noon with nothing better to go on. */
@@ -248,12 +251,10 @@ private fun TripDraft.storedRoute(): RoutedLeg? {
     return RoutedLeg(profile, from.at ?: return null, to.at ?: return null, edited.path, to.timeMs - from.timeMs)
 }
 
-/** One end's date or time being edited: which end, under which name, on whose clock, and where
- *  the picker opens ([TripEnd.pickerStart]). */
+/** One end's date or time being edited: which end, on whose clock, and where the picker opens
+ *  ([TripEnd.pickerStart]). */
 private class TimeEdit(
     val which: ManualPath.End,
-    /** The time picker's heading, whole rather than a noun the dialog appends "time" to. */
-    @StringRes val titleRes: Int,
     val zone: ZoneId,
     /** The date rather than the time. */
     val date: Boolean,
@@ -517,7 +518,7 @@ internal fun AddTripScreen(
     }
 
     fun editOrigin(date: Boolean) = TimeEdit(
-        ManualPath.End.ORIGIN, R.string.addtrip_departure_time_title, originZone, date,
+        ManualPath.End.ORIGIN, originZone, date,
         origin.pickerStart(originZone, noonOf(draft.day, originZone)),
         originDays,
     )
@@ -525,7 +526,7 @@ internal fun AddTripScreen(
     // An hour past the departure, on the arrival's own clock: the pickers open a short scroll from
     // any real arrival instead of at an arbitrary noon.
     fun editDestination(date: Boolean) = TimeEdit(
-        ManualPath.End.DESTINATION, R.string.addtrip_arrival_time_title, destinationZone, date,
+        ManualPath.End.DESTINATION, destinationZone, date,
         destination.pickerStart(
             destinationZone,
             departMs?.let { Instant.ofEpochMilli(it + HOUR_MS).atZone(destinationZone) }
@@ -604,7 +605,8 @@ internal fun AddTripScreen(
                     TripLegRow(
                         shape = groupedRowShape(1, 3),
                         activity = activity,
-                        onClick = { choosingType = true },
+                        onShow = { frameKey++ },
+                        onChangeType = { choosingType = true },
                         lengthM = leg?.lengthM ?: origin.pin?.let { from ->
                             destination.pin?.let { to -> ManualPath.lengthM(listOf(from, to), AndroidDistance) }
                         },
@@ -984,7 +986,29 @@ internal fun AddTripScreen(
                 )
                 TimePickerDialog(
                     onDismissRequest = closeDialogs,
-                    title = { Text(stringResource(edit.titleRes)) },
+                    title = {
+                        Column(Modifier.padding(bottom = 16.dp)) {
+                            Text(
+                                // Whole, rather than a noun the dialog appends "time" to.
+                                stringResource(
+                                    when (edit.which) {
+                                        ManualPath.End.ORIGIN -> R.string.addtrip_departure_time_title
+                                        ManualPath.End.DESTINATION -> R.string.addtrip_arrival_time_title
+                                    },
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // The hour typed here is read on the end's clock, not the reader's.
+                            zoneShiftLabel(edit.start.toInstant().toEpochMilli(), edit.zone, timelineZone())?.let {
+                                Text(
+                                    stringResource(R.string.addtrip_local_clock_note, it),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    },
                     confirmButton = {
                         TextButton(
                             onClick = {
@@ -1103,7 +1127,7 @@ private fun TripEndCard(
                         Text(
                             title,
                             style = MaterialTheme.typography.titleMedium,
-                            color = placeTitleColor(mark.name != null),
+                            color = statedTitleColor(mark.name != null),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -1174,20 +1198,6 @@ private fun TripEndCard(
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
                 }
-                // Which clock the pickers will write on, said before a time exists to carry the
-                // mark — as an offset from the reader's own, the way the timeline says it, never as
-                // a zone id. Gone once a time is set (the superscript above takes over), and absent
-                // entirely on the reader's own clock, where there is nothing to warn about.
-                if (pin != null && at == null) {
-                    zoneShiftLabel(System.currentTimeMillis(), zone, reader)?.let { shift ->
-                        Text(
-                            stringResource(R.string.addtrip_local_clock, shift),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
-                }
             }
         }
     }
@@ -1198,8 +1208,9 @@ private fun TripEndCard(
 private fun TripLegRow(
     shape: RoundedCornerShape,
     activity: ActivityType?,
-    /** Opens the type picker: the row says what the trip was, so it is where that is changed. */
-    onClick: () -> Unit,
+    /** Frames the whole trip, as tapping an end's card centers on that end. */
+    onShow: () -> Unit,
+    onChangeType: () -> Unit,
     lengthM: Double?,
     departMs: Long?,
     departZone: ZoneId,
@@ -1219,12 +1230,16 @@ private fun TripLegRow(
         icon = activityIcon(activity),
         disc = activityDiscStyle(activity),
         iconDescription = name,
-        title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_choose_type),
-        titleColor = MaterialTheme.colorScheme.onSurface,
+        title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_no_type),
+        titleColor = statedTitleColor(stated = activity != null),
         subtitle = span,
-        onClick = onClick,
+        onClick = onShow,
         outlined = activity == null,
-        // The whole row is the control; the icon only says so, as the ends' change icons do.
-        trailing = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+        trailing = {
+            // Into the row's end padding by its touch halo, so the glyph keeps the row's 16 dp inset.
+            IconButton(onClick = onChangeType, modifier = Modifier.offset(x = touchHalo(GlyphSize))) {
+                Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.addtrip_change_type))
+            }
+        },
     )
 }
