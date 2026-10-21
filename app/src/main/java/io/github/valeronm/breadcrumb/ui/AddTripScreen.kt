@@ -47,7 +47,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberStandardBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -457,7 +457,10 @@ internal fun AddTripScreen(
     val focusManager = LocalFocusManager.current
     fun endOf(which: ManualPath.End) = if (which == ManualPath.End.ORIGIN) origin else destination
 
-    val sheetState = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded)
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Expanded,
+        enabledValues = setOf(SheetValue.PartiallyExpanded, SheetValue.Expanded),
+    )
     // An end is moved on the map, so the sheet is lowered while it is picked. A cancelled pick
     // raises it again only if it was lowered for that rather than by the user.
     var sheetLowered by remember { mutableStateOf(false) }
