@@ -302,8 +302,8 @@ private fun PlacesMapPage(
                     camera = camera,
                     modifier = Modifier.fillMaxSize(),
                     goTo = myLocation.goTo,
+                    controls = { MyLocationControl(myLocation) },
                 )
-                MyLocationControl(myLocation)
             }
             MapFilterChips(filters)
         }

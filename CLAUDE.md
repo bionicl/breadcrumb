@@ -998,8 +998,10 @@ why the workflow is the only thing standing between a forgotten bump and Play.
   **online road routing** (`data/OnlineRouting`, OpenStreetMap data too) sends a trip's two points
   and nothing else, and only when asked for by the add-trip form's chip. The ODbL credit in
   Settings and at the search results is a licence requirement, like the GeoNames one, and the
-  linked data credit under a routed road and in Settings (`OsmDataCredit`) is what FOSSGIS's
-  terms ask for of the routing's users, their report-an-error link included. There is no
+  linked data credit along every map's bottom edge and in Settings (`MapCredit`) is what FOSSGIS's
+  terms ask for of the routing's users, their report-an-error link included; it stays on the map
+  rather than behind MapLibre's attribution button because OSM's guideline wants it read without a
+  tap. There is no
   server sync (a possible future feature — the Online services section of Settings → Privacy is
   where server URL/key fields would go).
 - **The Protomaps hosted-API key is not committed.** It lives in `local.properties` as

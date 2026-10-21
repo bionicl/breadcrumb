@@ -4,7 +4,6 @@ import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
@@ -261,16 +260,12 @@ internal fun offsetMeters(e: Coordinate, northM: Double, eastM: Double): Coordin
 
 /** Fits the camera to the capture circle [radiusM] around [center] — the ring is the subject. */
 internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
-    val north = offsetMeters(center, radiusM, 0.0).lat
-    val south = offsetMeters(center, -radiusM, 0.0).lat
-    val east = offsetMeters(center, 0.0, radiusM).lon
-    val west = offsetMeters(center, 0.0, -radiusM).lon
-    val bounds = LatLngBounds.Builder()
-        .include(LatLng(north, east))
-        .include(LatLng(south, west))
-        .build()
-    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64))
+    fitBounds(map, LatLngBounds.Builder().includes(squareAround(center, radiusM)).build(), 64)
 }
+
+/** The north-east and south-west corners of the square [radiusM] out from [center] on each side. */
+internal fun squareAround(center: Coordinate, radiusM: Double): List<LatLng> =
+    listOf(offsetMeters(center, radiusM, radiusM), offsetMeters(center, -radiusM, -radiusM)).map(Coordinate::toLatLng)
 
 /** One width for every line drawn as a trip's path, so a preview and the saved track match. */
 internal const val TRACK_LINE_WIDTH = 3f

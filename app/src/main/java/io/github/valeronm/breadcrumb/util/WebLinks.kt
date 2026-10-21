@@ -13,7 +13,10 @@ internal object WebLinks {
     const val SOURCE = "https://github.com/valeronm/breadcrumb"
     const val PLAY = "https://play.google.com/store/apps/details?id=${BuildConfig.PLAY_PACKAGE}"
 
-    // The three the OpenStreetMap data credit links, in the form FOSSGIS's terms ask for.
+    // The basemap's link, as its style's own attribution carries it.
+    const val PROTOMAPS = "https://github.com/protomaps/basemaps"
+
+    // The OpenStreetMap data credit's links, in the form FOSSGIS's terms ask for.
     const val OSM_COPYRIGHT = "https://www.openstreetmap.org/copyright"
     const val ODBL = "https://opendatacommons.org/licenses/odbl/"
     const val OSM_FIX_THE_MAP = "https://www.openstreetmap.org/fixthemap"

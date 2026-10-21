@@ -344,19 +344,19 @@ internal fun SearchDropdown(
 }
 
 /**
- * The OpenStreetMap data credit in the form FOSSGIS's terms ask for: the contributors, the licence
- * and a way to report an error, each linked. Owed wherever their routing's answer is on screen, and
- * shown once in Settings for the basemap and the search besides.
+ * The basemap's credit, then the OpenStreetMap data credit in the form FOSSGIS's terms ask for: the
+ * contributors, the licence and a way to report an error, each linked.
  */
 @Composable
-internal fun OsmDataCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
+internal fun MapCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
     val linkStyle = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary))
     fun link(url: String, text: String) = buildAnnotatedString {
         withLink(LinkAnnotation.Url(url, linkStyle)) { append(text) }
     }
     Text(
         annotatedStringResource(
-            R.string.common_osm_data_credit,
+            R.string.common_map_credit,
+            link(WebLinks.PROTOMAPS, "Protomaps"),
             link(WebLinks.OSM_COPYRIGHT, "OpenStreetMap"),
             link(WebLinks.ODBL, "ODbL"),
             link(WebLinks.OSM_FIX_THE_MAP, stringResource(R.string.common_osm_report_error)),

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -76,7 +75,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
@@ -581,8 +579,6 @@ internal fun AddTripScreen(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Owed while a road the servers drew is on the map.
-                if (leg != null) OsmDataCredit(Modifier.padding(horizontal = 4.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     TripEndCard(
                         shape = groupedRowShape(0, 3),
@@ -802,13 +798,10 @@ internal fun AddTripScreen(
                     onCenterSettled = { mapCenter = it },
                     obscured = cover::insets,
                     modifier = Modifier.fillMaxSize(),
+                    controls = {
+                        FrameControl(stringResource(R.string.addtrip_show_whole_trip)) { frameKey++ }
+                    },
                 )
-                // Its corner rises with the sheet, which would otherwise cover it.
-                Box(Modifier.fillMaxSize().offset { IntOffset(0, -cover.insets().bottom) }) {
-                    FrameControl(stringResource(R.string.addtrip_show_whole_trip)) {
-                        frameKey++
-                    }
-                }
                 val halo = touchHalo(FilterChipDefaults.Height)
                 Column(
                     Modifier

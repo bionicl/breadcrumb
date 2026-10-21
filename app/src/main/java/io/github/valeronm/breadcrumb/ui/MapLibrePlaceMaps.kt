@@ -2,9 +2,11 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.PointF
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -128,6 +130,7 @@ internal fun MapLibrePlaceMap(
     /** A long press on the map, in map coordinates — how the center is placed by hand. */
     onLongPress: (Coordinate) -> Unit,
     camera: CameraCarry? = null,
+    controls: @Composable BoxScope.() -> Unit = {},
 ) {
     val applied = remember { AppliedPlaceInputs() }
     // The listener is attached once, to a map that outlives every recomposition, so it must read the
@@ -145,6 +148,7 @@ internal fun MapLibrePlaceMap(
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
+        controls = controls,
         onMapReady = { map ->
             map.addOnMapLongClickListener { at ->
                 longPress(at.toCoordinate())
@@ -594,12 +598,14 @@ internal fun MapLibrePlacesMap(
     modifier: Modifier = Modifier,
     /** The phone's position, where the camera goes and the dot is drawn — see [MapCenterRequest]. */
     goTo: MapCenterRequest? = null,
+    controls: @Composable BoxScope.() -> Unit = {},
 ) {
     val applied = remember { AppliedOverviewInputs() }
     applied.onOpen = onOpen
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
+        controls = controls,
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
@@ -710,7 +716,13 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
 
     fun takeCarried(): CameraPosition? = carried.also { carried = null }
 
-    fun center(): Coordinate? = position()?.target?.toCoordinate()
+    /** The point under the middle of what [covered] leaves showing, where the crosshairs sit; the
+     *  camera's target is the middle of whatever padding its last move set. */
+    fun center(): Coordinate? = map?.let {
+        val shown = covered(it)
+        it.projection.fromScreenLocation(PointF(it.width / 2f, (shown.top + it.height - shown.bottom) / 2f))
+            .toCoordinate()
+    }
 
     fun position(): CameraPosition? = map?.cameraPosition
 }
@@ -925,17 +937,13 @@ private class AppliedTripInputs {
     var touchingEnds: FeatureCollection? = null
     var markers: FeatureCollection? = null
     private var map: MapLibreMap? = null
-    private var defaultMargins: ChromeMargins? = null
-    private var chromeCleared: MapInsets? = null
 
-    /** MapLibre's own margins for its attribution, logo and compass, which [clearChrome] adds to. */
-    private class ChromeMargins(val attributionBottom: Int, val logoBottom: Int, val compassTop: Int)
+    /** MapLibre's own top margin for its compass, which [clearCompass] adds to. */
+    private var defaultCompassTop: Int? = null
 
     fun attach(map: MapLibreMap) {
         this.map = map
-        defaultMargins = with(map.uiSettings) {
-            ChromeMargins(attributionMarginBottom, logoMarginBottom, compassMarginTop)
-        }
+        defaultCompassTop = map.uiSettings.compassMarginTop
     }
 
     /** The trip as last drawn, which a fit run after layout frames. */
@@ -957,34 +965,12 @@ private class AppliedTripInputs {
         map = null
     }
 
-    /**
-     * Moves MapLibre's attribution and logo above, and its compass below, what [obscured] covers.
-     * [obscured] moves on every frame of a sheet drag, and a margin is set only when its own edge
-     * moved.
-     */
-    fun clearChrome(obscured: MapInsets) {
+    /** Moves MapLibre's compass below what covers the map's top. */
+    fun clearCompass(obscuredTop: Int) {
         val ui = map?.uiSettings ?: return
-        val defaults = defaultMargins ?: return
-        val last = chromeCleared
-        chromeCleared = obscured
+        val default = defaultCompassTop ?: return
         with(ui) {
-            if (last?.bottom != obscured.bottom) {
-                setAttributionMargins(
-                    attributionMarginLeft,
-                    attributionMarginTop,
-                    attributionMarginRight,
-                    defaults.attributionBottom + obscured.bottom,
-                )
-                setLogoMargins(logoMarginLeft, logoMarginTop, logoMarginRight, defaults.logoBottom + obscured.bottom)
-            }
-            if (last?.top != obscured.top) {
-                setCompassMargins(
-                    compassMarginLeft,
-                    defaults.compassTop + obscured.top,
-                    compassMarginRight,
-                    compassMarginBottom,
-                )
-            }
+            setCompassMargins(compassMarginLeft, default + obscuredTop, compassMarginRight, compassMarginBottom)
         }
     }
 }
@@ -1039,14 +1025,15 @@ internal fun MapLibreTripMap(
      */
     onCenterSettled: (Coordinate) -> Unit = {},
     /** How much of the map the screen's own controls cover right now: every frame and centering
-     *  keeps the trip out of it, and MapLibre's attribution is lifted clear of it. */
+     *  keeps the trip out of it, and the credit and [controls] are lifted clear of it. */
     obscured: () -> MapInsets = { MapInsets.NONE },
     modifier: Modifier = Modifier,
+    controls: @Composable BoxScope.() -> Unit = {},
 ) {
     val applied = remember { AppliedTripInputs() }
     DisposableEffect(applied) { onDispose(applied::dispose) }
     LaunchedEffect(applied) {
-        snapshotFlow { obscured() }.collect(applied::clearChrome)
+        snapshotFlow { obscured().top }.collect(applied::clearCompass)
     }
     // Both listeners are attached once to a map outliving recompositions — they must read the
     // current callbacks, or a press would land on whichever end was active when the map was built.
@@ -1093,9 +1080,11 @@ internal fun MapLibreTripMap(
     }
     MapLibreStyledMap(
         modifier = modifier,
+        obscuredBottom = { obscured().bottom },
+        controls = controls,
         onMapReady = { map ->
             applied.attach(map)
-            applied.clearChrome(obscured())
+            applied.clearCompass(obscured().top)
             map.addOnCameraIdleListener {
                 val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
                 centerSettled(at.toCoordinate())
@@ -1304,9 +1293,6 @@ private fun frameTripMap(
         return
     }
     if (!force && showsWell(map, positions, obscured)) return
-    val reach = LONE_END_REACH_M
-    val framed = trip.singleOrNull()
-        ?.let { listOf(offsetMeters(it, reach, reach), offsetMeters(it, -reach, -reach)).map(Coordinate::toLatLng) }
-        ?: positions
+    val framed = trip.singleOrNull()?.let { squareAround(it, LONE_END_REACH_M) } ?: positions
     frameTo(map, framed, singlePointZoom = 9.0, obscured = obscured)
 }
