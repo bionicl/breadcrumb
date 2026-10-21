@@ -46,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -399,9 +398,7 @@ internal fun PlaceDetailScreen(
                 }
 
                 PlaceView.MAP -> Card(Modifier.weight(1f).fillMaxWidth().padding(bottom = 16.dp)) {
-                    Box(Modifier.fillMaxSize().clipToBounds()) {
-                        PlaceMapView(summary, viewModel, Modifier.fillMaxSize())
-                    }
+                    PlaceMapView(summary, viewModel, Modifier.fillMaxSize())
                 }
             }
         }

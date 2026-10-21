@@ -60,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -651,16 +650,14 @@ private fun TimelineMapPage(
                     .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                 shape = groupedRowShape(0, 1),
             ) {
-                Box(Modifier.fillMaxSize().clipToBounds()) {
-                    MapLibreJourneyMap(
-                        lines = lines,
-                        places = mapPlaces,
-                        frameKey = day,
-                        linesComplete = lines.size == dayTracks.size,
-                        onOpenPlace = onOpenPlace,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                MapLibreJourneyMap(
+                    lines = lines,
+                    places = mapPlaces,
+                    frameKey = day,
+                    linesComplete = lines.size == dayTracks.size,
+                    onOpenPlace = onOpenPlace,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
