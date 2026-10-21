@@ -25,9 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
@@ -87,7 +87,8 @@ internal fun MapLibreStyledMap(
         // load applies the *latest* composition's data, not what the first composition captured.
         host.onStyleLoaded = onStyleLoaded
         val zoom = remember { mutableFloatStateOf(0f) }
-        Box(modifier) {
+        // Clipped, so the credit's backing can hang below the map without reaching past it.
+        Box(modifier.clipToBounds()) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { mapView },
@@ -128,7 +129,16 @@ private fun MapOverlay(
     obscuredBottom: () -> Int,
     controls: @Composable BoxScope.() -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().offset { IntOffset(0, -obscuredBottom()) }) {
+    val color = mapOverlayColor
+    Column(
+        Modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, -obscuredBottom()) }
+            // What covers the map below the credit shows the map only through its cutouts, such as a
+            // sheet's rounded corners. No cover is taller than the map, so a rect the map's height
+            // fills them without reading the cover while it is dragged.
+            .drawBehind { drawRect(color, Offset(0f, size.height), size) },
+    ) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (BuildConfig.DEV_TOOLS) {
                 // The bottom-left corner is the one no screen puts a control in.
@@ -136,15 +146,7 @@ private fun MapOverlay(
             }
             controls()
         }
-        val color = mapOverlayColor
-        Surface(
-            // What covers the map below the credit shows the map only through its cutouts, such as
-            // a sheet's rounded corners.
-            Modifier.fillMaxWidth().onSizeChanged { credit.heightPx = it.height }.drawBehind {
-                drawRect(color, Offset(0f, size.height), Size(size.width, obscuredBottom().toFloat()))
-            },
-            color = color,
-        ) {
+        Surface(Modifier.fillMaxWidth().onSizeChanged { credit.heightPx = it.height }, color = color) {
             MapCredit(Modifier.padding(horizontal = MapInset, vertical = 4.dp))
         }
     }
