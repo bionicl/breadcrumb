@@ -65,7 +65,7 @@ object TripPlaces {
                 holder != null && holder in given -> Outcome.Shares(given.getValue(holder))
                 stored != null && stored.isNamed -> Outcome.Held(stored)
                 name == null -> Outcome.None
-                stored != null && holder != null -> {
+                stored != null -> {
                     val row = stored.copy(label = name, source = PlaceOrigin.MANUAL.code)
                     seeds[holder] = PlaceClusterer.seedOf(row)
                     given[holder] = name
