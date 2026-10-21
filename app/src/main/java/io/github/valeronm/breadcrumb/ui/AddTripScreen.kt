@@ -1056,10 +1056,12 @@ private fun TripEndCard(
         pin != null -> stringResource(R.string.addtrip_pin_placed)
         else -> stringResource(R.string.addtrip_no_pin)
     }
+    val unset = pin == null
     Card(
         onClick = onCenter,
         shape = shape,
-        border = if (active) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        colors = rowCardColors(outlined = unset),
+        border = if (active) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else rowCardBorder(outlined = unset),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -1183,7 +1185,13 @@ private fun TripLegRow(
     arriveZone: ZoneId,
 ) {
     val name = activity?.let { stringResource(it.labelRes) }
-    val length = if (departMs != null && arriveMs != null && arriveMs > departMs) durationText(departMs, arriveMs) else null
+    // A track always has both ends.
+    val span = if (departMs != null && arriveMs != null) {
+        val length = if (arriveMs > departMs) durationText(departMs, arriveMs) else null
+        trackRowSpan(departMs, departZone, arriveMs, arriveZone, length)
+    } else {
+        null
+    }
     ListRowCard(
         shape = shape,
         icon = activityIcon(activity),
@@ -1191,8 +1199,9 @@ private fun TripLegRow(
         iconDescription = name,
         title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_choose_type),
         titleColor = MaterialTheme.colorScheme.onSurface,
-        subtitle = trackRowSpan(departMs, departZone, arriveMs, arriveZone, length),
+        subtitle = span,
         onClick = onClick,
+        outlined = activity == null,
         // The whole row is the control; the icon only says so, as the ends' change icons do.
         trailing = { Icon(Icons.Outlined.Edit, contentDescription = null) },
     )

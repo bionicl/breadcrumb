@@ -1123,18 +1123,18 @@ internal fun trackRowTitle(activityName: String, lengthM: Double?): String =
 
 /**
  * A track row's time line: its two clock times, each on its own end's clock, and how long it ran.
- * Either time may be missing, on a trip still being entered.
+ * A track still recording has no end time.
  */
 @Composable
-internal fun trackRowSpan(startMs: Long?, startZone: ZoneId, endMs: Long?, endZone: ZoneId, length: String?): AnnotatedString {
+internal fun trackRowSpan(startMs: Long, startZone: ZoneId, endMs: Long?, endZone: ZoneId, length: String?): AnnotatedString {
     // Resolved here: nothing composable may be read inside the builder (see appendTime).
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     val readerClock = LocalReaderClock.current
     return buildAnnotatedString {
-        startMs?.let { appendTime(it, startZone, reader, shiftColor, readerClock) }
+        appendTime(startMs, startZone, reader, shiftColor, readerClock)
         endMs?.let {
-            append(if (startMs != null) " – " else "– ")
+            append(" – ")
             appendTime(it, endZone, reader, shiftColor, readerClock)
         }
         length?.let { append(" · $it") }
