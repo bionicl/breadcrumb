@@ -30,7 +30,7 @@
     <string name="addtrip_estimated_was">Рассчитано по дорогам · было %s</string>
     <string name="addtrip_restore_time">Вернуть</string>
     <string name="addtrip_estimate">Рассчитать</string>
-    <string name="addtrip_choose_type">Выберите тип поездки</string>
+    <string name="addtrip_no_type">Тип поездки ещё не выбран</string>
     <string name="addtrip_departure_time_title">Время отправления</string>
     <string name="addtrip_arrival_time_title">Время прибытия</string>
 

@@ -39,7 +39,7 @@
     <string name="addtrip_estimated_was">Estimated along roads · was %s</string>
     <string name="addtrip_restore_time">Restore</string>
     <string name="addtrip_estimate">Estimate</string>
-    <string name="addtrip_choose_type">Choose the trip type</string>
+    <string name="addtrip_no_type">No trip type yet</string>
     <string name="addtrip_departure_time_title">Departure time</string>
     <string name="addtrip_arrival_time_title">Arrival time</string>
 
