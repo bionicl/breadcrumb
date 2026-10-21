@@ -541,9 +541,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             AndroidDistance,
             createdAt = System.currentTimeMillis(),
         )
-        val rows = plan.mapNotNull { (it as? TripPlaces.Outcome.Creates)?.row }
-        val renamed = plan.mapNotNull { (it as? TripPlaces.Outcome.Names)?.row }
-        if (rows.isNotEmpty() || renamed.isNotEmpty()) placeRepository.createAndName(rows, renamed)
+        if (plan.created.isNotEmpty() || plan.renamed.isNotEmpty()) placeRepository.createAndName(plan.created, plan.renamed)
     }
 
     /** [placeName] is the name the end was picked by; [TripPlaces.plan] decides what place it makes. */
@@ -661,7 +659,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val lat = (if (precedes) track.endLat else track.startLat) ?: return null
         val lon = (if (precedes) track.endLon else track.startLon) ?: return null
         val boundMs = (if (precedes) track.endedAt else track.startedAt) ?: return null
-        return TouchingTrack(journeyPolylines.lineFor(track), Coordinate(lat, lon), boundMs)
+        val placeId = if (precedes) track.endPlaceId else track.startPlaceId
+        return TouchingTrack(journeyPolylines.lineFor(track), Coordinate(lat, lon), boundMs, placeId)
     }
 
     /**

@@ -21,6 +21,8 @@
     <string name="addtrip_destination">Destino</string>
     <string name="addtrip_departure">Partida</string>
     <string name="addtrip_arrival">Chegada</string>
+    <string name="addtrip_departure_stayed">Partida · ficou %1$s</string>
+    <string name="addtrip_arrival_stayed">Chegada · ficou %1$s</string>
     <string name="addtrip_pick_date">Data</string>
     <string name="addtrip_pick_time">Hora</string>
     <string name="addtrip_change_place">Mudar o local</string>

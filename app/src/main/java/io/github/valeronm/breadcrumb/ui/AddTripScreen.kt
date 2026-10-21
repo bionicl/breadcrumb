@@ -93,6 +93,7 @@ import io.github.valeronm.breadcrumb.domain.EndTime
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
@@ -198,6 +199,11 @@ private class TripEnd(drafted: TripDraftEnd?) {
      *  coupling must give back the time that was recorded or typed. */
     var coupledMs by mutableStateOf<Long?>(null)
 
+    fun side(atMs: Long?): ManualPath.StaySide? {
+        val at = pin ?: return null
+        return atMs?.let { ManualPath.StaySide(it, at) }
+    }
+
     fun epochIn(zone: ZoneId): Long? = coupledMs ?: own.epochIn(zone)
 
     /** The day this end shows on [zone]'s clock: an estimate's, else its own. */
@@ -266,8 +272,11 @@ internal class TouchingTrack(
     val line: JourneyLine,
     val touching: Coordinate,
     val boundMs: Long,
+    /** The place the touching end is stated to. */
+    val placeId: Long?,
 ) {
     val activity: ActivityType? get() = ActivityType.ofName(line.activityType)
+    val side get() = ManualPath.StaySide(boundMs, touching, placeId)
 }
 
 /** Where the controls floating over the map and the sheet's top edge sit, in window pixels. */
@@ -332,10 +341,9 @@ internal fun AddTripScreen(
             ?: (draft.trackBefore to draft.trackAfter)
         value = viewModel.touchingTracks(before, after)
     }
-    val drawnTouching = listOfNotNull(
-        touching.first?.takeIf { draft.editing != null || draft.origin != null },
-        touching.second?.takeIf { draft.editing != null || draft.destination != null },
-    )
+    val touchingBefore = touching.first?.takeIf { draft.editing != null || draft.origin != null }
+    val touchingAfter = touching.second?.takeIf { draft.editing != null || draft.destination != null }
+    val drawnTouching = listOfNotNull(touchingBefore, touchingAfter)
     var fetchingRoute by remember(draft) { mutableStateOf(false) }
     val profile = activity?.let(OnlineRouting.Profile::of)
     val leg = routed?.takeIf { it.profile == profile && it.from == origin.pin && it.to == destination.pin }
@@ -526,7 +534,7 @@ internal fun AddTripScreen(
     )
 
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    val (originPlace, destinationPlace) = remember(
+    val tripPlaces = remember(
         storedPlaces, origin.pin, origin.placeName, destination.pin, destination.placeName,
     ) {
         TripPlaces.plan(
@@ -537,6 +545,14 @@ internal fun AddTripScreen(
             createdAt = 0,
         )
     }
+    val (originPlace, destinationPlace) = tripPlaces.outcomes
+    val agreement = remember(tripPlaces) {
+        StayDeriver.Agreement(StayDeriver.Params(), AndroidDistance, tripPlaces.seeds)
+    }
+    fun stay(left: ManualPath.StaySide?, right: ManualPath.StaySide?) =
+        if (left != null && right != null) ManualPath.stayMs(left, right, agreement) else null
+    val stayBeforeMs = stay(touchingBefore?.side, origin.side(departMs))
+    val stayAfterMs = stay(destination.side(arriveMs), touchingAfter?.side)
     val cover = remember { MapCover() }
     fun pick(end: ManualPath.End) {
         picking = end
@@ -571,7 +587,8 @@ internal fun AddTripScreen(
                     TripEndCard(
                         shape = groupedRowShape(0, 3),
                         mark = endMark(originPlace, ManualPath.End.ORIGIN in continuing),
-                        labelRes = R.string.addtrip_departure,
+                        label = stayBeforeMs?.let { stringResource(R.string.addtrip_departure_stayed, durationText(it)) }
+                            ?: stringResource(R.string.addtrip_departure),
                         end = origin,
                         city = originCity,
                         zone = originZone,
@@ -600,7 +617,8 @@ internal fun AddTripScreen(
                     TripEndCard(
                         shape = groupedRowShape(2, 3),
                         mark = endMark(destinationPlace, ManualPath.End.DESTINATION in continuing),
-                        labelRes = R.string.addtrip_arrival,
+                        label = stayAfterMs?.let { stringResource(R.string.addtrip_arrival_stayed, durationText(it)) }
+                            ?: stringResource(R.string.addtrip_arrival),
                         end = destination,
                         city = destinationCity,
                         zone = destinationZone,
@@ -1030,7 +1048,8 @@ private fun localityLabel(city: CityAtlas.City): String =
 private fun TripEndCard(
     shape: RoundedCornerShape,
     mark: EndMark,
-    @StringRes labelRes: Int,
+    /** Which end this is, with the stay the timeline will show beside it. */
+    label: String,
     end: TripEnd,
     city: CityAtlas.City?,
     zone: ZoneId,
@@ -1074,7 +1093,7 @@ private fun TripEndCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            stringResource(labelRes),
+                            label,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -17,7 +17,7 @@ class TripPlacesTest {
     )
 
     private fun plan(places: List<Place>, vararg ends: TripPlaces.End) =
-        TripPlaces.plan(ends.toList(), places, flatDistance, createdAt = 0).map { it::class to it.name }
+        TripPlaces.plan(ends.toList(), places, flatDistance, createdAt = 0).outcomes.map { it::class to it.name }
 
     private fun end(east: Double, name: String? = null) = TripPlaces.End(at(east), name)
 
@@ -31,7 +31,7 @@ class TripPlacesTest {
 
     @Test fun `a picked name names the unnamed place holding the pin`() {
         val unnamed = place(1, 0.0, null)
-        val outcome = TripPlaces.plan(listOf(end(20.0, "Hotel")), listOf(unnamed), flatDistance, createdAt = 0).single()
+        val outcome = TripPlaces.plan(listOf(end(20.0, "Hotel")), listOf(unnamed), flatDistance, createdAt = 0).outcomes.single()
         assertEquals(unnamed.copy(label = "Hotel", source = PlaceOrigin.MANUAL.code), (outcome as Outcome.Names).row)
     }
 
@@ -41,7 +41,7 @@ class TripPlacesTest {
             emptyList(),
             flatDistance,
             createdAt = 7,
-        )
+        ).outcomes
         val row = (outcomes[0] as Outcome.Creates).row
         assertEquals(listOf("Hotel", ORIGIN_LAT, lonAt(0.0), 7L), listOf(row.label, row.lat, row.lon, row.createdAt))
         assertEquals(Outcome.Shares("Hotel"), outcomes[1])
@@ -77,5 +77,12 @@ class TripPlacesTest {
             listOf(Outcome.None::class to null, Outcome.None::class to null),
             plan(emptyList(), end(0.0, "  "), TripPlaces.End(null, "Hotel")),
         )
+    }
+
+    @Test fun `the seeds after a save carry the places it names and creates`() {
+        val unnamed = place(1, 0.0, null)
+        val seeds = TripPlaces.plan(listOf(end(20.0, "Hotel"), end(5_000.0, "Office")), listOf(unnamed), flatDistance, createdAt = 0).seeds
+        assertEquals(listOf(true, true), seeds.map { it.named })
+        assertEquals(listOf(at(0.0), at(5_000.0)), seeds.map { it.anchor })
     }
 }

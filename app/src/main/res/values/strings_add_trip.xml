@@ -30,6 +30,8 @@
     <!-- Each end's label above its date and time, which stand alone rather than in a sentence. -->
     <string name="addtrip_departure">Departure</string>
     <string name="addtrip_arrival">Arrival</string>
+    <string name="addtrip_departure_stayed">Departure · stayed %1$s</string>
+    <string name="addtrip_arrival_stayed">Arrival · stayed %1$s</string>
     <string name="addtrip_pick_date">Date</string>
     <string name="addtrip_pick_time">Time</string>
     <string name="addtrip_change_place">Change place</string>

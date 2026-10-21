@@ -94,6 +94,9 @@ object StayDeriver {
      */
     const val REPORTABLE_DURATION_MS = 60_000L
 
+    /** [durationMs] where a stay that long is worth reporting, else null. */
+    fun reportable(durationMs: Long): Long? = durationMs.takeIf { it >= REPORTABLE_DURATION_MS }
+
     data class Stay(
         override val start: Long,
         /** Null = ongoing (the current stay). */
@@ -111,8 +114,7 @@ object StayDeriver {
     ) : Interval {
         /** This stay's length when its own bounds are worth reporting as one, else null;
          *  [nowMs] measures an ongoing stay. See [REPORTABLE_DURATION_MS]. */
-        fun reportableDurationMs(nowMs: Long): Long? =
-            ((end ?: nowMs) - start).takeIf { it >= REPORTABLE_DURATION_MS }
+        fun reportableDurationMs(nowMs: Long): Long? = reportable((end ?: nowMs) - start)
 
         /**
          * No time in it at all — the seam two tracks sharing an instant leave behind, which is a
