@@ -510,6 +510,8 @@ internal class OverviewPlace(
     val marker: PlaceMarker,
     /** The place-detail key reported on tap. */
     val key: String,
+    /** Where markers overlap, the more visited draws on top and takes the tap. */
+    val visits: Int,
     /** What it draws as while unnamed; a named place is a pin whatever this says. */
     val dot: UnnamedDot = UnnamedDot.CLUSTER,
     /**
@@ -563,6 +565,7 @@ internal fun rememberStayPlaces(
             OverviewPlace(
                 marker = PlaceMarker(place.anchor, place.place),
                 key = place.key,
+                visits = place.visitCount,
                 dot = UnnamedDot.of(place.place, brief = false),
             )
         }
@@ -866,8 +869,9 @@ internal fun updateOverviewSource(style: Style, places: List<OverviewPlace>) {
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
     FeatureCollection.fromFeatures(
-        // Unnamed dots first so named pins draw (and hit-test) on top.
-        places.sortedBy { it.marker.label != null }.map { p ->
+        // Drawn in source order, so the last feature is on top: named pins over unnamed dots, then
+        // the more visited over the less.
+        places.sortedWith(compareBy({ it.marker.label != null }, { it.visits })).map { p ->
             val dot = p.dot.imageId
             Feature.fromGeometry(
                 p.marker.location.toPoint(),

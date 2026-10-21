@@ -702,11 +702,18 @@ internal fun AddTripScreen(
             // An unnamed row reads as the unnamed cluster it seeds, which this form neither draws
             // nor offers.
             val savedPlaces = remember(storedPlaces) { storedPlaces.filter { it.isNamed } }
-            val placeField = remember(savedPlaces) {
+            val summaries by viewModel.places.collectAsStateWithLifecycle()
+            val visits = remember(summaries) {
+                summaries.orEmpty().mapNotNull { s -> s.place?.let { it.id to s.visitCount } }.toMap()
+            }
+            // Keyed on the counts' contents: most summaries emissions leave them as they were, and a
+            // new field rebuilds the map's whole pin source.
+            val placeField = remember(savedPlaces, visits) {
                 savedPlaces.map { place ->
                     OverviewPlace(
                         marker = PlaceMarker(place.pin, place),
                         key = PlaceResolver.keyOf(place.id),
+                        visits = visits[place.id] ?: 0,
                     )
                 }
             }
