@@ -44,7 +44,6 @@ import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DiscardReason
-import java.time.LocalDate
 import java.time.ZoneId
 
 private enum class DiscardFilter(@StringRes val labelRes: Int) {
@@ -182,9 +181,7 @@ private fun DiscardedList(
     // Dates partition here where the timeline's can repeat, every row being read on one clock.
     // Rows arrive newest first, and groupBy keeps that order.
     val days = remember(rows, zone) { rows.groupBy { it.track.startedAt.toLocalDate(zone) } }
-    val today = remember(zone) { LocalDate.now(zone) }
-    val todayText = stringResource(R.string.relative_today).standaloneCase()
-    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    val dayLabelOf = rememberDayLabel()
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         item {
             Text(
@@ -196,11 +193,7 @@ private fun DiscardedList(
         }
         days.forEach { (date, dayRows) ->
             stickyHeading(key = "header:$date") {
-                Text(
-                    dayLabel(date, today, todayText, yesterdayText),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                DayHeading(dayLabelOf(date))
             }
             itemsIndexed(dayRows, key = { _, row -> row.track.id }) { index, row ->
                 DiscardedRow(

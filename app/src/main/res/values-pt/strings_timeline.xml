@@ -57,11 +57,10 @@
     <string name="timeline_short_stop">Paragem curta</string>
     <string name="timeline_short_stop_mergeable">Paragem curta, pode ser absorvida</string>
     <string name="timeline_stayed">Ficou</string>
+    <string name="timeline_gap_from">desde as %1$s</string>
+    <string name="timeline_gap_until">até às %1$s</string>
+    <string name="timeline_gap_lasting">durante %1$s</string>
     <string name="timeline_unnamed_place">local sem nome</string>
-
-    <string name="timeline_gap_lasting">gravação em falta · %1$s</string>
-    <string name="timeline_gap_from">gravação em falta · desde as %1$s</string>
-    <string name="timeline_gap_until">gravação em falta · até às %1$s</string>
 
     <plurals name="timeline_visits">
         <item quantity="one">%d visita</item>

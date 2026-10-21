@@ -21,7 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.HistoryToggleOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -29,7 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
@@ -48,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -410,9 +408,7 @@ internal fun PlaceDetailScreen(
                 }
 
                 PlaceView.MAP -> Card(Modifier.weight(1f).fillMaxWidth().padding(bottom = 16.dp)) {
-                    Box(Modifier.fillMaxSize().clipToBounds()) {
-                        PlaceMapView(summary, viewModel, Modifier.fillMaxSize())
-                    }
+                    PlaceMapView(summary, viewModel, Modifier.fillMaxSize())
                 }
             }
         }
@@ -548,13 +544,7 @@ private fun LazyListScope.placeHistory(
                     VisitRowContent(event.stay, zone, nowMs)
                 }
 
-                // Hollow, an outline where a visit is filled: what the row holds is what the
-                // recording missed.
-                is PlaceEvent.Gap -> OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = shape,
-                    onClick = { onOpenGap(event.listed) },
-                ) {
+                is PlaceEvent.Gap -> MissingRecordingCard(shape, onClick = { onOpenGap(event.listed) }) {
                     GapRowContent(event.listed, event.far, zone, onOpenPlace)
                 }
             }
@@ -620,7 +610,7 @@ private fun GapRowContent(
             } else {
                 // Worded before the builder, which is not a composable scope.
                 val farName = far.name ?: stringResource(far.unnamedInlineRes)
-                val farColor = placeTitleColor(named = far.isNamed)
+                val farColor = statedTitleColor(stated = far.isNamed)
                 annotatedStringResource(
                     if (gap.fromHere) R.string.places_gap_missing_to else R.string.places_gap_missing_from,
                     lasting,
@@ -636,7 +626,7 @@ private fun GapRowContent(
         }
         // In the slot a visit's duration takes; the sentence beside it already says what it marks.
         Icon(
-            Icons.Filled.LocationOff,
+            Icons.Filled.HistoryToggleOff,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )

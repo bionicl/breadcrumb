@@ -430,12 +430,16 @@ internal fun TrackLegend(legend: Legend, modifier: Modifier) {
  *  ripple — cannot be left clipping to the shape this used to have. */
 internal val legendShape = RoundedCornerShape(8.dp)
 
+/** The fill of what floats over a map, translucent so the basemap still reads through it. */
+internal val mapOverlayColor: Color
+    @Composable get() = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+
 @Composable
 internal fun LegendSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = modifier,
         shape = legendShape,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+        color = mapOverlayColor,
         tonalElevation = 3.dp,
         shadowElevation = 3.dp,
     ) {

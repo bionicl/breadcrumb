@@ -102,7 +102,7 @@ internal fun MapLibreTrackMap(
             onStyleLoaded = { ctx, map, style, dark ->
                 // The end places are one input drawn at two depths — their areas under the line, their
                 // pins over it so it can't cover them.
-                addEndPlaceAreas(style, endPlaces)
+                addEndPlaceAreas(style, endPlaces, dark)
                 addDwellLayers(style, dwells)
                 addTrackLine(style, points, colors, greatCircleLegs)
                 addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
@@ -312,6 +312,8 @@ internal fun MapLibreModernTimelineMap(
     Box(modifier) {
         MapLibreStyledMap(
             modifier = Modifier.fillMaxSize(),
+            transparentCredit = true,
+            obscured = { MapInsets(top = 0, bottom = state.bottomPaddingPx) },
             onMapReady = { map ->
                 map.addOnMapClickListener { at ->
                     if (latestState.state !is ModernTimelineMapState.Overview) return@addOnMapClickListener false
@@ -330,7 +332,7 @@ internal fun MapLibreModernTimelineMap(
                 )
                 // Place pins and labels sit above the day's routes, as on the standalone journey map.
                 addOverviewLayers(ctx, style, places, dark, fullSize = true)
-                addEndPlaceAreas(style, track?.endPlaces.orEmpty())
+                addEndPlaceAreas(style, track?.endPlaces.orEmpty(), dark)
                 addDwellLayers(style, track?.dwells.orEmpty())
                 addContextTrackLines(style, track?.contextLines.orEmpty(), dark, track?.showContextLines == true)
                 addTrackLine(style, track?.points.orEmpty(), colors, GreatCircle.drawsPath(track?.points?.size ?: 0, track?.activity))
@@ -503,9 +505,8 @@ private fun frameModernTimelineState(map: org.maplibre.android.maps.MapLibreMap,
             map,
             framePositions(state.points, state.visibleNoisyPoints, GreatCircle.drawsPath(state.points.size, state.activity)),
             singlePointZoom = 15.0,
-            obscured = MapInsets(top = 0, bottom = state.bottomPaddingPx),
         )
-        is ModernTimelineMapState.PlaceTarget -> framePlace(map, state.marker.location, state.radiusM, state.bottomPaddingPx)
+        is ModernTimelineMapState.PlaceTarget -> framePlace(map, state.marker.location, state.radiusM)
         is ModernTimelineMapState.Loading -> Unit
     }
 }
@@ -544,11 +545,11 @@ private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
     addCaptureCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE)
 }
 
-private fun addEndPlaceAreas(style: Style, places: List<Place>) {
+private fun addEndPlaceAreas(style: Style, places: List<Place>, dark: Boolean) {
     style.addSource(
         GeoJsonSource(END_PLACE_AREA_SOURCE, captureAreaCollection(PlaceClusterer.seedsOf(places))),
     )
-    addContextCircleLayers(style, END_PLACE_AREA_SOURCE, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE)
+    addContextCircleLayers(style, dark, END_PLACE_AREA_SOURCE, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE)
 }
 
 /**

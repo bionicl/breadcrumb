@@ -4,7 +4,6 @@ import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
@@ -64,6 +63,12 @@ private const val CONTEXT_AREA_OPACITY = 0.35f
  */
 private const val NEIGHBOR_MUTED_OPACITY = 0.7f
 
+/** A light basemap washes faded ink out further than a dark one, so every faded layer keeps this much on it. */
+private const val LIGHT_CONTEXT_OPACITY = 0.7f
+
+/** How much ink a faded layer keeps: [onDark] on a dark map, and [LIGHT_CONTEXT_OPACITY] on a light one. */
+internal fun contextOpacity(dark: Boolean, onDark: Float): Float = if (dark) onDark else LIGHT_CONTEXT_OPACITY
+
 /**
  * The capture-circle look — translucent fill + dashed outline — for every ring standing for ground
  * that counts as one spot, so they read as one species, and opacity says which of them the screen is
@@ -81,10 +86,11 @@ internal fun addCaptureCircleLayers(style: Style, sourceId: String, fillLayerId:
  */
 internal fun addContextCircleLayers(
     style: Style,
+    dark: Boolean,
     sourceId: String,
     fillLayerId: String,
     lineLayerId: String,
-) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CONTEXT)
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.context(dark))
 
 /** [addCaptureCircleLayers] outlined in dots rather than dashes, for a place that would be merged into another. */
 internal fun addMergingCircleLayers(
@@ -95,12 +101,16 @@ internal fun addMergingCircleLayers(
 ) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.MERGING)
 
 /** [dash] is in line widths. */
-private enum class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
-    CAPTURE(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT),
-    CONTEXT(CONTEXT_AREA_OPACITY, arrayOf(2f, 2f), Property.LINE_CAP_BUTT),
+private class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
+    companion object {
+        val CAPTURE = CircleLook(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
 
-    /** Round caps turn the 0.5-width dash into a short rounded dash about 1.5 widths long. */
-    MERGING(1f, arrayOf(0.5f, 2f), Property.LINE_CAP_ROUND),
+        /** Round caps turn the 0.5-width dash into a short rounded dash about 1.5 widths long. */
+        val MERGING = CircleLook(1f, arrayOf(0.5f, 2f), Property.LINE_CAP_ROUND)
+
+        fun context(dark: Boolean) =
+            CircleLook(contextOpacity(dark, CONTEXT_AREA_OPACITY), arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
+    }
 }
 
 private fun addCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, look: CircleLook) {
@@ -169,13 +179,13 @@ internal fun labeledSymbolLayer(dark: Boolean, id: String, source: String): Symb
     // with no chroma to drain. Keyed on the property being present, so a collection that never
     // writes it — the all-places overview, a track's end places — is unaffected without knowing
     // the rule exists.
-    PropertyFactory.iconOpacity(mutedOpacity()),
-    PropertyFactory.textOpacity(mutedOpacity()),
+    PropertyFactory.iconOpacity(mutedOpacity(dark)),
+    PropertyFactory.textOpacity(mutedOpacity(dark)),
 )
 
-private fun mutedOpacity(): Expression = Expression.switchCase(
+private fun mutedOpacity(dark: Boolean): Expression = Expression.switchCase(
     Expression.has(MUTED_KEY),
-    Expression.literal(NEIGHBOR_MUTED_OPACITY),
+    Expression.literal(contextOpacity(dark, NEIGHBOR_MUTED_OPACITY)),
     Expression.literal(1f),
 )
 
@@ -249,17 +259,14 @@ internal fun offsetMeters(e: Coordinate, northM: Double, eastM: Double): Coordin
 )
 
 /** Fits the camera to the capture circle [radiusM] around [center] — the ring is the subject. */
-internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double, bottomPaddingPx: Int = 0) {
-    val north = offsetMeters(center, radiusM, 0.0).lat
-    val south = offsetMeters(center, -radiusM, 0.0).lat
-    val east = offsetMeters(center, 0.0, radiusM).lon
-    val west = offsetMeters(center, 0.0, -radiusM).lon
-    val bounds = LatLngBounds.Builder()
-        .include(LatLng(north, east))
-        .include(LatLng(south, west))
-        .build()
-    map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 64, 64, 64, 64 + bottomPaddingPx))
+internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
+    val bounds = LatLngBounds.Builder().includes(squareAround(center, radiusM)).build()
+    fitBounds(map, bounds, 64)
 }
+
+/** The north-east and south-west corners of the square [radiusM] out from [center] on each side. */
+internal fun squareAround(center: Coordinate, radiusM: Double): List<LatLng> =
+    listOf(offsetMeters(center, radiusM, radiusM), offsetMeters(center, -radiusM, -radiusM)).map(Coordinate::toLatLng)
 
 /** One width for every line drawn as a trip's path, so a preview and the saved track match. */
 internal const val TRACK_LINE_WIDTH = 3f

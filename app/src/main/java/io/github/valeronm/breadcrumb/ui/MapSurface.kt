@@ -4,24 +4,38 @@ import android.content.Context
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -40,6 +54,7 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.offline.OfflineManager
+import java.util.WeakHashMap
 
 /**
  * The map every screen draws on, and nothing drawn on it: the [MapView] and its lifecycle, the
@@ -48,13 +63,6 @@ import org.maplibre.android.offline.OfflineManager
 
 /** Measured to what the eye sees of a control, not to its touch target ([touchHalo]). */
 internal val MapInset = 12.dp
-
-/** No camera correction when the drawer leaves too little map for both selection margins. */
-internal fun mapSelectionTarget(point: Offset, widthPx: Int, heightPx: Int, bottomPaddingPx: Int): Offset? {
-    val visibleHeight = heightPx - bottomPaddingPx
-    if (widthPx < 80 || visibleHeight < 80) return null
-    return Offset(point.x.coerceIn(40f, widthPx - 40f), point.y.coerceIn(40f, visibleHeight - 40f))
-}
 
 /**
  * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes
@@ -65,6 +73,12 @@ internal fun mapSelectionTarget(point: Offset, widthPx: Int, heightPx: Int, bott
 internal fun MapLibreStyledMap(
     modifier: Modifier = Modifier,
     camera: CameraCarry? = null,
+    /** Keep the map's attribution legible without painting a panel over modern Timeline's drawer. */
+    transparentCredit: Boolean = false,
+    /** What the screen's own controls cover of the map right now, read on every frame of a drag. */
+    obscured: () -> MapInsets = { MapInsets.NONE },
+    /** What the screen floats over the part of the map [MapCredit] leaves showing. */
+    controls: @Composable BoxScope.() -> Unit = {},
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
     onUpdate: (MapLibreMap, Style) -> Unit,
@@ -73,14 +87,29 @@ internal fun MapLibreStyledMap(
     // A map's style loads once per MapView.
     key(dark) {
         val currentCamera by rememberUpdatedState(camera)
-        val mapView = rememberMapLibreMapView(dark, onDestroying = { currentCamera?.detach() })
-        val host = remember(mapView) { MapHost() }
+        val host = remember { MapHost() }
+        val mapView = rememberMapLibreMapView(dark) {
+            currentCamera?.detach()
+            host.map?.let(coverages::remove)
+        }
+        val readyMap = remember { mutableStateOf<MapLibreMap?>(null) }
+        LaunchedEffect(readyMap.value) {
+            val map = readyMap.value ?: return@LaunchedEffect
+            val defaultTop = map.uiSettings.compassMarginTop
+            snapshotFlow { host.coverage.obscured().top }.collect { top ->
+                with(map.uiSettings) {
+                    setCompassMargins(compassMarginLeft, defaultTop + top, compassMarginRight, compassMarginBottom)
+                }
+            }
+        }
         // The style loads asynchronously; inputs that arrive in the meantime recompose while the
         // style is still null, so their update is skipped. Route the callback through the host so the
         // load applies the *latest* composition's data, not what the first composition captured.
         host.onStyleLoaded = onStyleLoaded
+        host.coverage.obscured = obscured
         val zoom = remember { mutableFloatStateOf(0f) }
-        Box(modifier) {
+        // Clipped, so the credit's backing can hang below the map without reaching past it.
+        Box(modifier.clipToBounds()) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { mapView },
@@ -89,6 +118,8 @@ internal fun MapLibreStyledMap(
                         host.inited = true
                         view.getMapAsync { map ->
                             host.map = map
+                            coverages[map] = host.coverage
+                            readyMap.value = map
                             currentCamera?.attach(map)
                             val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
                             if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
@@ -107,11 +138,43 @@ internal fun MapLibreStyledMap(
                     }
                 },
             )
+            MapOverlay(zoom, host.coverage, transparentCredit, controls)
+        }
+    }
+}
+
+/** Its own scope, so the map host recomposing for a caller's [MapLibreStyledMap] inputs skips it. */
+@Composable
+private fun MapOverlay(
+    zoom: FloatState,
+    coverage: Coverage,
+    transparentCredit: Boolean,
+    controls: @Composable BoxScope.() -> Unit,
+) {
+    val color = mapOverlayColor
+    Column(
+        Modifier
+            .fillMaxSize()
+            // The credit itself belongs immediately above the screen's covered area. Its height
+            // is included in camera padding, but must not be included in its own vertical offset.
+            .offset { IntOffset(0, -(coverage.obscured().bottom - coverage.creditPx)) }
+            // What covers the map below the credit shows the map only through its cutouts, such as a
+            // sheet's rounded corners. No cover is taller than the map, so a rect the map's height
+            // fills them without reading the cover while it is dragged.
+            .drawBehind { if (!transparentCredit) drawRect(color, Offset(0f, size.height), size) },
+    ) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             if (BuildConfig.DEV_TOOLS) {
-                // Over MapLibre's logo and attribution: a dev build's user has no need of them, and the
-                // other corners hold each screen's own controls.
+                // The bottom-left corner is the one no screen puts a control in.
                 ZoomReadout(zoom, Modifier.align(Alignment.BottomStart).padding(MapInset))
             }
+            controls()
+        }
+        Surface(
+            Modifier.fillMaxWidth().onSizeChanged { coverage.creditPx = it.height },
+            color = if (transparentCredit) Color.Transparent else color,
+        ) {
+            MapCredit(Modifier.padding(horizontal = MapInset, vertical = 4.dp))
         }
     }
 }
@@ -132,12 +195,13 @@ private fun ZoomReadout(zoom: FloatState, modifier: Modifier = Modifier) {
 }
 
 /**
- * Per-[MapView] mutable state held outside Compose's snapshot system — the map and its one-shot
- * init flag, plus the latest style-loaded callback. Same role as each caller's `Applied*Inputs`
- * holder: a remembered plain object, not a snapshot state, so writing it never recomposes.
+ * Per-[MapView] mutable state held outside Compose's snapshot system. Same role as each caller's
+ * `Applied*Inputs` holder: a remembered plain object, not a snapshot state, so writing it never
+ * recomposes.
  */
 private class MapHost {
     var map: MapLibreMap? = null
+    val coverage = Coverage()
     var inited = false
     var onStyleLoaded: (Context, MapLibreMap, Style, Boolean) -> Unit = { _, _, _, _ -> }
 }
@@ -186,6 +250,10 @@ private fun rememberMapLibreMapView(dark: Boolean, onDestroying: () -> Unit): Ma
         // edge-swipe handling is needed on the view itself.
         val options = MapLibreMapOptions.createFromAttributes(ctx)
             .textureMode(true)
+            // OSM's attribution guideline wants the credit readable without a tap, which MapLibre's
+            // attribution button is not; [MapCredit] carries it instead.
+            .attributionEnabled(false)
+            .logoEnabled(false)
             // The default white shows until the first frame and flashes hard against a dark basemap.
             // Taken from the style rather than spelled here, so a style refresh keeps it matching.
             .foregroundLoadColor(styleFlavor(ctx, dark).backgroundColor)
@@ -236,7 +304,8 @@ internal fun LatLngBounds.containsWithMargin(lat: Double, lon: Double, fraction:
     }
 
 /**
- * Fits the camera to [positions]: ≥2 → bounds fit with 96px padding, exactly 1 → [singlePointZoom].
+ * Fits the camera to the part of the map [covered] leaves showing: ≥2 [positions] → a bounds fit
+ * [FRAME_MARGIN_PX] in from its edges, exactly 1 → [singlePointZoom].
  * [headroom] > 1 zooms out beyond the exact fit (half-spans scaled around the center), which is what
  * a caller re-framing a moving position needs: an exact fit lands it on the viewport edge, due to
  * re-frame again on the next fix.
@@ -246,45 +315,49 @@ internal fun frameTo(
     positions: List<LatLng>,
     singlePointZoom: Double,
     headroom: Double = 1.0,
-    obscured: MapInsets = MapInsets.NONE,
 ) {
     when {
         // moveCamera (not easeCamera): the map should open already framed, with no zoom animation.
         positions.size >= 2 -> {
-            val b = LatLngBounds.Builder()
-            positions.forEach { b.include(it) }
-            var bounds = b.build()
-            if (headroom > 1.0) bounds = bounds.scaled(headroom)
-            map.moveCamera(
-                CameraUpdateFactory.newLatLngBounds(
-                    bounds,
-                    FRAME_MARGIN_PX,
-                    FRAME_MARGIN_PX + obscured.top,
-                    FRAME_MARGIN_PX,
-                    FRAME_MARGIN_PX + obscured.bottom,
-                ),
-            )
+            val bounds = LatLngBounds.Builder().includes(positions).build()
+            fitBounds(map, if (headroom > 1.0) bounds.scaled(headroom) else bounds, FRAME_MARGIN_PX)
         }
-        positions.size == 1 -> map.cameraPosition = CameraPosition.Builder()
-            .target(positions[0])
-            .zoom(singlePointZoom)
-            .padding(0.0, obscured.top.toDouble(), 0.0, obscured.bottom.toDouble())
-            .build()
+        positions.size == 1 -> map.cameraPosition = paddedCamera(map, positions[0], singlePointZoom)
     }
 }
 
-/** Puts [at] at the middle of the part of the map [obscured] leaves showing, keeping the zoom. */
-internal fun centerOn(map: MapLibreMap, at: LatLng, obscured: MapInsets) {
+/** Fits [bounds] [marginPx] in from the edges of the part of the map [covered] leaves showing. */
+internal fun fitBounds(map: MapLibreMap, bounds: LatLngBounds, marginPx: Int) {
+    val shown = covered(map)
     map.moveCamera(
-        CameraUpdateFactory.newLatLngPadding(at, 0.0, obscured.top.toDouble(), 0.0, obscured.bottom.toDouble()),
+        CameraUpdateFactory.newLatLngBounds(bounds, marginPx, marginPx + shown.top, marginPx, marginPx + shown.bottom),
     )
 }
 
-/** Whether every one of [positions] sits inside the middle of the part of the map [obscured] leaves
+/** [at] at [zoom], in the middle of the part of the map [covered] leaves showing. */
+internal fun paddedCamera(map: MapLibreMap, at: LatLng, zoom: Double): CameraPosition {
+    val shown = covered(map)
+    return CameraPosition.Builder()
+        .target(at)
+        .zoom(zoom)
+        .padding(0.0, shown.top.toDouble(), 0.0, shown.bottom.toDouble())
+        .build()
+}
+
+/** Puts [at] at the middle of the part of the map [covered] leaves showing, keeping the zoom. */
+internal fun centerOn(map: MapLibreMap, at: LatLng) {
+    val shown = covered(map)
+    map.moveCamera(
+        CameraUpdateFactory.newLatLngPadding(at, 0.0, shown.top.toDouble(), 0.0, shown.bottom.toDouble()),
+    )
+}
+
+/** Whether every one of [positions] sits inside the middle of the part of the map [covered] leaves
  *  showing, [EDGE_MARGIN] in from each edge. */
-internal fun showsWell(map: MapLibreMap, positions: List<LatLng>, obscured: MapInsets): Boolean {
-    val top = obscured.top.toFloat()
-    val bottom = map.height - obscured.bottom
+internal fun showsWell(map: MapLibreMap, positions: List<LatLng>): Boolean {
+    val shown = covered(map)
+    val top = shown.top.toFloat()
+    val bottom = map.height - shown.bottom
     val marginX = map.width * EDGE_MARGIN.toFloat()
     val marginY = (bottom - top) * EDGE_MARGIN.toFloat()
     return positions.all {
@@ -300,9 +373,37 @@ internal data class MapInsets(val top: Int, val bottom: Int) {
     }
 }
 
+/** Selection viewport used by track scrubbers with a drawer or sheet covering the lower map. */
+internal fun mapSelectionTarget(point: Offset, widthPx: Int, heightPx: Int, bottomPaddingPx: Int): Offset? {
+    val visibleHeight = heightPx - bottomPaddingPx
+    if (widthPx < 80 || visibleHeight < 80) return null
+    return Offset(point.x.coerceIn(40f, widthPx - 40f), point.y.coerceIn(40f, visibleHeight - 40f))
+}
+
 private const val FRAME_MARGIN_PX = 96
 
-/** How far in from each edge, as a share of the view, a position still reads as comfortably on screen. */
+/** What hides a map: the screen's own controls, and the measured [MapCredit] strip above them. */
+private class Coverage {
+    var obscured: () -> MapInsets = { MapInsets.NONE }
+    var creditPx = 0
+}
+
+/** Weak on the map, and an entry is removed when its map view is destroyed, so a screen's [Coverage.obscured]
+ *  cannot keep the map alive. */
+private val coverages = WeakHashMap<MapLibreMap, Coverage>()
+
+/**
+ * What hides [map] right now. Read unobserved: a camera move made from a recomposition must not
+ * subscribe it to a sheet drag.
+ */
+internal fun covered(map: MapLibreMap): MapInsets {
+    val coverage = coverages[map] ?: return MapInsets.NONE
+    val obscured = Snapshot.withoutReadObservation(coverage.obscured)
+    return obscured.copy(bottom = obscured.bottom + coverage.creditPx)
+}
+
+/** How far in from each edge, as a share of the part of the map left showing, a position still reads
+ *  as comfortably on screen. */
 private const val EDGE_MARGIN = 0.1
 
 internal enum class MapShade(@StringRes val labelRes: Int, val dark: Boolean?) {

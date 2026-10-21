@@ -83,6 +83,18 @@ internal fun <T> groupedScrollStops(groups: List<Pair<T, Int>>): List<ScrollStop
 }
 
 /**
+ * [groupedScrollStops]' list shape and order contract, stopping on the headings alone. A stop inside
+ * a group would leave the reader mid-group with its heading scrolled past.
+ */
+internal fun <T> headingScrollStops(groups: List<Pair<T, Int>>): List<ScrollStop<T>> = buildList {
+    var index = 0
+    for ((band, rows) in groups) {
+        add(ScrollStop(band, index))
+        index += rows + 1
+    }
+}
+
+/**
  * A finger-sized handle that fades in while a list scrolls and can be grabbed and dragged through
  * it. The drag lands on [stops], a bubble reads [label] of the one under the thumb, and crossing
  * into another band ticks like the track scrubber.

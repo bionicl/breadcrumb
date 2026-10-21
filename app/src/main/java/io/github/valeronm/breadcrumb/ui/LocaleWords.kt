@@ -156,11 +156,19 @@ private val dayHeaderFormat by PerLocale { localizedDateFormat("EEEEdMMMMy", it)
 private val dayHeaderFormatThisYear by PerLocale { localizedDateFormat("EEEEdMMMM", it) }
 
 /**
- * A day heading stands on its own, so it takes the capital its language would give it there. The two
- * relative names are passed in already resolved, which keeps this callable from inside a `remember`
- * — [stringResource] is not.
+ * [dayLabel] with today and its two relative words resolved once — [stringResource] being callable
+ * only here, while the returned function may run inside a `remember`.
  */
-internal fun dayLabel(
+@Composable
+internal fun rememberDayLabel(): (LocalDate) -> String {
+    val today = LocalDate.now(timelineZone())
+    val todayText = stringResource(R.string.relative_today).standaloneCase()
+    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    return remember(today, todayText, yesterdayText) { { date -> dayLabel(date, today, todayText, yesterdayText) } }
+}
+
+/** A day heading stands on its own, so it takes the capital its language would give it there. */
+private fun dayLabel(
     date: LocalDate,
     today: LocalDate,
     todayText: String,

@@ -257,7 +257,7 @@ private fun CategoryRow(
         label = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_category_unset),
         // The picker is where the color coding is learned, so a row wears its group's color.
         tint = categoryGlyphTint(category),
-        labelColor = placeTitleColor(named = category != null),
+        labelColor = statedTitleColor(stated = category != null),
         selected = selected,
         onClick = onClick,
     )

@@ -72,15 +72,11 @@
     <string name="timeline_short_stop">Short stop</string>
     <string name="timeline_short_stop_mergeable">Short stop, can be merged away</string>
     <string name="timeline_stayed">Stayed</string>
+    <!-- A half of a gap cut at midnight: the absence runs on from, or until, this time. -->
+    <string name="timeline_gap_from">from %1$s</string>
+    <string name="timeline_gap_until">until %1$s</string>
+    <string name="timeline_gap_lasting">%1$s</string>
     <string name="timeline_unnamed_place">unnamed place</string>
-
-    <!--
-      Gap rows, one whole line per case rather than a lead-in and a tail: which bound the recording
-      lost is the difference between them, and that is not always a preposition swapped at the end.
-    -->
-    <string name="timeline_gap_lasting">missing recording · %1$s</string>
-    <string name="timeline_gap_from">missing recording · from %1$s</string>
-    <string name="timeline_gap_until">missing recording · until %1$s</string>
 
     <!-- A stay row's visit count. Worded here rather than shared with the Places tab's own count:
          the prefixes are what keep each screen's wording its own, and a language may count a place

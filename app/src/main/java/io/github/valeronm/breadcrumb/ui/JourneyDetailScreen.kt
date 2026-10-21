@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,7 +34,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -173,16 +171,14 @@ internal fun JourneyDetailScreen(
                                 .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
                             shape = groupedRowShape(0, 1),
                         ) {
-                            Box(Modifier.fillMaxSize().clipToBounds()) {
-                                MapLibreJourneyMap(
-                                    lines = shownLines,
-                                    places = mapPlaces,
-                                    frameKey = selectedIndex,
-                                    linesComplete = lines.size == journeyTracks.size,
-                                    onOpenPlace = onOpenPlace,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
+                            MapLibreJourneyMap(
+                                lines = shownLines,
+                                places = mapPlaces,
+                                frameKey = selectedIndex,
+                                linesComplete = lines.size == journeyTracks.size,
+                                onOpenPlace = onOpenPlace,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                     // Each list page derives its own rows: the pager composes only visible pages,

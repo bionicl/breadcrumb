@@ -209,13 +209,14 @@ internal fun forWhiteGlyph(color: Color): Color {
 }
 
 /**
- * Title color for anything place-like (Places list rows, stay cards, gap sides): named reads
- * at full onSurface, unnamed at the variant. Explicit because the inherited card color dims
- * to onSurfaceVariant under dynamic color (contentColorFor matches surfaceVariant first).
+ * Title color for a title that is either something the user stated (a place's name, a trip's type,
+ * a category) or a stand-in for one: stated reads at full onSurface, a stand-in at the variant.
+ * Explicit because the inherited card color dims to onSurfaceVariant under dynamic color
+ * (contentColorFor matches surfaceVariant first).
  */
 @Composable
-internal fun placeTitleColor(named: Boolean) =
-    if (named) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+internal fun statedTitleColor(stated: Boolean) =
+    if (stated) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
  * Category tint where the glyph sits beside its own words — the suggestion chips and the picker's
@@ -249,7 +250,7 @@ internal fun activityDiscStyle(
  * place takes its map pin's own fill — solid, white glyph, the same token the map draws, so a stop
  * reads as one thing on both surfaces — while an untagged one stays a faint neutral tonal disc.
  * That asymmetry is deliberate: neutral recedes so the categorized pattern is what a scroll picks
- * up, and neutral is never a group's color. Deliberately a second channel beside [placeTitleColor]:
+ * up, and neutral is never a group's color. Deliberately a second channel beside [statedTitleColor]:
  * the title says whether you *named* the place, the disc whether you said what it's *for* — one row
  * answers both at a glance, and the pin → category glyph swap alone isn't left to carry a
  * distinction that would read as a shape change rather than a state.

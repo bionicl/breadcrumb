@@ -99,6 +99,24 @@ object ManualPath {
             if (arrivalMs != null && arrivalMs == nextStartMs) add(End.DESTINATION)
         }
 
+    /** One side of a stay between a trip's end and a recorded track's. */
+    class StaySide(val atMs: Long, val at: Coordinate, val placeId: Long? = null)
+
+    /**
+     * How long the timeline will show a stay from [left] to [right], or null where it will show
+     * none or too short a one to print ([StayDeriver.REPORTABLE_DURATION_MS]). Cluster identity is
+     * not asked, the trip's ends belonging to none until saved.
+     */
+    fun stayMs(left: StaySide, right: StaySide, agreement: StayDeriver.Agreement): Long? {
+        val verdict = StayDeriver.verdictBetween(
+            StayDeriver.TrackEnd(0, left.atMs, left.atMs, left.at, left.at, endPlaceId = left.placeId),
+            StayDeriver.TrackEnd(0, right.atMs, right.atMs, right.at, right.at, startPlaceId = right.placeId),
+            sameCluster = false,
+            agreement = agreement,
+        )
+        return if (verdict == StayDeriver.Verdict.Stayed) StayDeriver.reportable(right.atMs - left.atMs) else null
+    }
+
     /**
      * The days on [zone]'s clock an end of a trip can fall on between the track before it, ending at
      * [previousEndMs], and the one after, starting at [nextStartMs] — the trip may overlap neither.

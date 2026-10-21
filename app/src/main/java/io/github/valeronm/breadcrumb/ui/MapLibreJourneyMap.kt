@@ -138,7 +138,6 @@ internal fun frameModernTimelineOverview(map: MapLibreMap, lines: List<JourneyLi
         map,
         framePositions(lines, places).distinct(),
         singlePointZoom = 13.0,
-        obscured = MapInsets(top = 0, bottom = bottomPaddingPx),
     )
 }
 

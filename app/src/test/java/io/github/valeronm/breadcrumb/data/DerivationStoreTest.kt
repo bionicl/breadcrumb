@@ -146,6 +146,8 @@ class DerivationStoreTest {
         val id = track(0, 5, TEST_START)
         track(0, 5, TEST_START + 3 * 60 * 60_000L)
 
+        // Both halves of so short a track would fail the keep rule.
+        test.keepEveryTrack()
         val split = checkNotNull(test.repository.splitTrack(id, TEST_START + 30_000L))
         assertDerivedMatchesFreshDerive()
 

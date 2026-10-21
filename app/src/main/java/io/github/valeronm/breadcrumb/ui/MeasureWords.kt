@@ -120,6 +120,14 @@ internal fun distanceText(meters: Double): String = LocalMeasures.current.distan
 @ReadOnlyComposable
 internal fun speedText(kmh: Double): String = LocalMeasures.current.speedFromKmh(kmh)
 
+/** A distance in the short unit below one of the big unit, where the big unit's tenth rounds a
+ *  small difference to "0 km". */
+@Composable
+@ReadOnlyComposable
+internal fun fineDistanceText(meters: Double): String = with(LocalMeasures.current) {
+    if (system.bigFrom(meters) < 1.0) shortDistance(meters) else distance(meters)
+}
+
 /** A short distance — elevations, accuracy radii, place radii. */
 @Composable
 @ReadOnlyComposable

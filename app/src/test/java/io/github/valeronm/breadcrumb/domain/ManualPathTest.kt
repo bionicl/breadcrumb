@@ -106,4 +106,17 @@ class ManualPathTest {
         assertEquals(emptySet<ManualPath.End>(), ManualPath.continuing(1_000L, 9_000L, null, null))
         assertEquals(emptySet<ManualPath.End>(), ManualPath.continuing(null, null, 1_000L, 9_000L))
     }
+
+    @Test fun `a stay is previewed where the timeline will draw one, long enough to print`() {
+        val hour = 3_600_000L
+        val agreement = StayDeriver.Agreement(StayDeriver.Params(), flatDistance, emptyList())
+        fun side(ms: Long, east: Double, placeId: Long? = null) = ManualPath.StaySide(ms, at(east), placeId)
+        assertEquals(2 * hour, ManualPath.stayMs(side(hour, 0.0), side(3 * hour, 50.0), agreement))
+        assertEquals(null, ManualPath.stayMs(side(hour, 0.0), side(3 * hour, 500.0), agreement))
+        assertEquals(null, ManualPath.stayMs(side(hour, 0.0), side(hour + 30_000L, 0.0), agreement))
+        assertEquals(null, ManualPath.stayMs(side(3 * hour, 0.0), side(hour, 0.0), agreement))
+        assertEquals(null, ManualPath.stayMs(side(hour, 0.0, placeId = 1), side(3 * hour, 0.0, placeId = 2), agreement))
+        val pin = StayDeriver.Agreement(StayDeriver.Params(), flatDistance, listOf(PlaceClusterer.Seed(at(250.0), 300.0)))
+        assertEquals(2 * hour, ManualPath.stayMs(side(hour, 0.0), side(3 * hour, 500.0), pin))
+    }
 }

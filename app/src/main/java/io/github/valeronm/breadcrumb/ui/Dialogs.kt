@@ -102,6 +102,11 @@ internal class UndoSnackbar(
     }
 }
 
+/** Deletes a track by hand and offers its restore under [message]; nothing shows when the delete
+ *  is refused. */
+internal fun UndoSnackbar.deleteTrack(viewModel: TrackListViewModel, trackId: Long, message: String) =
+    viewModel.delete(trackId) { show(message) { viewModel.restoreTrack(trackId) } }
+
 @Composable
 internal fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {
     val scope = rememberCoroutineScope()

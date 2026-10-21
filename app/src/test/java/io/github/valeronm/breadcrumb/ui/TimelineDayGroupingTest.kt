@@ -85,7 +85,7 @@ class TimelineDayGroupingTest {
     }
 
     @Test fun `the grouping of nothing is nothing`() {
-        assertEquals(emptyList<DayGroup>(), groupTimelineByDay(emptyList()))
+        assertEquals(emptyList<DayGroup<TimelineItem>>(), groupTimelineByDay(emptyList()))
     }
 
     /**

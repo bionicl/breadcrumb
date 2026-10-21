@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
@@ -38,7 +37,7 @@ internal fun updateUserLocation(style: Style, at: Coordinate?) {
 /** Puts the camera on [at], zooming in to [USER_LOCATION_ZOOM] but never out from nearer. */
 internal fun moveCameraTo(map: MapLibreMap, at: Coordinate) {
     val zoom = maxOf(map.cameraPosition.zoom, USER_LOCATION_ZOOM)
-    map.moveCamera(CameraUpdateFactory.newLatLngZoom(at.toLatLng(), zoom))
+    map.cameraPosition = paddedCamera(map, at.toLatLng(), zoom)
 }
 
 private fun userLocationFeatures(at: Coordinate?): FeatureCollection =

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MissingRecordingsScreen: every gap, opened from the Timeline's top bar. -->
+<resources>
+    <string name="missing_recordings_title">Missing recordings</string>
+    <string name="missing_recordings_title_count">Missing recordings (%1$d)</string>
+    <string name="missing_recordings_empty">No recordings are missing.</string>
+    <string name="missing_recordings_scroll_to_day">Scroll to a day</string>
+</resources>

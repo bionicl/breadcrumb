@@ -31,31 +31,20 @@ class TrackSplitTest {
 
     private fun tsOf(index: Int) = start + index * 10_000L
 
-    @Test fun `a cut in the middle names both halves' bounds and counts`() {
+    @Test fun `a cut in the middle names both halves' bounds`() {
         val plan = TrackSplit.plan(points(10), tsOf(4))!!
 
         assertEquals(tsOf(4), plan.cutTs)
         assertEquals("the last fix that stays behind", tsOf(3), plan.firstEndTs)
         assertEquals("the cut fix opens the second track", tsOf(4), plan.secondStartTs)
-        assertEquals(4, plan.firstGoodPoints)
-        assertEquals(6, plan.secondGoodPoints)
     }
 
     @Test fun `the boundary is the outermost fix of either kind, not the last good one`() {
         // A rejected fix sits against the cut. The repository hands the row this timestamp, so the
         // plan must report it too — reporting the last *good* fix instead is how a preview and a
         // stored track come to disagree by the seconds between them.
-        val plan = TrackSplit.plan(points(10, ignoredAt = setOf(3)), tsOf(4))!!
-
-        assertEquals(tsOf(3), plan.firstEndTs)
-        assertEquals("but it is not part of the path either half draws", 3, plan.firstGoodPoints)
-    }
-
-    @Test fun `an ignored fix at the cut opens the second half's clock without counting`() {
-        val plan = TrackSplit.plan(points(10, ignoredAt = setOf(4)), tsOf(4))!!
-
-        assertEquals(tsOf(4), plan.secondStartTs)
-        assertEquals(5, plan.secondGoodPoints)
+        assertEquals(tsOf(3), TrackSplit.plan(points(10, ignoredAt = setOf(3)), tsOf(4))!!.firstEndTs)
+        assertEquals(tsOf(4), TrackSplit.plan(points(10, ignoredAt = setOf(4)), tsOf(4))!!.secondStartTs)
     }
 
     @Test fun `order does not matter, so a caller may concatenate its point lists unsorted`() {
@@ -65,23 +54,11 @@ class TrackSplitTest {
         assertEquals(TrackSplit.plan(all, tsOf(4)), TrackSplit.plan(shuffled, tsOf(4)))
     }
 
-    @Test fun `a cut leaving too few good fixes on either side is refused`() {
+    @Test fun `a cut is refused only where one side holds no fix at all`() {
         assertNull("nothing before it", TrackSplit.plan(points(10), tsOf(0)))
-        assertNull("one fix before it", TrackSplit.plan(points(10), tsOf(1)))
-        assertNull("one fix after it", TrackSplit.plan(points(10), tsOf(9)))
         assertNull("nothing after it", TrackSplit.plan(points(10), tsOf(10)))
-        // Two either side is the floor, and it holds.
-        assertEquals(tsOf(2), TrackSplit.plan(points(4), tsOf(2))!!.cutTs)
-    }
-
-    @Test fun `only good fixes count toward the floor`() {
-        // Four fixes before the cut, but two of them rejected: not a line, so not a track.
-        assertNull(TrackSplit.plan(points(10, ignoredAt = setOf(0, 1, 2)), tsOf(4)))
-    }
-
-    @Test fun `the floor is the same test the screen asks with counts alone`() {
-        assertEquals(false, TrackSplit.isLegalCut(1, 8))
-        assertEquals(false, TrackSplit.isLegalCut(8, 1))
-        assertEquals(true, TrackSplit.isLegalCut(2, 2))
+        assertEquals("one fix before it", tsOf(0), TrackSplit.plan(points(10), tsOf(1))!!.firstEndTs)
+        assertEquals("one fix after it", tsOf(9), TrackSplit.plan(points(10), tsOf(9))!!.secondStartTs)
+        assertEquals("only rejected fixes before it", tsOf(2), TrackSplit.plan(points(10, ignoredAt = setOf(0, 1, 2)), tsOf(3))!!.firstEndTs)
     }
 }

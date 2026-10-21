@@ -242,17 +242,19 @@ internal fun PlaceEditScreen(
                         onLongPress = { movePin(it, pinMoved) },
                         camera = camera,
                         modifier = Modifier.fillMaxSize(),
-                    )
-                    if (aiming) AimCrosshair()
-                    MapCornerControls(
-                        aiming = aiming,
-                        aimDescription = stringResource(R.string.places_pin_aim),
-                        confirmLabel = stringResource(R.string.places_pin_here),
-                        onAim = { aiming = true },
-                        onCancelAim = { aiming = false },
-                        onConfirmAim = {
-                            camera.center()?.let { movePin(it, pinMoved) }
-                            aiming = false
+                        controls = {
+                            if (aiming) AimCrosshair()
+                            MapCornerControls(
+                                aiming = aiming,
+                                aimDescription = stringResource(R.string.places_pin_aim),
+                                confirmLabel = stringResource(R.string.places_pin_here),
+                                onAim = { aiming = true },
+                                onCancelAim = { aiming = false },
+                                onConfirmAim = {
+                                    camera.center()?.let { movePin(it, pinMoved) }
+                                    aiming = false
+                                },
+                            )
                         },
                     )
                     // Over the map's corner, not under the slider: this number is read *while*

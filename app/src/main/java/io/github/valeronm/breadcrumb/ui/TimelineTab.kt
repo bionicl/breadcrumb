@@ -161,13 +161,15 @@ internal sealed interface TimelineJump {
      * Land on this gap at the end a place listed it by — a gap longer than a day is two rows, one
      * per end.
      */
-    data class Gap(val listed: PlaceResolver.PlaceGap) : Row {
-        override val anchorMs: Long get() = listed.atMs
+    data class Gap(val gap: StayDeriver.Gap, val atDeparture: Boolean) : Row {
+        constructor(listed: PlaceResolver.PlaceGap) : this(listed.gap, listed.fromHere)
+
+        override val anchorMs: Long get() = if (atDeparture) gap.start else gap.end
 
         override fun matches(item: TimelineItem): Boolean =
             item is TimelineItem.GapItem &&
-                item.gap.afterTrackId == listed.gap.afterTrackId &&
-                (if (listed.fromHere) item.holdsDeparture else item.holdsArrival)
+                item.gap.afterTrackId == gap.afterTrackId &&
+                (if (atDeparture) item.holdsDeparture else item.holdsArrival)
     }
 
     /** Land on this day — a journey's day, or the map's parting day on a return to the list. */
@@ -450,14 +452,13 @@ internal fun TimelineListPage(
     // Resolved here because [dayLabel] is callable from a plain function and [stringResource] is not;
     // each header then words itself, rather than reading its text out of a list it must stay aligned
     // with. Day label -> its header's lazy-item index: what the fast scroller jumps between.
-    val todayText = stringResource(R.string.relative_today).standaloneCase()
-    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    val dayLabelOf = rememberDayLabel()
     val today = LocalDate.now(timelineZone())
-    val dayAnchors = remember(groups, today, todayText, yesterdayText, singleDayMode) {
+    val dayAnchors = remember(groups, dayLabelOf, singleDayMode) {
         buildList {
             var index = 0
             groups.forEach { group ->
-                add(ScrollStop(dayLabel(group.date, today, todayText, yesterdayText), index))
+                add(ScrollStop(dayLabelOf(group.date), index))
                 index += group.items.size + if (singleDayMode) 0 else 1
             }
         }
@@ -576,7 +577,7 @@ internal fun TimelineListPage(
                     // date on two runs. A lazy list crashes on a duplicate key.
                     if (!singleDayMode) {
                         stickyHeading(key = "header:${group.items.first().startedAt}") {
-                            val label = dayLabel(group.date, today, todayText, yesterdayText)
+                            val label = dayLabelOf(group.date)
                             DayHeader(
                                 label = label,
                                 dayTracks = dayTracks,
@@ -855,8 +856,7 @@ internal fun DaySelector(
     canShare: Boolean = false,
 ) {
     val today = LocalDate.now(timelineZone())
-    val todayText = stringResource(R.string.relative_today).standaloneCase()
-    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    val dayLabelOf = rememberDayLabel()
     var pickerOpen by remember { mutableStateOf(false) }
     var menuOpen by remember(day) { mutableStateOf(false) }
     Row(
@@ -883,7 +883,7 @@ internal fun DaySelector(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        dayLabel(day, today, todayText, yesterdayText),
+                        dayLabelOf(day),
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -901,7 +901,7 @@ internal fun DaySelector(
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.timeline_share_day, dayLabel(day, today, todayText, yesterdayText))) },
+                                text = { Text(stringResource(R.string.timeline_share_day, dayLabelOf(day))) },
                                 leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                                 enabled = canShare,
                                 onClick = {
@@ -1133,42 +1133,6 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
 }
 
 /**
- * The rows cut into days, each dated on **its own clock** — a stay abroad falls under the day it was
- * lived in, not the one the device was having.
- *
- * Grouped by *runs* rather than by value, which is the whole difference from a global calendar: once
- * each row answers on its own zone the dates are no longer a partition. Flying east to west, the
- * 18th happens twice with the crossing between; flying the other way, a date is skipped. `groupBy`
- * would weld the two halves of a repeated date into one heading with a flight's worth of rows
- * between them, in the wrong order — so a repeat has to be allowed to stand as two days, because
- * that is what it was.
- */
-internal fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
-    val groups = mutableListOf<DayGroup>()
-    var run = mutableListOf<TimelineItem>()
-    var date: LocalDate? = null
-    for (item in items) {
-        val itemDate = item.filedOn
-        if (itemDate != date) {
-            date?.let { groups += DayGroup(it, run) }
-            run = mutableListOf()
-            date = itemDate
-        }
-        run += item
-    }
-    date?.let { groups += DayGroup(it, run) }
-    return groups
-}
-
-/**
- * One day's rows, carrying the date and not a heading for it. Naming the day is [dayLabel]'s: a date
- * is what answers whether the day falls inside a travel, while a heading is language, and phrasing
- * it here would put a locale-resolved formatter — which reaches the Android framework — inside a
- * function whose whole point is being testable on a plain JVM.
- */
-internal class DayGroup(val date: LocalDate, val items: List<TimelineItem>)
-
-/**
  * A day inside a travel: which one, where in it, and whether it is that travel's *latest* day —
  * the rows run newest-first, so that is the day the band announcing the travel sits above.
  *
@@ -1196,6 +1160,12 @@ private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<L
  * clock a row's bounds were clamped to, every reader of those bounds must ask the same one.
  */
 internal fun timelineZone(): ZoneId = ZoneId.systemDefault()
+
+private fun TimelineItem.GapItem.spansClocks(): Boolean =
+    departureZone != null && arrivalZone != null && departureZone != arrivalZone
+
+@Composable
+private fun placeTitleColor(named: Boolean): Color = statedTitleColor(stated = named)
 
 /**
  * An atlas zone id as a [ZoneId], falling back to the device's where it can't be one.
@@ -1794,12 +1764,13 @@ private fun GapRow(
 internal fun GapCard(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
-    zone: ZoneId,
+    zone: ZoneId = timelineZone(),
     onOpenPlace: (String) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
     displayOptions: AppSettings.TimelineDisplayOptions = AppSettings.TimelineDisplayOptions(),
     colorPalette: TimelineColorPalette = TimelineColorPalette.CLASSIC,
     lastTripActivity: ActivityType? = null,
+    onClick: (() -> Unit)? = null,
 ) {
     val gap = item.gap
     // The whole card is drawn from the two questions the slicer answered when it cut — see
@@ -1816,8 +1787,8 @@ internal fun GapCard(
     val shiftColor = zoneShiftColor
     val readerClock = LocalReaderClock.current
     val arrivalAt =
-        if (item.spansClocks) markedTime(gap.end, zone, reader, shiftColor, readerClock) else null
-    val departureAt = item.departureZone?.takeIf { item.spansClocks }
+        if (item.spansClocks()) markedTime(gap.end, zone, reader, shiftColor, readerClock) else null
+    val departureAt = item.departureZone?.takeIf { item.spansClocks() }
         ?.let { markedTime(gap.start, it, reader, shiftColor, readerClock) }
     // The trip this absence is missing, as far as this row can state it — the same two questions
     // again, so an end the card doesn't name is an end the form isn't handed: the far side of an
@@ -1835,7 +1806,7 @@ internal fun GapCard(
             trackAfter = item.nextTrackId,
         )
     }
-    Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
+    Card(onClick = onClick ?: {}, enabled = onClick != null, modifier = Modifier.fillMaxWidth(), shape = shape) {
         // One whole sentence per case, worded here because the Text below is not a composable scope.
         // A duration says the same thing on any clock, so the two-end case states one and is marked
         // nowhere; a half that states a real bound marks it, as every clock time on the timeline does.

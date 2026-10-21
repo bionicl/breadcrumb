@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -105,6 +106,7 @@ internal fun TrackDetailScreen(
      * defaulted so that a new caller has to say which it is instead of inheriting silence.
      */
     onSplit: ((Long) -> Unit)?,
+    onDelete: (() -> Unit)? = null,
     /**
      * Open the trip form on this track — offered only for a manual one, whose whole content is the
      * two ends the form asks for. Null where the caller has nowhere to open it, and undefaulted for
@@ -273,6 +275,11 @@ internal fun TrackDetailScreen(
                             )
                         }
                     }
+                    if (onDelete != null) {
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.common_delete))
+                        }
+                    }
                     IconButton(onClick = {
                         viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
                             if (intent != null) context.startActivity(intent)
@@ -380,7 +387,7 @@ internal fun TrackDetailScreen(
                                     },
                                     onSplitRequested = { showSplitDialog = true }.takeIf { splittable },
                                     canCutAt = { index ->
-                                        TrackSplit.isLegalCut(index, (points?.size ?: 0) - index)
+                                        load.good.getOrNull(index)?.let { TrackSplit.plan(load.all, it.timestamp) != null } == true
                                     },
                                     modifier = Modifier.fillMaxWidth().height(130.dp),
                                 )
@@ -438,7 +445,7 @@ internal fun TrackDetailScreen(
                                         // Both halves of "can this be cut" stay here, with the track
                                         // they are about: the plot renders the offer it is handed.
                                         canCutAt = { index ->
-                                            TrackSplit.isLegalCut(index, (points?.size ?: 0) - index)
+                                            load.good.getOrNull(index)?.let { TrackSplit.plan(load.all, it.timestamp) != null } == true
                                         },
                                         modifier = Modifier.fillMaxWidth().height(130.dp),
                                     )
@@ -521,9 +528,10 @@ private fun SplitConfirmation(
         R.string.track_split_at,
         markedTime(plan.cutTs, zone, reader, shiftColor, readerClock),
     )
-    val firstPoints = pluralStringResource(R.plurals.track_points, plan.firstGoodPoints, plan.firstGoodPoints)
-    val secondPoints =
-        pluralStringResource(R.plurals.track_points, plan.secondGoodPoints, plan.secondGoodPoints)
+    val firstGoodPoints = load.good.count { it.timestamp < plan.cutTs }
+    val secondGoodPoints = load.good.size - firstGoodPoints
+    val firstPoints = pluralStringResource(R.plurals.track_points, firstGoodPoints, firstGoodPoints)
+    val secondPoints = pluralStringResource(R.plurals.track_points, secondGoodPoints, secondGoodPoints)
     val firstDistance = distanceText(firstMeters)
     val secondDistance = distanceText(secondMeters)
     fun half(from: Long, to: Long, points: String, distance: String) = buildAnnotatedString {

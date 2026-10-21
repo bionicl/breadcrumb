@@ -1056,7 +1056,7 @@ internal fun AboutSettingsScreen(say: (String) -> Unit, onBack: () -> Unit) {
         FootnoteText(stringResource(R.string.credit_geonames))
         // ODbL asks for the credit wherever OSM-derived results show, and FOSSGIS's terms for the
         // links beside it.
-        OsmDataCredit(Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        MapCredit(Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
     }
 }
 
