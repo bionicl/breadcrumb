@@ -294,7 +294,7 @@ object PlaceResolver {
         val farKey: String?,
     ) {
         /** The gap's bound at this place. */
-        val atMs: Long get() = if (fromHere) gap.start else gap.end
+        val atMs: Long get() = gap.boundAt(departure = fromHere)
     }
 
     /**

@@ -432,6 +432,11 @@ internal class ThrottledTick(private val view: View, private val tickOnFirst: Bo
  */
 private fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
 
+@Composable
+internal fun DayHeading(label: String) {
+    Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+}
+
 /** Rows scroll beneath a pinned heading, so its body is opaque and swallows taps. */
 internal fun LazyListScope.stickyHeading(key: Any, content: @Composable ColumnScope.() -> Unit) =
     stickyHeader(key = key) {

@@ -59,11 +59,9 @@
     <string name="timeline_short_stop">Короткая остановка</string>
     <string name="timeline_short_stop_mergeable">Короткая остановка, при объединении будет поглощена</string>
     <string name="timeline_stayed">Посещение</string>
+    <string name="timeline_gap_from">с %1$s</string>
+    <string name="timeline_gap_until">до %1$s</string>
     <string name="timeline_unnamed_place">место без названия</string>
-
-    <string name="timeline_gap_lasting">нет записи · %1$s</string>
-    <string name="timeline_gap_from">нет записи · с %1$s</string>
-    <string name="timeline_gap_until">нет записи · до %1$s</string>
 
     <plurals name="timeline_visits">
         <item quantity="one">%d посещение</item>

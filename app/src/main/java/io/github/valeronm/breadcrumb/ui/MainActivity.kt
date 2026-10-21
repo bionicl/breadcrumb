@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.HistoryToggleOff
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Place
@@ -83,6 +84,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOverlap
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
@@ -214,6 +216,7 @@ private fun MainScreen(
     val viewModel: TrackListViewModel = viewModel()
     LaunchedEffect(viewModel, language) { viewModel.useLanguage(language) }
     val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val hasMissingRecordings by viewModel.hasMissingRecordings.collectAsStateWithLifecycle()
 
     // Waits for the lock rather than relying on the gate: PrivacyGate draws over this composition
     // instead of replacing it, so an import shared in while the app is locked would otherwise run
@@ -282,6 +285,7 @@ private fun MainScreen(
     // the day the Timeline was showing, a gap row on the ends that row already knows. Everything
     // the form does with it stays local to the form until its check mark.
     var tripDraft by remember { mutableStateOf<TripDraft?>(null) }
+    var missingRecordingsOpen by remember { mutableStateOf(false) }
     // The day the Timeline showed when the form was opened — its pickers start there, a trip
     // added while looking at a day usually being a trip on it.
     val timelineViewedDay = remember { TimelineViewedDay() }
@@ -293,9 +297,16 @@ private fun MainScreen(
     // like any parent; without one, the layers over the tabs would restate wherever the tabs blur
     // a relation stated once here.
     val tabsLayer = remember { OverlayLayerState<Unit>() }
+    // The layers a gap row opens stack on this one, so back returns to the list; with the list closed
+    // it holds nothing and the tabs show through.
+    val missingRecordingsLayer = rememberOverlayLayer(
+        content = Unit.takeIf { missingRecordingsOpen },
+        over = tabsLayer,
+        dismiss = { missingRecordingsOpen = false },
+    )
     val mainLayer = rememberOverlayLayer(
         content = mainDestination,
-        over = tabsLayer,
+        over = missingRecordingsLayer,
         dismiss = { mainDestination = null },
     )
     // Back from a Settings page previews the hub rather than the tabs.
@@ -310,10 +321,12 @@ private fun MainScreen(
         over = settingsLayer,
         dismiss = { discardedTrackId = null },
     )
-    // Journey detail: reached from the Insights tab or a Timeline band, so back previews the tabs.
+    // Journey detail: reached from the Insights tab or a Timeline band. It sits on the missing-recordings
+    // layer, which holds nothing under a journey, so that the place detail stacked on this one draws
+    // above that list.
     val journeyLayer = rememberOverlayLayer(
         content = journeyKey,
-        over = tabsLayer,
+        over = missingRecordingsLayer,
         dismiss = { journeyKey = null },
     )
     val newPlaceLayer = rememberOverlayLayer(
@@ -321,10 +334,10 @@ private fun MainScreen(
         over = tabsLayer,
         dismiss = { newPlacePick = null },
     )
-    // Place detail is reached from the Timeline, the Places list, or a journey's map — stacked on
-    // the journey layer so one opened there draws above it and back returns to it. Opened from a
-    // tab, the journey layer holds nothing, which is the tabs showing through anyway (the same
-    // shape as the trip form over a track detail that isn't there).
+    // Place detail is reached from the Timeline, the Places list, a journey's map or a missing
+    // recording — stacked on the journey layer so one opened there draws above it and back returns
+    // to it. Opened from a tab, the journey layer holds nothing, which is the tabs showing through
+    // anyway (the same shape as the trip form over a track detail that isn't there).
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
         over = journeyLayer,
@@ -442,6 +455,14 @@ private fun MainScreen(
                             // Only where the trip would land: the Timeline is the one tab that shows
                             // what a manual entry changes.
                             if (selectedTab == HomeTab.TIMELINE) {
+                                if (hasMissingRecordings) {
+                                    IconButton(onClick = { missingRecordingsOpen = true }) {
+                                        Icon(
+                                            Icons.Filled.HistoryToggleOff,
+                                            contentDescription = stringResource(R.string.missing_recordings_title),
+                                        )
+                                    }
+                                }
                                 IconButton(onClick = {
                                     tripDraft = TripDraft(day = timelineViewedDay.read())
                                 }) {
@@ -595,7 +616,7 @@ private fun MainScreen(
                 landOnTimeline()
             },
             onOpenGap = { listed ->
-                timelineJump = TimelineJump.Gap(listed)
+                timelineJump = TimelineJump.Gap(listed.gap, atDeparture = listed.fromHere)
                 landOnTimeline()
             },
             onOpenPlace = { placeDetailKey = it },
@@ -653,6 +674,17 @@ private fun MainScreen(
         DiscardedTrackOverlay(
             layer = discardedLayer,
             viewModel = viewModel,
+        )
+
+        MissingRecordingsOverlay(
+            layer = missingRecordingsLayer,
+            viewModel = viewModel,
+            onOpen = { row ->
+                timelineJump = TimelineJump.Gap(row.gap, atDeparture = row.holdsDeparture)
+                landOnTimeline()
+            },
+            onOpenPlace = { placeDetailKey = it },
+            onAddTrip = { tripDraft = it },
         )
 
         AddTripOverlay(
@@ -713,7 +745,26 @@ private fun NewPlaceOverlay(
     }
 }
 
-/** The add-trip form, over the tabs — back lands on the Timeline that opened it. */
+@Composable
+private fun MissingRecordingsOverlay(
+    layer: OverlayLayerState<Unit>,
+    viewModel: TrackListViewModel,
+    onOpen: (TimelineItem.GapItem) -> Unit,
+    onOpenPlace: (String) -> Unit,
+    onAddTrip: (TripDraft) -> Unit,
+) {
+    OverlayFrame(layer) {
+        MissingRecordingsScreen(
+            viewModel = viewModel,
+            onBack = layer.dismiss,
+            onOpen = onOpen,
+            onOpenPlace = onOpenPlace,
+            onAddTrip = onAddTrip,
+        )
+    }
+}
+
+/** The add-trip form, over whichever layer opened it — back lands there. */
 @Composable
 private fun AddTripOverlay(
     layer: OverlayLayerState<TripDraft>,

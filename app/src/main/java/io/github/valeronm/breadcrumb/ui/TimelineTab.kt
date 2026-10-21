@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.SweepStatus
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -140,16 +141,17 @@ internal sealed interface TimelineJump {
     }
 
     /**
-     * Land on this gap at the end a place listed it by — a gap longer than a day is two rows, one
-     * per end.
+     * Land on this gap at its departure end, or at its arrival end — a gap longer than a day is two
+     * rows, one per end. [gap] may be the derivation's or either half the slicer cut from it: a half
+     * keeps the real bound it holds, which is the one [anchorMs] reads.
      */
-    data class Gap(val listed: PlaceResolver.PlaceGap) : Row {
-        override val anchorMs: Long get() = listed.atMs
+    data class Gap(val gap: StayDeriver.Gap, val atDeparture: Boolean) : Row {
+        override val anchorMs: Long get() = gap.boundAt(departure = atDeparture)
 
         override fun matches(item: TimelineItem): Boolean =
             item is TimelineItem.GapItem &&
-                item.gap.afterTrackId == listed.gap.afterTrackId &&
-                (if (listed.fromHere) item.holdsDeparture else item.holdsArrival)
+                item.gap.afterTrackId == gap.afterTrackId &&
+                (if (atDeparture) item.holdsDeparture else item.holdsArrival)
     }
 
     /** Land on this day — a journey's day, or the map's parting day on a return to the list. */
@@ -375,21 +377,8 @@ private fun TimelineListPage(
         groupTimelineByDay(recording?.let { listOf(it) + items } ?: items)
     }
     val listState = rememberLazyListState()
-    // Resolved here because [dayLabel] is callable from a plain function and [stringResource] is not;
-    // each header then words itself, rather than reading its text out of a list it must stay aligned
-    // with. Day label -> its header's lazy-item index: what the fast scroller jumps between.
-    val todayText = stringResource(R.string.relative_today).standaloneCase()
-    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
-    val today = LocalDate.now(timelineZone())
-    val dayAnchors = remember(groups, today, todayText, yesterdayText) {
-        buildList {
-            var index = 0
-            groups.forEach { group ->
-                add(ScrollStop(dayLabel(group.date, today, todayText, yesterdayText), index))
-                index += group.items.size + 1
-            }
-        }
-    }
+    val dayLabelOf = rememberDayLabel()
+    val dayAnchors = remember(groups) { headingScrollStops(groups.map { it.date to it.items.size }) }
     // The topmost visible item's group: the last anchor at or above it — the anchors are parallel
     // to [groups], so the span arithmetic stays theirs alone. Run only when the holder is asked,
     // never per scroll frame.
@@ -499,10 +488,8 @@ private fun TimelineListPage(
                     val dayItems = group.items
                     val dayTracks = dayItems.filterIsInstance<TimelineItem.TrackItem>().map { it.summary }
                     val away = awayDays[group.date]
-                    // Keyed by the run's newest instant, not its date: a westward crossing puts one
-                    // date on two runs. A lazy list crashes on a duplicate key.
-                    stickyHeading(key = "header:${group.items.first().startedAt}") {
-                        val label = dayLabel(group.date, today, todayText, yesterdayText)
+                    stickyHeading(key = group.headingKey) {
+                        val label = dayLabelOf(group.date)
                         DayHeader(
                             label = label,
                             dayTracks = dayTracks,
@@ -548,20 +535,17 @@ private fun TimelineListPage(
                                 },
                             )
                             is TimelineItem.GapItem ->
-                                GapRow(item, shape, item.clock, onOpenPlace, onMerge, onAddTrip)
+                                GapRow(item, shape, onOpenPlace, onMerge, onAddTrip)
                         }
                     }
                 }
             }
         }
         FastScroller(
-            // A day is both where the drag lands and what it ticks on: the history is read by the
-            // day, and a stop inside one would leave the reader mid-afternoon with the heading
-            // above scrolled past.
             state = listState,
             stops = dayAnchors,
             contentDescription = stringResource(R.string.timeline_scroll_to_day),
-            label = { it },
+            label = { dayLabelOf(it) },
         )
     }
 }
@@ -667,8 +651,7 @@ private fun TimelineMapPage(
 @Composable
 private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
     val today = LocalDate.now(timelineZone())
-    val todayText = stringResource(R.string.relative_today).standaloneCase()
-    val yesterdayText = stringResource(R.string.relative_yesterday).standaloneCase()
+    val dayLabelOf = rememberDayLabel()
     var pickerOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -682,7 +665,7 @@ private fun DaySelector(day: LocalDate, onSelect: (LocalDate) -> Unit) {
         }
         TextButton(onClick = { pickerOpen = true }, modifier = Modifier.weight(1f)) {
             Text(
-                dayLabel(day, today, todayText, yesterdayText),
+                dayLabelOf(day),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -788,11 +771,7 @@ private fun ColumnScope.DayHeader(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            DayHeading(label)
             // Same size as the date it continues, the tint alone telling the two apart.
             away?.let { AwayDayMarker(it, MaterialTheme.typography.titleSmall) }
         }
@@ -886,42 +865,6 @@ private fun DayTotal(icon: ImageVector, description: String?, tint: Color, text:
         )
     }
 }
-
-/**
- * The rows cut into days, each dated on **its own clock** — a stay abroad falls under the day it was
- * lived in, not the one the device was having.
- *
- * Grouped by *runs* rather than by value, which is the whole difference from a global calendar: once
- * each row answers on its own zone the dates are no longer a partition. Flying east to west, the
- * 18th happens twice with the crossing between; flying the other way, a date is skipped. `groupBy`
- * would weld the two halves of a repeated date into one heading with a flight's worth of rows
- * between them, in the wrong order — so a repeat has to be allowed to stand as two days, because
- * that is what it was.
- */
-internal fun groupTimelineByDay(items: List<TimelineItem>): List<DayGroup> {
-    val groups = mutableListOf<DayGroup>()
-    var run = mutableListOf<TimelineItem>()
-    var date: LocalDate? = null
-    for (item in items) {
-        val itemDate = item.filedOn
-        if (itemDate != date) {
-            date?.let { groups += DayGroup(it, run) }
-            run = mutableListOf()
-            date = itemDate
-        }
-        run += item
-    }
-    date?.let { groups += DayGroup(it, run) }
-    return groups
-}
-
-/**
- * One day's rows, carrying the date and not a heading for it. Naming the day is [dayLabel]'s: a date
- * is what answers whether the day falls inside a travel, while a heading is language, and phrasing
- * it here would put a locale-resolved formatter — which reaches the Android framework — inside a
- * function whose whole point is being testable on a plain JVM.
- */
-internal class DayGroup(val date: LocalDate, val items: List<TimelineItem>)
 
 /**
  * A day inside a travel: which one, where in it, and whether it is that travel's *latest* day —
@@ -1323,6 +1266,22 @@ internal fun StayCard(
     )
 }
 
+@Composable
+private fun GapRow(
+    item: TimelineItem.GapItem,
+    shape: RoundedCornerShape,
+    onOpenPlace: (String) -> Unit,
+    onMerge: (TrackMerge.Plan) -> Unit,
+    onAddTrip: (TripDraft) -> Unit,
+) {
+    // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
+    // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
+    // absences and aren't swipeable.
+    MergeSwipeable(item.merge, shape, onMerge) {
+        GapCard(item, shape, onOpenPlace, onAddTrip, mergeable = item.merge != null)
+    }
+}
+
 /**
  * Movement the recorder missed: neighboring track endpoints disagree. Deliberately subdued — most
  * such gaps are one place misclustered as two, so the card names each side it holds as a full-width
@@ -1347,54 +1306,32 @@ internal fun StayCard(
  * pre-filled with the ends it holds.
  */
 @Composable
-private fun GapRow(
-    item: TimelineItem.GapItem,
-    shape: RoundedCornerShape,
-    zone: ZoneId,
-    onOpenPlace: (String) -> Unit,
-    onMerge: (TrackMerge.Plan) -> Unit,
-    onAddTrip: (TripDraft) -> Unit,
-) {
-    // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
-    // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
-    // absences and aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace, onAddTrip) }
-}
-
-@Composable
 internal fun GapCard(
     item: TimelineItem.GapItem,
     shape: RoundedCornerShape,
-    zone: ZoneId,
     onOpenPlace: (String) -> Unit,
     onAddTrip: (TripDraft) -> Unit,
+    /** Whether the host offers this gap's merge, which the connector's accent advertises. */
+    mergeable: Boolean = false,
+    onClick: (() -> Unit)? = null,
 ) {
     val gap = item.gap
     // The whole card is drawn from the two questions the slicer answered when it cut — see
     // GapItem.holdsDeparture. Read once here, never re-derived: an absence inside one day is one row
     // holding both ends, anything longer is two, each saying nothing about the end sitting under the
     // other's day heading.
-    val reader = timelineZone()
     val holdsDeparture = item.holdsDeparture
     val holdsArrival = item.holdsArrival
     val arrival = if (holdsArrival) item.toPlace else null
     val departure = if (holdsDeparture) item.fromPlace else null
-    // Both ends on one row only where a hop landed on the day it left; each then needs its own
-    // clock, since the line between them can carry only one.
-    val shiftColor = zoneShiftColor
-    val readerClock = LocalReaderClock.current
-    val arrivalAt =
-        if (item.spansClocks) markedTime(gap.end, zone, reader, shiftColor, readerClock) else null
-    val departureAt = item.departureZone?.takeIf { item.spansClocks }
-        ?.let { markedTime(gap.start, it, reader, shiftColor, readerClock) }
     // The trip this absence is missing, as far as this row can state it — the same two questions
     // again, so an end the card doesn't name is an end the form isn't handed: the far side of an
     // absence cut at midnight is a fact about the other day's row, and would go into the form as
     // fact and be committed unread.
     // Built once per row rather than per composition — the ripple invalidates this card on every
-    // press, and nothing here is read until the "+" is tapped. The row's own data and the clock it
-    // is read on decide all of it, so those are the whole key.
-    val draft = remember(item, zone) {
+    // press, and nothing here is read until the "+" is tapped. The row's own data decides all of it,
+    // so it is the whole key.
+    val draft = remember(item) {
         TripDraft(
             day = item.filedOn,
             origin = if (holdsDeparture) draftEndOf(departure, gap.from, gap.start) else null,
@@ -1403,60 +1340,40 @@ internal fun GapCard(
             trackAfter = item.nextTrackId,
         )
     }
-    Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
-        // One whole sentence per case, worded here because the Text below is not a composable scope.
-        // A duration says the same thing on any clock, so the two-end case states one and is marked
-        // nowhere; a half that states a real bound marks it, as every clock time on the timeline does.
-        // A gap row holds at least one end: the slicer emits an absence holding both, or a
-        // crossing half holding exactly one. There is no wording for "neither" — it would have to
-        // state a clock time for an end the row does not speak for.
-        val gapLine = when {
-            holdsDeparture && holdsArrival -> annotatedStringResource(
-                R.string.timeline_gap_lasting,
-                durationText(gap.end - gap.start),
-            )
-            holdsDeparture -> annotatedStringResource(
-                R.string.timeline_gap_from,
-                markedTime(gap.start, zone, reader, shiftColor, readerClock),
-            )
-            holdsArrival -> annotatedStringResource(
-                R.string.timeline_gap_until,
-                markedTime(gap.end, zone, reader, shiftColor, readerClock),
-            )
-            else -> error("a gap row holds at least one end; this one was stamped with neither")
-        }
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    val bounds = gapBounds(gap, holdsDeparture, holdsArrival, AndroidDistance)
+
+    // The slicer sets an end's clock exactly where the row holds that end, which is where these run.
+    fun departureAt(atMs: Long) =
+        markedTime(atMs, checkNotNull(item.departureZone), reader, shiftColor, readerClock)
+    fun arrivalAt(atMs: Long) = markedTime(atMs, checkNotNull(item.arrivalZone), reader, shiftColor, readerClock)
+    // A half states its one time on the line, worded as which way the absence runs on past the
+    // day's edge; a row holding both ends puts each time beside its place.
+    val line = when (bounds) {
+        is GapBounds.From -> annotatedStringResource(R.string.timeline_gap_from, departureAt(bounds.start))
+        is GapBounds.Until -> annotatedStringResource(R.string.timeline_gap_until, arrivalAt(bounds.end))
+        is GapBounds.Both -> AnnotatedString(
+            listOfNotNull(
+                bounds.lastingMs?.let { durationText(it) },
+                bounds.apartMeters?.let { fineDistanceText(it) },
+            ).joinToString(" · "),
+        )
+    }
+    val both = bounds as? GapBounds.Both
+    MissingRecordingCard(shape, onClick) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            GapPlaceLine(arrival, arrivalAt, onOpenPlace)
+            GapPlaceLine(arrival, both?.let { arrivalAt(it.end) }, onOpenPlace)
             Row(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Tertiary marks a mergeable interval throughout the timeline — the same accent
-                // the short-stop row wears, so the swipe is discoverable in both places.
-                val strokeColor = if (item.merge != null) {
-                    MaterialTheme.colorScheme.tertiary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                }
-                // Built once, not per draw pass — the ripple invalidates the row on every press.
-                val density = LocalDensity.current
-                val dashEffect = remember(density) {
-                    with(density) { PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 6.dp.toPx())) }
-                }
-                Canvas(modifier = Modifier.width(36.dp).height(24.dp)) {
-                    drawLine(
-                        color = strokeColor,
-                        start = Offset(size.width / 2, 0f),
-                        end = Offset(size.width / 2, size.height),
-                        strokeWidth = 2.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        pathEffect = dashEffect,
-                    )
-                }
+                GapConnector(mergeable)
                 Spacer(Modifier.width(16.dp))
                 Text(
                     modifier = Modifier.weight(1f),
-                    text = gapLine,
+                    text = line,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 )
@@ -1472,8 +1389,34 @@ internal fun GapCard(
                     )
                 }
             }
-            GapPlaceLine(departure, departureAt, onOpenPlace)
+            GapPlaceLine(departure, both?.let { departureAt(it.start) }, onOpenPlace)
         }
+    }
+}
+
+@Composable
+private fun GapConnector(mergeable: Boolean) {
+    // Tertiary marks a mergeable interval throughout the timeline — the same accent the short-stop
+    // row wears, so the swipe is discoverable in both places.
+    val strokeColor = if (mergeable) {
+        MaterialTheme.colorScheme.tertiary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+    }
+    // Built once, not per draw pass — the ripple invalidates the row on every press.
+    val density = LocalDensity.current
+    val dashEffect = remember(density) {
+        with(density) { PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 6.dp.toPx())) }
+    }
+    Canvas(modifier = Modifier.width(36.dp).height(24.dp)) {
+        drawLine(
+            color = strokeColor,
+            start = Offset(size.width / 2, 0f),
+            end = Offset(size.width / 2, size.height),
+            strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round,
+            pathEffect = dashEffect,
+        )
     }
 }
 
@@ -1494,14 +1437,13 @@ private fun draftEndOf(
 ) = TripDraftEnd(at = at ?: place?.pin, placeName = place?.label, timeMs = atMs)
 
 /**
- * One side of a gap: a full-width tappable line (category disc + place name, ripple across the row
- * like every other tappable row) opening the place's detail — stay-less clusters have zero-visit
- * rows (summarize emits every cluster), so every known side opens. An unknown side renders
- * nothing; its position tells the story.
+ * One side of a gap: a full-width line (category disc + place name, ripple across the row like every
+ * other tappable row) opening the place's detail — stay-less clusters have zero-visit rows
+ * (summarize emits every cluster), so every known side opens. An unknown side renders nothing, its
+ * time included; its position tells the story.
  *
- * [at] is set only on a crossing, where each end runs on its own clock and the row has no single one
- * to state above the connector. It trails the name rather than leading it: which two places the
- * absence lies between is what the row is for, and the times qualify them.
+ * [at] trails the name rather than leading it: which two places the absence lies between is what the
+ * row is for, and the times qualify them.
  */
 @Composable
 private fun GapPlaceLine(
@@ -1527,7 +1469,7 @@ private fun GapPlaceLine(
             contentDescription = category?.let { stringResource(it.labelRes) },
         )
         Spacer(Modifier.width(16.dp))
-        // A long name truncates here, before the origin glyph.
+        // A long name truncates here, before the time and the origin glyph.
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = place.name ?: stringResource(R.string.timeline_unnamed_place),

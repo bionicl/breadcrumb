@@ -148,7 +148,9 @@ object StayDeriver {
          */
         val from: Coordinate? = null,
         val to: Coordinate? = null,
-    ) : Interval
+    ) : Interval {
+        fun boundAt(departure: Boolean): Long = if (departure) start else end
+    }
 
     /** Derivation output: the timeline intervals plus the endpoint clusters stays index into. */
     data class Derivation(

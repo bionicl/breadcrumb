@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -317,7 +318,6 @@ class TimelineRowTest {
         GapCard(
             item = item,
             shape = SHAPE,
-            zone = zone,
             onOpenPlace = {},
             onAddTrip = {},
         )
@@ -332,30 +332,48 @@ class TimelineRowTest {
             .assertIsDisplayed()
     }
 
-    @Test
-    fun `a gap holding both ends states how long it ran, not when`() {
-        gapRow(gapItem(start = noon, end = noon + HOUR))
+    private fun resolved(label: String) =
+        PlaceResolver.ResolvedStay(place = place(label), visitCount = 1, centroid = ORIGIN)
 
-        val lasting = context.getString(R.string.timeline_gap_lasting, durationOf(HOUR))
-        compose.onNodeWithText(lasting).assertIsDisplayed()
+    @Test
+    fun `a gap holding both ends states how long it ran, each time beside its place`() {
+        gapRow(gapItem(start = noon, end = noon + HOUR).copy(fromPlace = resolved("Left"), toPlace = resolved("Right")))
+
+        compose.onNodeWithText(durationOf(HOUR)).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(noon, zone)).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(noon + HOUR, zone)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a gap with a fix on both sides states how far apart they are`() {
+        val to = Coordinate(lat = ORIGIN.lat + 0.05, lon = ORIGIN.lon)
+        val item = gapItem(start = noon, end = noon + HOUR)
+        gapRow(item.copy(gap = item.gap.copy(from = ORIGIN, to = to)))
+
+        val apart = measures().distance(AndroidDistance.meters(ORIGIN.lat, ORIGIN.lon, to.lat, to.lon))
+        compose.onNodeWithText("${durationOf(HOUR)} · $apart").assertIsDisplayed()
     }
 
     @Test
     fun `a gap speaking only for its arrival names that bound alone`() {
-        gapRow(gapItem(start = noon, end = noon + HOUR, holdsDeparture = false))
+        gapRow(gapItem(start = noon, end = noon + HOUR, holdsDeparture = false).copy(toPlace = resolved("Right")))
 
         val until = context.getString(R.string.timeline_gap_until, clock.time(noon + HOUR, zone))
         compose.onNodeWithText(until).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(noon + HOUR, zone)).assertDoesNotExist()
+        compose.onNodeWithText(durationOf(HOUR)).assertDoesNotExist()
     }
 
     @Test
     fun `a gap speaking only for its departure names that bound alone`() {
         // The half every absence longer than a day produces first, and the one the reader meets at
         // the top of an outage: it says when recording stopped and nothing about when it resumed.
-        gapRow(gapItem(start = noon, end = noon + HOUR, holdsArrival = false))
+        gapRow(gapItem(start = noon, end = noon + HOUR, holdsArrival = false).copy(fromPlace = resolved("Left")))
 
         val from = context.getString(R.string.timeline_gap_from, clock.time(noon, zone))
         compose.onNodeWithText(from).assertIsDisplayed()
+        compose.onNodeWithText(clock.time(noon, zone)).assertDoesNotExist()
+        compose.onNodeWithText(durationOf(HOUR)).assertDoesNotExist()
     }
 
     // --- The translation actually reaching a row -----------------------------
@@ -383,8 +401,6 @@ class TimelineRowTest {
     @Test
     @Config(qualifiers = "pt")
     fun `a gap row states its absence in Portuguese`() {
-        // The gap sentences are whole lines per case rather than a lead-in and a tail, so this is
-        // where a translation that lost one of the three would show.
         gapRow(gapItem(start = noon, end = noon + HOUR, holdsDeparture = false))
 
         val until = translated(R.string.timeline_gap_until)

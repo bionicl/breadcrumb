@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -101,8 +102,6 @@ internal fun ListRowCard(
     /** Drawn at the end of the row, centered beside the text. */
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val cardColors = colors ?: rowCardColors(outlined)
-    val border = rowCardBorder(outlined)
     val rowContent: @Composable ColumnScope.() -> Unit = {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -138,6 +137,30 @@ internal fun ListRowCard(
             }
         }
     }
+    RowCard(shape, onClick, modifier, outlined, colors, rowContent)
+}
+
+/** A missing recording's card, hollow where a recorded row's is filled: what it holds is what the
+ *  recording missed. */
+@Composable
+internal fun MissingRecordingCard(
+    shape: Shape,
+    onClick: (() -> Unit)?,
+    content: @Composable ColumnScope.() -> Unit,
+) = RowCard(shape, onClick, outlined = true, content = content)
+
+/** [colors], where given, replaces [outlined]'s fill; the border still follows [outlined]. */
+@Composable
+private fun RowCard(
+    shape: Shape,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    outlined: Boolean = false,
+    colors: CardColors? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cardColors = colors ?: rowCardColors(outlined)
+    val border = rowCardBorder(outlined)
     if (onClick != null) {
         Card(
             onClick = onClick,
@@ -145,10 +168,10 @@ internal fun ListRowCard(
             shape = shape,
             colors = cardColors,
             border = border,
-            content = rowContent,
+            content = content,
         )
     } else {
-        Card(modifier = modifier.fillMaxWidth(), shape = shape, colors = cardColors, border = border, content = rowContent)
+        Card(modifier = modifier.fillMaxWidth(), shape = shape, colors = cardColors, border = border, content = content)
     }
 }
 

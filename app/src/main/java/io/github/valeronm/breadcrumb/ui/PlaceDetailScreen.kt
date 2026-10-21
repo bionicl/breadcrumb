@@ -20,7 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.HistoryToggleOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -28,7 +28,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -534,13 +533,7 @@ private fun LazyListScope.placeHistory(
                     VisitRowContent(event.stay, zone, nowMs)
                 }
 
-                // Hollow, an outline where a visit is filled: what the row holds is what the
-                // recording missed.
-                is PlaceEvent.Gap -> OutlinedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = shape,
-                    onClick = { onOpenGap(event.listed) },
-                ) {
+                is PlaceEvent.Gap -> MissingRecordingCard(shape, onClick = { onOpenGap(event.listed) }) {
                     GapRowContent(event.listed, event.far, zone, onOpenPlace)
                 }
             }
@@ -622,7 +615,7 @@ private fun GapRowContent(
         }
         // In the slot a visit's duration takes; the sentence beside it already says what it marks.
         Icon(
-            Icons.Filled.LocationOff,
+            Icons.Filled.HistoryToggleOff,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )

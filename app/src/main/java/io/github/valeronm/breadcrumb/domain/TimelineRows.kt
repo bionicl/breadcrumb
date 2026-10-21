@@ -315,6 +315,7 @@ sealed interface TimelineItem {
          *
          * At least one is always true: a piece holding neither would be a day the absence merely
          * passes through, and those are folded into the departure half rather than given a row.
+         * Exactly one row of each absence holds its departure.
          */
         val holdsDeparture: Boolean = true,
         /** See [holdsDeparture]. */
@@ -328,13 +329,6 @@ sealed interface TimelineItem {
         /** The clock the row is read and filed on: the end it arrives at, or its departure where it
          *  speaks for no arrival. */
         override val zone get() = if (holdsArrival) arrivalZone else departureZone
-
-        /** True where the two ends run on genuinely different clocks. Only a row holding *both* can
-         *  say so, which after the cut means an absence that ended on the day it began — a hop, and
-         *  the only row that has to state two times of its own. */
-        val spansClocks get() = holdsDeparture &&
-            holdsArrival &&
-            departureZone != arrivalZone
 
         /**
          * **An arrival half is filed under the day it landed**; everything else by where it began,

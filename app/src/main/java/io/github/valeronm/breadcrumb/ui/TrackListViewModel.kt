@@ -417,6 +417,28 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         }.flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** [timeline]'s gap rows under its own day headings, and how many absences they are. */
+    internal class MissingRecordings(val days: List<DayGroup<TimelineItem.GapItem>>, val count: Int)
+
+    /** Whether [timeline] holds any gap row; false until the first derivation lands. */
+    val hasMissingRecordings: StateFlow<Boolean> = timeline
+        .map { items -> items?.any { it is TimelineItem.GapItem } == true }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * **Null until the first derivation lands**, as on [timeline]. Counted by departure halves: one
+     * cut at midnight is two rows and still one absence ([TimelineItem.GapItem.holdsDeparture]).
+     */
+    internal val missingRecordings: StateFlow<MissingRecordings?> = timeline
+        // A change elsewhere in the history leaves the gap rows equal, and the page as it was.
+        .map { items -> items?.filterIsInstance<TimelineItem.GapItem>() }
+        .distinctUntilChanged()
+        .map { gaps -> gaps?.let { MissingRecordings(groupTimelineByDay(it), it.count { gap -> gap.holdsDeparture }) } }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * The places table as stored, without waiting on the derivation. Seeded empty rather than null,
      * since no places is an ordinary answer here.
