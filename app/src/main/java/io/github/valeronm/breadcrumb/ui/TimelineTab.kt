@@ -1216,9 +1216,9 @@ private fun StayRow(
 }
 
 /**
- * Wraps an interval's card in the swipe-to-merge affordance, or hands it back bare when the
- * interval carries no offer. Both interval rows — stays and short gaps — merge on one rule, so the
- * gesture, its color, its icon and its label are described once here rather than per row type.
+ * Wraps an interval's card in the swipe affordance (merge trips or remove stop), or hands it back
+ * bare when there is no offer. Stays and gaps share the gesture; [TrackMerge] and [StaySuppress]
+ * decide which label runs, so color, icon and wiring live here once.
  */
 @Composable
 private fun MergeSwipeable(
@@ -1274,7 +1274,7 @@ internal fun StayCard(
         animationSpec = tween(durationMillis = 600),
         label = "stayHighlight",
     )
-    // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
+    // A merge-eligible stop is marked in tertiary (matching the swipe hint) as a
     // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
     // stay, while the glyph answers where the user was, and neither should cost the other.
     val mergeable = item.merge != null

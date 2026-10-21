@@ -128,8 +128,8 @@ class TimelineTotalsBuilder {
  *
  * **No floor here, deliberately**, where the category line below has one: a trip is an entity the
  * reader owns and can delete, so a metre of GPS jitter that earned a row is theirs to remove. A stay
- * is derived — nothing creates or destroys one directly, and the only lever on a short one is
- * merging the trips around it, which [TrackMerge.plan] refuses across differing activity or writer.
+ * is derived — nothing creates or destroys one directly; the levers are merging the trips around it
+ * or hiding the row in prefs when [TrackMerge.plan] refuses (unlike activity or writer).
  * A floor compensates for the missing control, so it belongs only where the control is missing.
  */
 fun activityTotals(tracks: List<TrackSummary>, nowMs: Long): List<ActivityTotal> {

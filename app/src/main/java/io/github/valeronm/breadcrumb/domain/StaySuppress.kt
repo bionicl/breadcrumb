@@ -3,10 +3,9 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 
 /**
- * Hides a [StayDeriver.Stay] on the timeline when the two tracks either side cannot merge — different
- * activities, or any other reason [TrackMerge.plan] refuses — without joining those tracks. The
- * tracks and their paths stay as they were; only the stop row and its visit count go away until the
- * reader undoes it.
+ * Hides a [StayDeriver.Stay] on the timeline when [TrackMerge] offers no merge — unlike activity or
+ * writer, not stop length — without joining the bracketing tracks. The paths stay as they were; only
+ * the row and its visit count go away until the reader undoes it.
  */
 object StaySuppress {
 
@@ -17,8 +16,8 @@ object StaySuppress {
 
     /**
      * A plan to hide the stay after [anchorTrackId], or null when [TrackMerge] already offers a
-     * merge or the stay is still open. When merge is refused — long stop, unlike writers, unlike
-     * activities — the reader may still hide the row without joining the tracks.
+     * merge or the stay is still open. When [TrackMerge.plan] would refuse (unlike activity or
+     * writer, not because the stop is long) the reader may hide the row without joining tracks.
      */
     fun plan(
         before: TrackSummary,

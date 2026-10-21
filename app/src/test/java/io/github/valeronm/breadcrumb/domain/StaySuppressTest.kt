@@ -31,12 +31,12 @@ class StaySuppressTest {
         )
     }
 
-    @Test fun `a long same-activity stop can dissolve when merge is refused for duration`() {
+    @Test fun `dissolve does not care how long the stay lasted when merge is not offered`() {
         val secondWalk = track(2, "WALKING", 3_600_000)
-        val sixMinutes = 6 * 60_000L
+        val twentyMinutes = 20 * 60_000L
         assertEquals(
             StaySuppress.Plan(afterTrackId = 1, start = 0),
-            StaySuppress.plan(walk, secondWalk, 0, sixMinutes, mergeOffered = false),
+            StaySuppress.plan(walk, secondWalk, 0, twentyMinutes, mergeOffered = false),
         )
     }
 

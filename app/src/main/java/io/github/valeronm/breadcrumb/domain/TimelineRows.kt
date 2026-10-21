@@ -257,7 +257,7 @@ sealed interface TimelineItem {
         val stay: StayDeriver.Stay,
         /** Place resolution, attached after derivation; null only if resolution wasn't run. */
         val place: PlaceResolver.ResolvedStay? = null,
-        /** Non-null when this short same-activity stay can be closed by merging its two tracks. */
+        /** Non-null when a same-activity stay can be closed by merging its two tracks. */
         val merge: TrackMerge.Plan? = null,
         /** Non-null when merge is not offered and this stay can be hidden without joining tracks. */
         val dissolve: StaySuppress.Plan? = null,
@@ -277,10 +277,8 @@ sealed interface TimelineItem {
          * a stay of no duration between them — a split's cut, or a hand-entered trip landing exactly
          * on the absence it fills — and this one has nothing to say about it.
          *
-         * Such a seam earns its row only while it carries the offer to undo the join, which is why
-         * this asks after [merge] rather than after the writers either side: refusing across writers
-         * is one of three things [TrackMerge.plan] refuses on, and a seam whose offer was refused for
-         * either of the others says exactly as little.
+         * Such a seam earns its row only while it carries a swipe offer ([merge] or [dissolve]),
+         * which is why this asks after those plans rather than after the writers either side.
          *
          * The derivation still emits every seam — this is the timeline deciding what to draw, and
          * the readers below it decide separately. [PlaceResolver] asks its own, narrower question of
