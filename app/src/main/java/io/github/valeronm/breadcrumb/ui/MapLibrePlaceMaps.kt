@@ -272,7 +272,7 @@ private fun addEndpointDotImages(ctx: Context, style: Style, withOverviewDots: B
 private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent, dark: Boolean) {
     // Rivals first, so this place's own circle reads on top of them where they overlap.
     style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, captureAreaCollection(content.rivalAreas)))
-    addContextCircleLayers(style, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE)
+    addContextCircleLayers(style, dark, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE)
     style.addSource(
         GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(content.center.location, content.radiusM)),
     )
@@ -400,7 +400,7 @@ internal fun MapLibreMergeMap(
             applied.openedId = openedId
             for (c in MERGE_CIRCLES) {
                 style.addSource(GeoJsonSource(c.source, mergeCircles(places, c.role)))
-                c.addLayers(style, c.source, c.fill, c.line)
+                c.addLayers(style, dark, c.source, c.fill, c.line)
             }
             style.addSource(GeoJsonSource(MERGE_OPENED_SOURCE, openedCircle(places, openedId)))
             style.addLayer(
@@ -451,7 +451,7 @@ private fun mergeCircles(places: List<MergeMapPlace>, role: MergeRole): FeatureC
 private class MergeCircles(
     val role: MergeRole,
     id: String,
-    val addLayers: (style: Style, source: String, fill: String, line: String) -> Unit,
+    val addLayers: (style: Style, dark: Boolean, source: String, fill: String, line: String) -> Unit,
 ) {
     val source = "$id-src"
     val fill = "$id-fill"
@@ -461,8 +461,12 @@ private class MergeCircles(
 /** In drawing order: left-alone circles underneath, the keeper's and the merging ones over them. */
 private val MERGE_CIRCLES = listOf(
     MergeCircles(MergeRole.LEFT, "merge-left", ::addContextCircleLayers),
-    MergeCircles(MergeRole.KEEPER, "merge-keeper", ::addCaptureCircleLayers),
-    MergeCircles(MergeRole.MERGING, "merge-merging", ::addMergingCircleLayers),
+    MergeCircles(MergeRole.KEEPER, "merge-keeper") { style, _, source, fill, line ->
+        addCaptureCircleLayers(style, source, fill, line)
+    },
+    MergeCircles(MergeRole.MERGING, "merge-merging") { style, _, source, fill, line ->
+        addMergingCircleLayers(style, source, fill, line)
+    },
 )
 
 private fun openedCircle(places: List<MergeMapPlace>, openedId: Long): FeatureCollection =
@@ -606,7 +610,7 @@ internal fun MapLibrePlacesMap(
             // Before the markers, so the pins keep the top: a ring is the ground a place claims and
             // the marker is the place. Layers draw in the order they are added.
             style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE, overviewCircles(places)))
-            addContextCircleLayers(style, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
+            addContextCircleLayers(style, dark, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places, dark)
@@ -1134,7 +1138,7 @@ internal fun MapLibreTripMap(
             style.addLayer(
                 LineLayer(TOUCHING_LINE_LAYER, TOUCHING_LINE_SOURCE).withProperties(
                     PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
-                    PropertyFactory.lineOpacity(TOUCHING_OPACITY),
+                    PropertyFactory.lineOpacity(contextOpacity(dark, TOUCHING_OPACITY)),
                     PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
                     PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                     PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),

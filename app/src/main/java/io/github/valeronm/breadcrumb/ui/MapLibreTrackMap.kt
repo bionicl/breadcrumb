@@ -100,7 +100,7 @@ internal fun MapLibreTrackMap(
             onStyleLoaded = { ctx, map, style, dark ->
                 // The end places are one input drawn at two depths — their areas under the line, their
                 // pins over it so it can't cover them.
-                addEndPlaceAreas(style, endPlaces)
+                addEndPlaceAreas(style, endPlaces, dark)
                 addDwellLayers(style, dwells)
                 addTrackLine(style, points, colors, greatCircleLegs)
                 addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
@@ -279,11 +279,11 @@ private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
     addCaptureCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE)
 }
 
-private fun addEndPlaceAreas(style: Style, places: List<Place>) {
+private fun addEndPlaceAreas(style: Style, places: List<Place>, dark: Boolean) {
     style.addSource(
         GeoJsonSource(END_PLACE_AREA_SOURCE, captureAreaCollection(PlaceClusterer.seedsOf(places))),
     )
-    addContextCircleLayers(style, END_PLACE_AREA_SOURCE, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE)
+    addContextCircleLayers(style, dark, END_PLACE_AREA_SOURCE, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE)
 }
 
 /**

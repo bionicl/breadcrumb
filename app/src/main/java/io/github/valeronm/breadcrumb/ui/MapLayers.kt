@@ -64,6 +64,12 @@ private const val CONTEXT_AREA_OPACITY = 0.35f
  */
 private const val NEIGHBOR_MUTED_OPACITY = 0.7f
 
+/** A light basemap washes faded ink out further than a dark one, so every faded layer keeps this much on it. */
+private const val LIGHT_CONTEXT_OPACITY = 0.7f
+
+/** How much ink a faded layer keeps: [onDark] on a dark map, and [LIGHT_CONTEXT_OPACITY] on a light one. */
+internal fun contextOpacity(dark: Boolean, onDark: Float): Float = if (dark) onDark else LIGHT_CONTEXT_OPACITY
+
 /**
  * The capture-circle look — translucent fill + dashed outline — for every ring standing for ground
  * that counts as one spot, so they read as one species, and opacity says which of them the screen is
@@ -81,10 +87,11 @@ internal fun addCaptureCircleLayers(style: Style, sourceId: String, fillLayerId:
  */
 internal fun addContextCircleLayers(
     style: Style,
+    dark: Boolean,
     sourceId: String,
     fillLayerId: String,
     lineLayerId: String,
-) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CONTEXT)
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.context(dark))
 
 /** [addCaptureCircleLayers] outlined in dots rather than dashes, for a place that would be merged into another. */
 internal fun addMergingCircleLayers(
@@ -95,12 +102,16 @@ internal fun addMergingCircleLayers(
 ) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.MERGING)
 
 /** [dash] is in line widths. */
-private enum class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
-    CAPTURE(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT),
-    CONTEXT(CONTEXT_AREA_OPACITY, arrayOf(2f, 2f), Property.LINE_CAP_BUTT),
+private class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
+    companion object {
+        val CAPTURE = CircleLook(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
 
-    /** Round caps turn the 0.5-width dash into a short rounded dash about 1.5 widths long. */
-    MERGING(1f, arrayOf(0.5f, 2f), Property.LINE_CAP_ROUND),
+        /** Round caps turn the 0.5-width dash into a short rounded dash about 1.5 widths long. */
+        val MERGING = CircleLook(1f, arrayOf(0.5f, 2f), Property.LINE_CAP_ROUND)
+
+        fun context(dark: Boolean) =
+            CircleLook(contextOpacity(dark, CONTEXT_AREA_OPACITY), arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
+    }
 }
 
 private fun addCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, look: CircleLook) {
@@ -169,13 +180,13 @@ internal fun labeledSymbolLayer(dark: Boolean, id: String, source: String): Symb
     // with no chroma to drain. Keyed on the property being present, so a collection that never
     // writes it — the all-places overview, a track's end places — is unaffected without knowing
     // the rule exists.
-    PropertyFactory.iconOpacity(mutedOpacity()),
-    PropertyFactory.textOpacity(mutedOpacity()),
+    PropertyFactory.iconOpacity(mutedOpacity(dark)),
+    PropertyFactory.textOpacity(mutedOpacity(dark)),
 )
 
-private fun mutedOpacity(): Expression = Expression.switchCase(
+private fun mutedOpacity(dark: Boolean): Expression = Expression.switchCase(
     Expression.has(MUTED_KEY),
-    Expression.literal(NEIGHBOR_MUTED_OPACITY),
+    Expression.literal(contextOpacity(dark, NEIGHBOR_MUTED_OPACITY)),
     Expression.literal(1f),
 )
 
