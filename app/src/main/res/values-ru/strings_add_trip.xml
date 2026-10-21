@@ -26,6 +26,7 @@
     <string name="addtrip_pick_date">Дата</string>
     <string name="addtrip_pick_time">Время</string>
     <string name="addtrip_change_place">Изменить место</string>
+    <string name="addtrip_change_type">Изменить тип поездки</string>
     <string name="addtrip_estimated">Рассчитано по дорогам</string>
     <string name="addtrip_estimated_was">Рассчитано по дорогам · было %s</string>
     <string name="addtrip_restore_time">Вернуть</string>
