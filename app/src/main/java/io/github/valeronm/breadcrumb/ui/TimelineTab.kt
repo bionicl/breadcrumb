@@ -84,6 +84,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.StaySuppress
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
@@ -472,11 +473,16 @@ private fun TimelineListPage(
     // of the undo wiring. Both undo messages are resolved here: the callbacks below run outside
     // the composition.
     val mergedMessage = stringResource(R.string.timeline_undo_merged)
+    val dissolvedMessage = stringResource(R.string.timeline_undo_dissolved)
     val deletedMessage = stringResource(R.string.timeline_undo_deleted)
     val onMerge = { plan: TrackMerge.Plan ->
         viewModel.mergeTracks(plan) { mergedId ->
             undo.show(mergedMessage) { viewModel.unmergeTracks(mergedId, plan) }
         }
+    }
+    val onDissolve = { plan: StaySuppress.Plan ->
+        viewModel.dissolveStay(plan)
+        undo.show(dissolvedMessage) { viewModel.undoDissolveStay(plan) }
     }
     Box(Modifier.fillMaxSize()) {
         // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading
@@ -548,6 +554,7 @@ private fun TimelineListPage(
                                 zone = item.clock,
                                 highlighted = item.rowKey() == highlightKey,
                                 onMerge = onMerge,
+                                onDissolve = onDissolve,
                                 onClick = {
                                     item.place?.let { onOpenPlace(it.key) }
                                 },
@@ -1196,13 +1203,14 @@ private fun StayRow(
     zone: ZoneId,
     highlighted: Boolean,
     onMerge: (TrackMerge.Plan) -> Unit,
+    onDissolve: (StaySuppress.Plan) -> Unit,
     onClick: () -> Unit,
 ) {
     val place = item.place
     val named = place?.isNamed == true
-    // A short same-activity stay can be swiped to merge its two tracks — the merged track replaces
-    // the stay and both originals, and Undo unmerges. Ineligible stays (no plan) aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) {
+    // Merge when the two tracks match; dissolve when they don't — either way the bracketing tracks
+    // stay separate on dissolve, and only a row with an offer is swipeable.
+    MergeSwipeable(item.merge, item.dissolve, shape, onMerge, onDissolve) {
         StayCard(item, shape, named, highlighted, zone, onClick)
     }
 }
@@ -1214,22 +1222,34 @@ private fun StayRow(
  */
 @Composable
 private fun MergeSwipeable(
-    plan: TrackMerge.Plan?,
+    merge: TrackMerge.Plan?,
+    dissolve: StaySuppress.Plan?,
     shape: RoundedCornerShape,
     onMerge: (TrackMerge.Plan) -> Unit,
+    onDissolve: (StaySuppress.Plan) -> Unit,
     card: @Composable () -> Unit,
 ) {
-    if (plan == null) {
+    if (merge == null && dissolve == null) {
         card()
         return
+    }
+    val description = if (merge != null) {
+        stringResource(R.string.timeline_merge)
+    } else {
+        stringResource(R.string.timeline_dissolve_stop)
     }
     SwipeActionRow(
         shape = shape,
         containerColor = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         icon = Icons.Filled.Delete,
-        iconDescription = stringResource(R.string.timeline_merge),
-        onDismiss = { onMerge(plan) },
+        iconDescription = description,
+        onDismiss = {
+            when {
+                merge != null -> onMerge(merge)
+                dissolve != null -> onDissolve(dissolve)
+            }
+        },
     ) { card() }
 }
 
@@ -1365,7 +1385,9 @@ private fun GapRow(
     // A gap short enough to be one outing the recorder split swipes away exactly as a short stop
     // does — the leg it missed survives as the merged track's segment break. Longer gaps are real
     // absences and aren't swipeable.
-    MergeSwipeable(item.merge, shape, onMerge) { GapCard(item, shape, zone, onOpenPlace, onAddTrip) }
+    MergeSwipeable(item.merge, dissolve = null, shape, onMerge, onDissolve = {}) {
+        GapCard(item, shape, zone, onOpenPlace, onAddTrip)
+    }
 }
 
 @Composable

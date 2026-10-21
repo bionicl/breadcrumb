@@ -44,6 +44,7 @@ object Settings {
     private const val KEY_DEPARTURE_CONTINUOUS = "departure_continuous"
     private const val KEY_DEPARTURE_WIFI = "departure_wifi"
     private const val KEY_ASKED_PERMISSIONS = "asked_permissions"
+    private const val KEY_SUPPRESSED_STAYS = "suppressed_stay_keys"
 
     // The key string doesn't match the constant's name and must stay that way: a renamed key reads
     // back 0 on every installed device and re-walks the whole history for nothing.
@@ -143,6 +144,20 @@ object Settings {
         // mutating it leaves the stored value and the in-memory cache disagreeing.
         val merged = askedPermissions(context) + permissions
         prefs(context).edit { putStringSet(KEY_ASKED_PERMISSIONS, merged) }
+    }
+
+    /** Stays hidden on the timeline without merging their bracketing tracks. */
+    fun suppressedStayKeys(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_SUPPRESSED_STAYS, emptySet()).orEmpty()
+
+    fun suppressStay(context: Context, key: String) {
+        val merged = suppressedStayKeys(context) + key
+        prefs(context).edit { putStringSet(KEY_SUPPRESSED_STAYS, merged) }
+    }
+
+    fun unsuppressStay(context: Context, key: String) {
+        val merged = suppressedStayKeys(context) - key
+        prefs(context).edit { putStringSet(KEY_SUPPRESSED_STAYS, merged) }
     }
 
     /** Whether the user has armed automatic, activity-driven recording. */

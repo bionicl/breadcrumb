@@ -259,6 +259,8 @@ sealed interface TimelineItem {
         val place: PlaceResolver.ResolvedStay? = null,
         /** Non-null when this short same-activity stay can be closed by merging its two tracks. */
         val merge: TrackMerge.Plan? = null,
+        /** Non-null when different activities bracket this stay and it can be hidden without merging. */
+        val dissolve: StaySuppress.Plan? = null,
         override val zone: ZoneId? = null,
         /**
          * Whether this row's bounds are the stay's own or seams the day slicing put there — see
@@ -285,7 +287,7 @@ sealed interface TimelineItem {
          * the same intervals (was anyone anywhere, rather than is this row worth a line), so a seam
          * counts as no visit there whether or not a merge is offered here.
          */
-        val isBareSeam: Boolean get() = merge == null && stay.hasNoDuration
+        val isBareSeam: Boolean get() = merge == null && dissolve == null && stay.hasNoDuration
     }
 
     data class GapItem(
