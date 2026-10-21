@@ -44,13 +44,19 @@ object TripPlaces {
         }
     }
 
-    /** One [Outcome] per end of [ends], in order, against [places] as stored; a row created is stamped [createdAt]. */
-    fun plan(ends: List<End>, places: List<Place>, distance: DistanceFn, createdAt: Long): List<Outcome> {
+    /** One [Outcome] per end, in order, and the place seeds as the save will leave them. */
+    class Plan(val outcomes: List<Outcome>, val seeds: List<PlaceClusterer.Seed>) {
+        val created: List<Place> get() = outcomes.mapNotNull { (it as? Outcome.Creates)?.row }
+        val renamed: List<Place> get() = outcomes.mapNotNull { (it as? Outcome.Names)?.row }
+    }
+
+    /** [ends] planned in order against [places] as stored; a row created is stamped [createdAt]. */
+    fun plan(ends: List<End>, places: List<Place>, distance: DistanceFn, createdAt: Long): Plan {
         // Kept as the save will leave them, so a later end resolves as the derivation will once the
         // rows are written; changed only through seedOf, the projection every other seed came through.
         val seeds = PlaceClusterer.seedsOf(places).toMutableList()
         val given = HashMap<Int, String>()
-        return ends.map { end ->
+        val outcomes = ends.map { end ->
             val at = end.at ?: return@map Outcome.None
             val name = end.name?.trim()?.takeIf { it.isNotEmpty() }
             val holder = PlaceClusterer.nearestSeedIndex(at.lat, at.lon, seeds, distance)
@@ -59,7 +65,7 @@ object TripPlaces {
                 holder != null && holder in given -> Outcome.Shares(given.getValue(holder))
                 stored != null && stored.isNamed -> Outcome.Held(stored)
                 name == null -> Outcome.None
-                stored != null && holder != null -> {
+                stored != null -> {
                     val row = stored.copy(label = name, source = PlaceOrigin.MANUAL.code)
                     seeds[holder] = PlaceClusterer.seedOf(row)
                     given[holder] = name
@@ -80,5 +86,6 @@ object TripPlaces {
                 }
             }
         }
+        return Plan(outcomes, seeds)
     }
 }

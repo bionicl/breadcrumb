@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,7 +47,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberStandardBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,7 +75,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
@@ -93,6 +91,7 @@ import io.github.valeronm.breadcrumb.domain.EndTime
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
@@ -198,6 +197,11 @@ private class TripEnd(drafted: TripDraftEnd?) {
      *  coupling must give back the time that was recorded or typed. */
     var coupledMs by mutableStateOf<Long?>(null)
 
+    fun side(atMs: Long?): ManualPath.StaySide? {
+        val at = pin ?: return null
+        return atMs?.let { ManualPath.StaySide(it, at) }
+    }
+
     fun epochIn(zone: ZoneId): Long? = coupledMs ?: own.epochIn(zone)
 
     /** The day this end shows on [zone]'s clock: an estimate's, else its own. */
@@ -266,8 +270,11 @@ internal class TouchingTrack(
     val line: JourneyLine,
     val touching: Coordinate,
     val boundMs: Long,
+    /** The place the touching end is stated to. */
+    val placeId: Long?,
 ) {
     val activity: ActivityType? get() = ActivityType.ofName(line.activityType)
+    val side get() = ManualPath.StaySide(boundMs, touching, placeId)
 }
 
 /** Where the controls floating over the map and the sheet's top edge sit, in window pixels. */
@@ -332,10 +339,9 @@ internal fun AddTripScreen(
             ?: (draft.trackBefore to draft.trackAfter)
         value = viewModel.touchingTracks(before, after)
     }
-    val drawnTouching = listOfNotNull(
-        touching.first?.takeIf { draft.editing != null || draft.origin != null },
-        touching.second?.takeIf { draft.editing != null || draft.destination != null },
-    )
+    val touchingBefore = touching.first?.takeIf { draft.editing != null || draft.origin != null }
+    val touchingAfter = touching.second?.takeIf { draft.editing != null || draft.destination != null }
+    val drawnTouching = listOfNotNull(touchingBefore, touchingAfter)
     var fetchingRoute by remember(draft) { mutableStateOf(false) }
     val profile = activity?.let(OnlineRouting.Profile::of)
     val leg = routed?.takeIf { it.profile == profile && it.from == origin.pin && it.to == destination.pin }
@@ -451,7 +457,10 @@ internal fun AddTripScreen(
     val focusManager = LocalFocusManager.current
     fun endOf(which: ManualPath.End) = if (which == ManualPath.End.ORIGIN) origin else destination
 
-    val sheetState = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded)
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Expanded,
+        enabledValues = setOf(SheetValue.PartiallyExpanded, SheetValue.Expanded),
+    )
     // An end is moved on the map, so the sheet is lowered while it is picked. A cancelled pick
     // raises it again only if it was lowered for that rather than by the user.
     var sheetLowered by remember { mutableStateOf(false) }
@@ -526,7 +535,7 @@ internal fun AddTripScreen(
     )
 
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    val (originPlace, destinationPlace) = remember(
+    val tripPlaces = remember(
         storedPlaces, origin.pin, origin.placeName, destination.pin, destination.placeName,
     ) {
         TripPlaces.plan(
@@ -537,6 +546,14 @@ internal fun AddTripScreen(
             createdAt = 0,
         )
     }
+    val (originPlace, destinationPlace) = tripPlaces.outcomes
+    val agreement = remember(tripPlaces) {
+        StayDeriver.Agreement(StayDeriver.Params(), AndroidDistance, tripPlaces.seeds)
+    }
+    fun stay(left: ManualPath.StaySide?, right: ManualPath.StaySide?) =
+        if (left != null && right != null) ManualPath.stayMs(left, right, agreement) else null
+    val stayBeforeMs = stay(touchingBefore?.side, origin.side(departMs))
+    val stayAfterMs = stay(destination.side(arriveMs), touchingAfter?.side)
     val cover = remember { MapCover() }
     fun pick(end: ManualPath.End) {
         picking = end
@@ -565,13 +582,12 @@ internal fun AddTripScreen(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Owed while a road the servers drew is on the map.
-                if (leg != null) OsmDataCredit(Modifier.padding(horizontal = 4.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     TripEndCard(
                         shape = groupedRowShape(0, 3),
                         mark = endMark(originPlace, ManualPath.End.ORIGIN in continuing),
-                        labelRes = R.string.addtrip_departure,
+                        label = stayBeforeMs?.let { stringResource(R.string.addtrip_departure_stayed, durationText(it)) }
+                            ?: stringResource(R.string.addtrip_departure),
                         end = origin,
                         city = originCity,
                         zone = originZone,
@@ -600,7 +616,8 @@ internal fun AddTripScreen(
                     TripEndCard(
                         shape = groupedRowShape(2, 3),
                         mark = endMark(destinationPlace, ManualPath.End.DESTINATION in continuing),
-                        labelRes = R.string.addtrip_arrival,
+                        label = stayAfterMs?.let { stringResource(R.string.addtrip_arrival_stayed, durationText(it)) }
+                            ?: stringResource(R.string.addtrip_arrival),
                         end = destination,
                         city = destinationCity,
                         zone = destinationZone,
@@ -684,11 +701,18 @@ internal fun AddTripScreen(
             // An unnamed row reads as the unnamed cluster it seeds, which this form neither draws
             // nor offers.
             val savedPlaces = remember(storedPlaces) { storedPlaces.filter { it.isNamed } }
-            val placeField = remember(savedPlaces) {
+            val summaries by viewModel.places.collectAsStateWithLifecycle()
+            val visits = remember(summaries) {
+                summaries.orEmpty().mapNotNull { s -> s.place?.let { it.id to s.visitCount } }.toMap()
+            }
+            // Keyed on the counts' contents: most summaries emissions leave them as they were, and a
+            // new field rebuilds the map's whole pin source.
+            val placeField = remember(savedPlaces, visits) {
                 savedPlaces.map { place ->
                     OverviewPlace(
                         marker = PlaceMarker(place.pin, place),
                         key = PlaceResolver.keyOf(place.id),
+                        visits = visits[place.id] ?: 0,
                     )
                 }
             }
@@ -777,13 +801,10 @@ internal fun AddTripScreen(
                     onCenterSettled = { mapCenter = it },
                     obscured = cover::insets,
                     modifier = Modifier.fillMaxSize(),
+                    controls = {
+                        FrameControl(stringResource(R.string.addtrip_show_whole_trip)) { frameKey++ }
+                    },
                 )
-                // Its corner rises with the sheet, which would otherwise cover it.
-                Box(Modifier.fillMaxSize().offset { IntOffset(0, -cover.insets().bottom) }) {
-                    FrameControl(stringResource(R.string.addtrip_show_whole_trip)) {
-                        frameKey++
-                    }
-                }
                 val halo = touchHalo(FilterChipDefaults.Height)
                 Column(
                     Modifier
@@ -1030,7 +1051,8 @@ private fun localityLabel(city: CityAtlas.City): String =
 private fun TripEndCard(
     shape: RoundedCornerShape,
     mark: EndMark,
-    @StringRes labelRes: Int,
+    /** Which end this is, with the stay the timeline will show beside it. */
+    label: String,
     end: TripEnd,
     city: CityAtlas.City?,
     zone: ZoneId,
@@ -1056,10 +1078,12 @@ private fun TripEndCard(
         pin != null -> stringResource(R.string.addtrip_pin_placed)
         else -> stringResource(R.string.addtrip_no_pin)
     }
+    val unset = pin == null
     Card(
         onClick = onCenter,
         shape = shape,
-        border = if (active) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        colors = rowCardColors(outlined = unset),
+        border = if (active) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else rowCardBorder(outlined = unset),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -1072,7 +1096,7 @@ private fun TripEndCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            stringResource(labelRes),
+                            label,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1183,7 +1207,13 @@ private fun TripLegRow(
     arriveZone: ZoneId,
 ) {
     val name = activity?.let { stringResource(it.labelRes) }
-    val length = if (departMs != null && arriveMs != null && arriveMs > departMs) durationText(departMs, arriveMs) else null
+    // A track always has both ends.
+    val span = if (departMs != null && arriveMs != null) {
+        val length = if (arriveMs > departMs) durationText(departMs, arriveMs) else null
+        trackRowSpan(departMs, departZone, arriveMs, arriveZone, length)
+    } else {
+        null
+    }
     ListRowCard(
         shape = shape,
         icon = activityIcon(activity),
@@ -1191,8 +1221,9 @@ private fun TripLegRow(
         iconDescription = name,
         title = name?.let { trackRowTitle(it, lengthM) } ?: stringResource(R.string.addtrip_choose_type),
         titleColor = MaterialTheme.colorScheme.onSurface,
-        subtitle = trackRowSpan(departMs, departZone, arriveMs, arriveZone, length),
+        subtitle = span,
         onClick = onClick,
+        outlined = activity == null,
         // The whole row is the control; the icon only says so, as the ends' change icons do.
         trailing = { Icon(Icons.Outlined.Edit, contentDescription = null) },
     )

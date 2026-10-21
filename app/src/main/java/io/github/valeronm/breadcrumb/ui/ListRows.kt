@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -83,7 +84,7 @@ internal fun ListRowCard(
     disc: DiscStyle,
     title: String,
     titleColor: Color,
-    subtitle: AnnotatedString,
+    subtitle: AnnotatedString?,
     modifier: Modifier = Modifier,
     iconDescription: String? = null,
     /** A second fact about the row, marked on the disc's corner instead of replacing its glyph. */
@@ -95,11 +96,13 @@ internal fun ListRowCard(
     /** Drawn at the top-right corner, beside the title. */
     mark: OriginMark? = null,
     colors: CardColors? = null,
+    outlined: Boolean = false,
     onClick: (() -> Unit)? = null,
     /** Drawn at the end of the row, centered beside the text. */
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val cardColors = colors ?: CardDefaults.cardColors()
+    val cardColors = colors ?: rowCardColors(outlined)
+    val border = rowCardBorder(outlined)
     val rowContent: @Composable ColumnScope.() -> Unit = {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -117,11 +120,13 @@ internal fun ListRowCard(
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (mark != null) {
                 Spacer(Modifier.width(8.dp))
@@ -139,12 +144,21 @@ internal fun ListRowCard(
             modifier = modifier.fillMaxWidth(),
             shape = shape,
             colors = cardColors,
+            border = border,
             content = rowContent,
         )
     } else {
-        Card(modifier = modifier.fillMaxWidth(), shape = shape, colors = cardColors, content = rowContent)
+        Card(modifier = modifier.fillMaxWidth(), shape = shape, colors = cardColors, border = border, content = rowContent)
     }
 }
+
+/** A row card's fill, hollow for a row still missing what it stands for. */
+@Composable
+internal fun rowCardColors(outlined: Boolean): CardColors =
+    if (outlined) CardDefaults.outlinedCardColors() else CardDefaults.cardColors()
+
+@Composable
+internal fun rowCardBorder(outlined: Boolean): BorderStroke? = if (outlined) CardDefaults.outlinedCardBorder() else null
 
 /**
  * How an icon disc is painted: the circle's fill (with [fillAlpha]) and its glyph's ink. The named
@@ -330,19 +344,19 @@ internal fun SearchDropdown(
 }
 
 /**
- * The OpenStreetMap data credit in the form FOSSGIS's terms ask for: the contributors, the licence
- * and a way to report an error, each linked. Owed wherever their routing's answer is on screen, and
- * shown once in Settings for the basemap and the search besides.
+ * The basemap's credit, then the OpenStreetMap data credit in the form FOSSGIS's terms ask for: the
+ * contributors, the licence and a way to report an error, each linked.
  */
 @Composable
-internal fun OsmDataCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
+internal fun MapCredit(modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
     val linkStyle = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary))
     fun link(url: String, text: String) = buildAnnotatedString {
         withLink(LinkAnnotation.Url(url, linkStyle)) { append(text) }
     }
     Text(
         annotatedStringResource(
-            R.string.common_osm_data_credit,
+            R.string.common_map_credit,
+            link(WebLinks.PROTOMAPS, "Protomaps"),
             link(WebLinks.OSM_COPYRIGHT, "OpenStreetMap"),
             link(WebLinks.ODBL, "ODbL"),
             link(WebLinks.OSM_FIX_THE_MAP, stringResource(R.string.common_osm_report_error)),

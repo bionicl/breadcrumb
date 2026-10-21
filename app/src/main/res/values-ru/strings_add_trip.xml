@@ -21,6 +21,8 @@
     <string name="addtrip_destination">Куда</string>
     <string name="addtrip_departure">Отправление</string>
     <string name="addtrip_arrival">Прибытие</string>
+    <string name="addtrip_departure_stayed">Отправление · вы были здесь %1$s</string>
+    <string name="addtrip_arrival_stayed">Прибытие · вы были здесь %1$s</string>
     <string name="addtrip_pick_date">Дата</string>
     <string name="addtrip_pick_time">Время</string>
     <string name="addtrip_change_place">Изменить место</string>

@@ -122,10 +122,7 @@ private fun CornerFab(onClick: () -> Unit, content: @Composable () -> Unit) {
     SmallFloatingActionButton(onClick = onClick, containerColor = MaterialTheme.colorScheme.surface, content = content)
 }
 
-/**
- * Bottom-right, clear of the filter chip top-left, the compass top-right and the attribution
- * bottom-left.
- */
+/** Bottom-right, clear of the filter chip top-left and the compass top-right. */
 @Composable
 private fun BoxScope.CornerSlot(content: @Composable () -> Unit) {
     Box(Modifier.align(Alignment.BottomEnd).padding(MapInset - touchHalo(SmallFabSize))) { content() }
